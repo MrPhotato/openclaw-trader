@@ -1,0 +1,32 @@
+[project]
+name = "openclaw-trader"
+version = "0.1.0"
+description = "Independent crypto trading runtime for OpenClaw"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28.1",
+  "pyjwt[crypto]>=2.10.1",
+  "pydantic>=2.11.1",
+  "pyyaml>=6.0.2",
+  "python-dotenv>=1.0.1",
+  "typer>=0.15.2",
+  "rich>=13.9.4",
+  "fastapi>=0.115.11",
+  "uvicorn>=0.34.0",
+  "lightgbm>=4.6.0",
+  "scikit-learn>=1.8.0",
+  "hmmlearn>=0.3.3",
+  "numpy>=2.4.2",
+  "scipy>=1.17.1",
+]
+
+[project.scripts]
+otrader = "openclaw_trader.cli:app"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openclaw_trader"]
