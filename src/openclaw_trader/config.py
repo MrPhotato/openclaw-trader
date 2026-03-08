@@ -154,7 +154,7 @@ class StrategyConfig(BaseModel):
         validation_alias=AliasChoices("weak_signal_position_share_pct", "weak_signal_position_pct"),
     )
     weak_signal_order_share_pct: float = Field(
-        default=4.0,
+        default=10.0,
         validation_alias=AliasChoices("weak_signal_order_share_pct", "weak_signal_order_pct"),
     )
     strong_signal_confidence: float = 0.82
@@ -171,7 +171,7 @@ class StrategyConfig(BaseModel):
         validation_alias=AliasChoices("strong_signal_position_share_pct", "strong_signal_position_pct"),
     )
     strong_signal_order_share_pct: float = Field(
-        default=8.0,
+        default=30.0,
         validation_alias=AliasChoices("strong_signal_order_share_pct", "strong_signal_order_pct"),
     )
     medium_signal_min_position_share_pct: float = Field(
@@ -187,23 +187,23 @@ class StrategyConfig(BaseModel):
         validation_alias=AliasChoices("medium_signal_position_share_pct", "medium_signal_position_pct"),
     )
     medium_signal_order_share_pct: float = Field(
-        default=6.0,
+        default=20.0,
         validation_alias=AliasChoices("medium_signal_order_share_pct", "medium_signal_order_pct"),
     )
     observe_cap_position_share_pct: float = Field(
-        default=6.0,
+        default=15.0,
         validation_alias=AliasChoices("observe_cap_position_share_pct", "observe_cap_position_pct"),
     )
     observe_cap_order_share_pct: float = Field(
-        default=3.0,
+        default=15.0,
         validation_alias=AliasChoices("observe_cap_order_share_pct", "observe_cap_order_pct"),
     )
     reduce_cap_position_share_pct: float = Field(
-        default=3.0,
+        default=4.0,
         validation_alias=AliasChoices("reduce_cap_position_share_pct", "reduce_cap_position_pct"),
     )
     reduce_cap_order_share_pct: float = Field(
-        default=1.5,
+        default=4.0,
         validation_alias=AliasChoices("reduce_cap_order_share_pct", "reduce_cap_order_pct"),
     )
     exit_cap_position_share_pct: float = Field(
@@ -270,7 +270,7 @@ class WorkflowConfig(BaseModel):
     signal_notify_cooldown_minutes: int = 60
     news_notify_cooldown_minutes: int = 60
     panic_notify_cooldown_minutes: int = 10
-    fresh_news_minutes: int = 30
+    fresh_news_minutes: int = 15
     news_keywords: list[str] = Field(
         default_factory=lambda: [
             "bitcoin",
