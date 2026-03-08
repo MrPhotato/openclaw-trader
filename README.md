@@ -52,6 +52,16 @@ otrader perp-account --coin BTC
 otrader perp-signal --coin BTC
 ```
 
+## Documentation
+
+- [docs/README.md](docs/README.md)
+- [docs/system-overview.md](docs/system-overview.md)
+- [docs/config-and-runtime.md](docs/config-and-runtime.md)
+- [docs/strategy-and-risk.md](docs/strategy-and-risk.md)
+- [docs/dispatch-and-sessions.md](docs/dispatch-and-sessions.md)
+- [docs/operations.md](docs/operations.md)
+- [docs/perps-convergence.md](docs/perps-convergence.md)
+
 ## Notes
 
 - Exchange credentials are loaded from local environment files outside git.
