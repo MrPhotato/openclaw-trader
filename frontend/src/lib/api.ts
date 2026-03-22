@@ -47,6 +47,10 @@ export function fetchReplay(traceId?: string, module?: string) {
   return fetchJson<ReplayData>(`/api/query/replay${suffix}`);
 }
 
+export function isStreamDisabled() {
+  return disableStream;
+}
+
 export function openEventStream(
   onMessage: (payload: StreamPayload) => void,
   onStateChange: (state: "open" | "closed" | "error") => void,

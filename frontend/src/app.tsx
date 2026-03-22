@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, fetchReplay, openEventStream } from "./lib/api";
+import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, fetchReplay, isStreamDisabled, openEventStream } from "./lib/api";
 import { useMissionControlStore } from "./lib/store";
 import type { AgentLatestData, AssetRecord, EventEnvelope, OverviewData, ViewKey } from "./lib/types";
 
@@ -28,6 +28,7 @@ const moduleLabels: Record<string, string> = {
 
 export default function App() {
   const [balanceWindow, setBalanceWindow] = useState<"15m" | "1h" | "24h">("1h");
+  const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
   const connectionState = useMissionControlStore((state) => state.connectionState);
   const liveEvents = useMissionControlStore((state) => state.liveEvents);
@@ -92,7 +93,15 @@ export default function App() {
               <div>
                 <h1 className="text-3xl font-semibold leading-none sm:text-5xl">交易看板</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300 sm:text-base">
-                  把市场、策略、执行、宏观事件和复盘收口到一个页面里。少看原始 JSON，多看这版判断、这笔动作和当前风险到底意味着什么。
+                  OpenClaw Trader 是一个把策略、执行、仓位与事件收拢到同一页面的加密交易观察看板。
+                  <a
+                    href="https://github.com/MrPhotato/openclaw-trader"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-2 inline-flex items-center text-neon underline decoration-neon/50 underline-offset-4 hover:text-white"
+                  >
+                    GitHub
+                  </a>
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
                   <span className="rounded-full border border-neon/30 bg-neon/10 px-3 py-1">OpenClaw 原生会话</span>
@@ -103,9 +112,9 @@ export default function App() {
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <MetricBadge
-                label="实时流"
-                value={connectionStateLabel(connectionState)}
-                tone={connectionState === "open" ? "text-neon" : connectionState === "error" ? "text-red-300" : "text-signal"}
+                label={streamDisabled ? "更新方式" : "实时流"}
+                value={connectionStateLabel(connectionState, streamDisabled)}
+                tone={streamBadgeTone(connectionState, streamDisabled)}
               />
               <MetricBadge
                 label="事件"
@@ -610,7 +619,10 @@ function formatBalanceLabel(value: string, window: "15m" | "1h" | "24h") {
   });
 }
 
-function connectionStateLabel(state: string) {
+function connectionStateLabel(state: string, streamDisabled = false) {
+  if (streamDisabled) {
+    return "半实时轮询";
+  }
   if (state === "open") {
     return "已连接";
   }
@@ -618,6 +630,19 @@ function connectionStateLabel(state: string) {
     return "异常";
   }
   return "连接中";
+}
+
+function streamBadgeTone(state: string, streamDisabled = false) {
+  if (streamDisabled) {
+    return "text-amber-200";
+  }
+  if (state === "open") {
+    return "text-neon";
+  }
+  if (state === "error") {
+    return "text-red-300";
+  }
+  return "text-signal";
 }
 
 function strategyBadgeValue(strategy: Record<string, unknown>) {
