@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MemoryProjection",
+  "type": "object",
+  "required": ["projection_id", "memory_scope", "source_ref", "projection_text", "synced_at"],
+  "properties": {
+    "projection_id": {"type": "string"},
+    "memory_scope": {"type": "string"},
+    "source_ref": {"type": "string"},
+    "projection_text": {"type": "string"},
+    "synced_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

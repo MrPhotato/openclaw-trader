@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/006/agent-reply.schema.json",
+  "title": "AgentReply",
+  "type": "object",
+  "required": [
+    "task_id",
+    "agent_role",
+    "status",
+    "payload",
+    "returned_at"
+  ],
+  "properties": {
+    "task_id": {"type": "string"},
+    "agent_role": {"type": "string", "enum": ["pm", "risk_trader", "macro_event_analyst", "crypto_chief"]},
+    "status": {"type": "string", "enum": ["completed", "rejected", "needs_escalation"]},
+    "payload": {"type": "object"},
+    "returned_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

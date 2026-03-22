@@ -1,0 +1,10 @@
+{
+  "events": [
+    {
+      "event_id": "macro-evt-001",
+      "category": "macro",
+      "summary": "A major macro release shifted rate expectations higher. Risk assets may face tighter liquidity conditions.",
+      "impact_level": "high"
+    }
+  ]
+}

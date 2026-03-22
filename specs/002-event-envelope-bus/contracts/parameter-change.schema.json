@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/002/parameter-change.schema.json",
+  "title": "ParameterChangeRecord",
+  "type": "object",
+  "required": [
+    "change_id",
+    "parameter_path",
+    "new_value",
+    "scope",
+    "operator",
+    "change_reason",
+    "requested_at"
+  ],
+  "properties": {
+    "change_id": {"type": "string", "minLength": 1},
+    "parameter_path": {"type": "string", "minLength": 1},
+    "old_value": {},
+    "new_value": {},
+    "scope": {"type": "object"},
+    "operator": {"type": "string", "minLength": 1},
+    "change_reason": {"type": "string", "minLength": 1},
+    "requested_at": {"type": "string", "format": "date-time"},
+    "approved_by": {"type": ["string", "null"]},
+    "rollback_of": {"type": ["string", "null"]},
+    "effective_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "additionalProperties": false
+}

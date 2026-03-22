@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkflowStateRecord",
+  "type": "object",
+  "required": ["workflow_id", "trace_id", "state", "reason", "last_transition_at"],
+  "properties": {
+    "workflow_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "state": {"type": "string"},
+    "reason": {"type": "string"},
+    "last_transition_at": {"type": "string", "format": "date-time"},
+    "payload_ref": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

@@ -9,9 +9,10 @@ flowchart LR
     A["OpenClaw / WeCom user request"] --> B["crypto-chief"]
     B --> C["openclaw-trader dispatcher"]
     C --> D["Perps runtime"]
-    D --> E["Coinbase INTX"]
-    C --> F["Reports / DB / journals"]
-    C --> G["Owner notification channel"]
+    D --> E["market-intelligence"]
+    D --> F["Coinbase INTX"]
+    C --> G["Reports / DB / journals"]
+    C --> H["Owner notification channel"]
 ```
 
 This repository is the trading runtime and dispatcher. It is not the full OpenClaw application, but it assumes an external agent environment exists and can call back into the trader runtime.
@@ -33,7 +34,7 @@ This repository is the trading runtime and dispatcher. It is not the full OpenCl
 ### Dispatcher
 
 - Polls the current market and runtime state
-- Decides whether to refresh strategy, run trade review, emit notifications, or stay idle
+- Decides whether to refresh strategy, run execution judgment, emit notifications, or stay idle
 - Delegates expert reasoning to external OpenClaw agents instead of embedding all strategy writing in-process
 
 ### Perps runtime
@@ -41,6 +42,15 @@ This repository is the trading runtime and dispatcher. It is not the full OpenCl
 - The active execution path is Coinbase INTX perpetuals
 - Tracks BTC, ETH, and SOL by default
 - Converts strategy targets and signal/risk context into concrete open, add, reduce, close, or flip plans
+
+### Market intelligence
+
+- Lives inside the perp runtime as the local prediction and calibration subsystem
+- Produces fee-aware direction probabilities, trade-quality estimates, regime labels, and calibrated execution thresholds
+- Trains three fixed horizons in parallel: `1h`, `4h`, and `12h`
+- Produces a live-read policy overlay plus event-action, portfolio-risk, and model-uncertainty summaries
+- Stores model artifacts and calibration reports under the local runtime, not in git
+- Feeds compact model status into strategy inputs without exposing full artifact internals to the LLM
 
 ### External agent layer
 
@@ -76,5 +86,6 @@ The system is designed around a few explicit constraints:
 - keep mutable runtime state outside git
 - let strategy define target exposure, not raw imperative orders
 - keep risk controls local and deterministic even when LLM reasoning is involved
+- let market-intelligence improve signal quality, timing, and sizing without changing the outer runtime contract
 - allow automated dispatch without pinning the system to a single long-lived chat session
-- send human-readable owner notifications without leaking raw trade-review payloads
+- send human-readable owner notifications without leaking raw execution-decision payloads

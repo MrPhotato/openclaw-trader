@@ -1,0 +1,29 @@
+{
+  "decision_id": "exec-2026-03-16-0105",
+  "strategy_id": "strat-2026-03-16-main",
+  "generated_at_utc": "2026-03-16T01:05:00Z",
+  "trigger_type": "new_strategy",
+  "decisions": [
+    {
+      "symbol": "BTCUSDT",
+      "action": "open",
+      "direction": "long",
+      "size_pct_of_equity": 35.0,
+      "priority": 1,
+      "urgency": "high",
+      "valid_for_minutes": 10,
+      "reason": "Current exposure is below target band and market conditions remain executable.",
+      "escalate_to_pm": false
+    },
+    {
+      "symbol": "ETHUSDT",
+      "action": "wait",
+      "priority": 2,
+      "urgency": "normal",
+      "valid_for_minutes": 10,
+      "reason": "Spread and short-term structure make entry unattractive for now.",
+      "escalate_to_pm": true,
+      "escalation_reason": "Current market structure does not support clean execution near PM target."
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "execution submission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision_id",
+    "generated_at_utc",
+    "trigger_type",
+    "decisions"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string"
+    },
+    "strategy_id": {
+      "type": "string"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "trigger_type": {
+      "type": "string"
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "symbol",
+          "action",
+          "priority",
+          "urgency",
+          "valid_for_minutes",
+          "reason",
+          "escalate_to_pm"
+        ],
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "open",
+              "add",
+              "reduce",
+              "close",
+              "flip",
+              "wait",
+              "hold"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short",
+              "flat"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "size_pct_of_equity": {
+            "type": "number"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "urgency": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high"
+            ]
+          },
+          "valid_for_minutes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "escalate_to_pm": {
+            "type": "boolean"
+          },
+          "escalation_reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

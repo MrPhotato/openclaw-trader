@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NewsBatch",
+  "type": "object",
+  "required": ["batch_id", "source_window_start", "source_window_end", "items"],
+  "properties": {
+    "batch_id": {"type": "string"},
+    "source_window_start": {"type": "string", "format": "date-time"},
+    "source_window_end": {"type": "string", "format": "date-time"},
+    "dedupe_summary": {"type": "object"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["news_id", "source", "title", "url", "captured_at"],
+        "properties": {
+          "news_id": {"type": "string"},
+          "source": {"type": "string"},
+          "title": {"type": "string"},
+          "url": {"type": "string"},
+          "summary": {"type": ["string", "null"]},
+          "severity": {"type": "string"},
+          "published_at": {"type": ["string", "null"], "format": "date-time"},
+          "captured_at": {"type": "string", "format": "date-time"},
+          "tags": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

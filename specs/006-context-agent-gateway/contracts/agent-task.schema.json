@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/006/agent-task.schema.json",
+  "title": "AgentTask",
+  "type": "object",
+  "required": [
+    "task_id",
+    "agent_role",
+    "task_kind",
+    "input_id",
+    "trace_id"
+  ],
+  "properties": {
+    "task_id": {"type": "string"},
+    "agent_role": {"type": "string", "enum": ["pm", "risk_trader", "macro_event_analyst", "crypto_chief"]},
+    "task_kind": {"type": "string"},
+    "input_id": {"type": "string"},
+    "reply_contract": {"type": ["string", "null"]},
+    "trace_id": {"type": "string"}
+  },
+  "additionalProperties": false
+}

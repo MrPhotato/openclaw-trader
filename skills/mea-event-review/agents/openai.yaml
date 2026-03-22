@@ -1,0 +1,4 @@
+interface:
+  display_name: "MEA Review"
+  short_description: "Review news and submit news JSON"
+  default_prompt: "Use $mea-event-review to process the current news batch, run /gemini search only when needed, and emit a pure JSON news submission."

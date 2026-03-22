@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/005/strategy-intent.schema.json",
+  "title": "StrategyIntent",
+  "type": "object",
+  "required": ["strategy_version", "change_reason", "targets"],
+  "properties": {
+    "strategy_version": {"type": "string"},
+    "change_reason": {"type": "string"},
+    "targets": {"type": "array", "items": {"type": "object"}},
+    "thesis": {"type": ["string", "null"]},
+    "invalidation": {"type": ["string", "null"]},
+    "scheduled_rechecks": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

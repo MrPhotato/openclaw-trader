@@ -1,0 +1,7 @@
+MODULE_NAME = "workflow_orchestrator"
+EVENT_COMMAND_ACCEPTED = "workflow.command.accepted"
+EVENT_EXTERNAL_CADENCE_DELIVERED = "workflow.cadence.delivered"
+EVENT_WORKFLOW_RUNNING = "workflow.state.running"
+EVENT_WORKFLOW_COMPLETED = "workflow.state.completed"
+EVENT_WORKFLOW_DEGRADED = "workflow.state.degraded"
+EVENT_WORKFLOW_FAILED = "workflow.state.failed"

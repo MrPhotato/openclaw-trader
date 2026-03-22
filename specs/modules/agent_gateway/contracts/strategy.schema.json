@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "strategy submission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "portfolio_mode",
+    "target_gross_exposure_band_pct",
+    "portfolio_thesis",
+    "portfolio_invalidation",
+    "change_summary",
+    "targets",
+    "scheduled_rechecks"
+  ],
+  "properties": {
+    "portfolio_mode": {
+      "type": "string",
+      "enum": [
+        "normal",
+        "defensive",
+        "only_reduce",
+        "flat"
+      ]
+    },
+    "target_gross_exposure_band_pct": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number"
+      }
+    },
+    "portfolio_thesis": {
+      "type": "string"
+    },
+    "portfolio_invalidation": {
+      "type": "string"
+    },
+    "change_summary": {
+      "type": "string"
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "symbol",
+          "state",
+          "direction",
+          "target_exposure_band_pct",
+          "rt_discretion_band_pct",
+          "no_new_risk",
+          "priority"
+        ],
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "watch",
+              "active",
+              "only_reduce"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short",
+              "flat"
+            ]
+          },
+          "target_exposure_band_pct": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "number"
+            }
+          },
+          "rt_discretion_band_pct": {
+            "type": "number",
+            "minimum": 0
+          },
+          "no_new_risk": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "scheduled_rechecks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recheck_at_utc",
+          "scope",
+          "reason"
+        ],
+        "properties": {
+          "recheck_at_utc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

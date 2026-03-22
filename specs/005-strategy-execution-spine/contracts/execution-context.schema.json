@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/005/execution-context.schema.json",
+  "title": "ExecutionContext",
+  "type": "object",
+  "required": [
+    "context_id",
+    "strategy_version",
+    "coin",
+    "product_id",
+    "target_bias",
+    "target_position_share_pct",
+    "max_position_share_pct"
+  ],
+  "properties": {
+    "context_id": {"type": "string"},
+    "strategy_version": {"type": "string"},
+    "coin": {"type": "string"},
+    "product_id": {"type": "string"},
+    "target_bias": {"type": "string"},
+    "target_position_share_pct": {"type": "number"},
+    "max_position_share_pct": {"type": "number"},
+    "rationale": {"type": "string"},
+    "market_snapshot": {"type": "object"},
+    "account_snapshot": {"type": "object"},
+    "risk_limits": {"type": "object"},
+    "position_risk_state": {"type": "object"},
+    "forecast_snapshot": {"type": "object"},
+    "diagnostics": {"type": "object"}
+  },
+  "additionalProperties": false
+}

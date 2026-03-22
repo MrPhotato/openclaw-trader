@@ -5,6 +5,7 @@
 By default the mutable runtime lives under:
 
 - `~/.openclaw-trader/config/`
+- `~/.openclaw-trader/models/`
 - `~/.openclaw-trader/reports/`
 - `~/.openclaw-trader/state/`
 - `~/.openclaw-trader/logs/`
@@ -73,18 +74,49 @@ Implication:
 ### `model.yaml`
 
 - model training and feature settings
-- forecast horizon
+- fixed forecast horizons with `1h / 4h / 12h`
 - minimum probabilities and size scaling
+- Binance bootstrap snapshots plus local Coinbase snapshot accumulation
+- fee-aware labeling and walk-forward calibration settings
+
+## Model Runtime Artifacts
+
+`market-intelligence` persists trained artifacts under:
+
+- `~/.openclaw-trader/models/perps/<COIN>/<HORIZON>/`
+
+Important outputs are:
+
+- `meta.json`: compact status and calibration source of truth
+- `regime.joblib`: HMM regime artifact
+- `classifier.joblib`: direction and trade-quality artifacts
+- `calibration-report.json`
+- `calibration-report.md`
+
+These files are runtime state. They should not be treated as repository source files or committed artifacts.
 
 ## Current Repository Defaults
 
-The repository defaults now encode a conservative-but-usable public baseline:
+The current branch baseline is an aggressive-but-structured multi-horizon setup:
 
-- strategy order shares: weak `10%`, medium `20%`, strong `30%`
-- observe caps: position `15%`, order `15%`
-- reduce caps: position `4%`, order `4%`
+- directional sizing bands:
+  - weak `15%-25%`, order `15%`
+  - medium `30%-50%`, order `25%`
+  - strong `50%-70%`, order `35%`
+- probe policy sizing:
+  - aligned probe cap `25%`
+  - partial probe cap `20%`
+  - probe single-order cap `15%`
+- risk-stage caps:
+  - observe position/order `15%`
+  - reduce position/order `4%`
 - fresh-news block window: `15` minutes
 - owner routing placeholders: `owner-channel` and `user:owner`
+- multi-horizon model defaults:
+  - `forecast_horizons = {1h: 4, 4h: 16, 12h: 48}`
+  - `bootstrap_snapshot_exchange = binance_usdm`
+  - portfolio caution/freeze around `50% / 75%`
+  - uncertainty caution/freeze thresholds widened for a less defensive live policy
 
 These defaults are meant to be safe to publish. Private deployments should override them locally.
 
@@ -94,6 +126,7 @@ Do not commit:
 
 - `~/.openclaw-trader/secrets/coinbase.env`
 - local runtime YAML with personal routing or private channels
+- trained model artifacts under `~/.openclaw-trader/models/`
 - SQLite databases
 - logs
 - generated reports and journals

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/003/workflow-state.schema.json",
+  "title": "WorkflowStateRecord",
+  "type": "object",
+  "required": [
+    "workflow_id",
+    "trace_id",
+    "state",
+    "reason",
+    "last_transition_at"
+  ],
+  "properties": {
+    "workflow_id": {"type": "string", "minLength": 1},
+    "trace_id": {"type": "string", "minLength": 1},
+    "state": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "accepted",
+        "running",
+        "waiting_agent",
+        "candidate_ready",
+        "execution_pending",
+        "completed",
+        "suppressed",
+        "degraded",
+        "failed"
+      ]
+    },
+    "reason": {"type": "string", "minLength": 1},
+    "last_transition_at": {"type": "string", "format": "date-time"},
+    "payload_ref": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

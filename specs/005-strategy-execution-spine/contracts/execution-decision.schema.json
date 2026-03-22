@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/005/execution-decision.schema.json",
+  "title": "ExecutionDecision",
+  "type": "object",
+  "required": [
+    "decision_id",
+    "context_id",
+    "strategy_version",
+    "product_id",
+    "coin",
+    "action",
+    "side"
+  ],
+  "properties": {
+    "decision_id": {"type": "string"},
+    "context_id": {"type": "string"},
+    "strategy_version": {"type": "string"},
+    "product_id": {"type": "string"},
+    "coin": {"type": "string"},
+    "action": {"type": "string", "enum": ["open", "add", "reduce", "close", "flip", "wait"]},
+    "side": {"type": "string", "enum": ["long", "short"]},
+    "notional_usd": {"type": ["string", "null"]},
+    "leverage": {"type": ["string", "null"]},
+    "reason": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

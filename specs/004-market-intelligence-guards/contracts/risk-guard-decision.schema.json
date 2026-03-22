@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/004/risk-guard-decision.schema.json",
+  "title": "RiskGuardDecisionReady",
+  "type": "object",
+  "required": [
+    "coin",
+    "trade_availability",
+    "risk_limits",
+    "position_risk_state"
+  ],
+  "properties": {
+    "coin": {"type": "string"},
+    "trade_availability": {
+      "type": "object",
+      "required": ["tradable", "reasons"],
+      "properties": {
+        "tradable": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "risk_limits": {
+      "type": "object",
+      "required": [
+        "max_leverage",
+        "max_total_exposure_pct_of_equity",
+        "max_symbol_position_pct_of_equity",
+        "max_order_pct_of_equity"
+      ],
+      "properties": {
+        "max_leverage": {"type": "number"},
+        "max_total_exposure_pct_of_equity": {"type": "number"},
+        "max_symbol_position_pct_of_equity": {"type": "number"},
+        "max_order_pct_of_equity": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "position_risk_state": {
+      "type": "object",
+      "required": ["state", "reasons"],
+      "properties": {
+        "state": {"type": "string", "enum": ["normal", "observe", "reduce", "exit"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "thresholds": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "diagnostics": {"type": "object"},
+    "metadata": {"type": "object"}
+  },
+  "additionalProperties": false
+}

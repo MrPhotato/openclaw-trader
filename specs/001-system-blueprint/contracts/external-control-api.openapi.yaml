@@ -1,0 +1,64 @@
+openapi: 3.1.0
+info:
+  title: OpenClaw Trader Control API
+  version: 0.1.0
+  description: 统一外部主动触发入口。所有手动策略刷新、执行判断重跑、新闻同步、重训、回放等动作都从这里进入状态机与编排器模块。
+paths:
+  /api/control/commands:
+    post:
+      summary: 提交一个控制命令
+      operationId: submitControlCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - command_type
+                - initiator
+              properties:
+                command_type:
+                  type: string
+                  enum:
+                    - refresh_strategy
+                    - rerun_trade_review
+                    - dispatch_once
+                    - sync_news
+                    - replay_window
+                    - retrain_models
+                    - emit_daily_report
+                    - pause_workflow
+                    - resume_workflow
+                initiator:
+                  type: string
+                scope:
+                  type: object
+                  additionalProperties: true
+                params:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "202":
+          description: 命令已被状态机与编排器接受
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - command_id
+                  - accepted
+                  - workflow_trace_id
+                properties:
+                  command_id:
+                    type: string
+                  accepted:
+                    type: boolean
+                  workflow_trace_id:
+                    type: string
+                  state:
+                    type: string
+        "400":
+          description: 命令参数不合法
+        "409":
+          description: 命令与当前状态冲突

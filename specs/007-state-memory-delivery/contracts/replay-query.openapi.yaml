@@ -1,0 +1,35 @@
+openapi: 3.1.0
+info:
+  title: OpenClaw Trader Replay Query API
+  version: 0.1.0
+paths:
+  /api/query/replay:
+    get:
+      summary: Query replay timeline
+      operationId: queryReplayTimeline
+      parameters:
+        - in: query
+          name: trace_id
+          schema:
+            type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: module
+          schema:
+            type: string
+        - in: query
+          name: strategy_version
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Replay read model

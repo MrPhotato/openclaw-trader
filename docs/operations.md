@@ -24,6 +24,10 @@ otrader run-dispatcher
 otrader strategy-refresh --reason manual_refresh --deliver
 otrader perp-account --coin BTC
 otrader perp-signal --coin BTC
+otrader perp-model-status --coin BTC
+otrader perp-shadow-policy --coin BTC
+otrader perp-market-events --coin BTC
+otrader perp-model-train --coin BTC --all-horizons
 otrader dispatch-once
 otrader maintenance
 ```
@@ -58,6 +62,7 @@ Session archival code exists, but automatic session archival is disabled by defa
 Most operational debugging comes down to these locations:
 
 - `~/.openclaw-trader/logs/`
+- `~/.openclaw-trader/models/`
 - `~/.openclaw-trader/reports/`
 - `~/.openclaw-trader/state/trader.db`
 - `~/.openclaw/logs/` when OpenClaw or channel routing is involved
@@ -71,6 +76,37 @@ After a local restart or deployment restart:
 3. verify the dispatcher is running
 4. check recent logs for config, network, or exchange-status failures
 5. run a safe read-only command such as `otrader doctor` or `otrader perp-account --coin BTC`
+
+## Model Checks
+
+For `market-intelligence`, the quickest operational checks are:
+
+- `otrader perp-model-status --coin BTC`
+- `otrader perp-signal --coin BTC`
+- `otrader perp-shadow-policy --coin BTC`
+- `otrader perp-market-events --coin BTC`
+
+Look for:
+
+- horizon map under `horizons`
+- shadow-policy fields such as `bias`, `confirmation`, `trigger`, `size_tier`
+- event-action summary fields such as `block_new_entry`, `block_add`, `allow_trim_only`
+- training row count
+- validation accuracy and macro F1
+- calibrated-policy presence
+- calibration report paths
+- whether market snapshot features are present or empty
+
+## Branch-Switch Caveat
+
+Changing git branches does not hot-reload the running services.
+
+If checked-out code changes for trader or dispatcher behavior, restart at least:
+
+- trader
+- dispatcher
+
+Otherwise the live processes continue running whatever code was loaded when the Python processes started.
 
 ## Known Operational Edges
 

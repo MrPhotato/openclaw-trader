@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chief Retro"
+  short_description: "Run retro, summarize, and reset sessions"
+  default_prompt: "Use $chief-retro-and-summary to run the retrospective, ask each agent to record post-meeting learning, and then send the owner summary."

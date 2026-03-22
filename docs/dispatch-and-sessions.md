@@ -8,8 +8,8 @@ The dispatcher is the control plane for automated behavior. On each cycle it:
 2. syncs news
 3. evaluates market, signal, and risk state
 4. decides whether to refresh strategy
-5. optionally runs trade review
-6. executes approved plans
+5. optionally runs execution judgment
+6. executes accepted plans
 7. writes briefs, reports, and journals
 8. sends notifications
 
@@ -18,7 +18,7 @@ The dispatcher is the control plane for automated behavior. On each cycle it:
 The OpenClaw bridge uses a small set of action kinds:
 
 - `strategy`
-- `trade_review`
+- `trade_review` (compatibility name for execution judgment)
 - `event`
 - `fallback`
 - `daily_report`
@@ -74,7 +74,7 @@ The current notification model separates concerns:
 - optional observe notifications
 - daily reports
 
-Trade-event messages are formatted locally before delivery, which avoids leaking raw trade-review JSON to the owner channel.
+Trade-event messages are formatted locally before delivery, which avoids leaking raw execution-decision JSON to the owner channel.
 
 ## Manual vs Automatic Refresh
 
@@ -82,7 +82,7 @@ Manual refreshes and automatic refreshes share much of the same machinery, but t
 
 - manual refresh is explicit and often user-driven
 - automatic refresh is schedule- or event-driven
-- both can trigger follow-up trade review if the new strategy produces trade candidates
+- both can trigger follow-up execution judgment if the new strategy produces a new execution context
 
 ## Known Session Misconception
 

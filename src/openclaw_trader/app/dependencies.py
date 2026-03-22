@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ..config.loader import load_system_settings
+from ..modules.agent_gateway import AgentGatewayService
+from ..modules.agent_gateway.adapters import (
+    DeterministicAgentRunner,
+    DeterministicSessionController,
+    OpenClawAgentRunner,
+    OpenClawSessionController,
+)
+from ..modules.news_events import NewsEventService
+from ..modules.news_events.adapters import DirectPollingNewsProvider
+from ..modules.notification_service import NotificationService
+from ..modules.notification_service.adapters import OpenClawNotificationProvider
+from ..modules.policy_risk import PolicyRiskService
+from ..modules.quant_intelligence import QuantIntelligenceService
+from ..modules.quant_intelligence.adapters import DirectArtifactQuantProvider, DirectQuantTrainer
+from ..modules.replay_frontend import ReplayFrontendService
+from ..modules.state_memory import StateMemoryRepository, StateMemoryService
+from ..modules.trade_gateway.execution import ExecutionGatewayService
+from ..modules.trade_gateway.execution.adapters import CoinbaseIntxBroker
+from ..modules.trade_gateway.market_data import DataIngestService
+from ..modules.trade_gateway.market_data.adapters import CoinbaseIntxMarketDataProvider
+from ..modules.workflow_orchestrator import WorkflowOrchestratorService
+from ..modules.workflow_orchestrator.trigger_bridge import WorkflowTriggerBridge
+from ..modules.workflow_orchestrator.handlers import WorkflowCommandExecutor
+from ..shared.infra import RabbitMQEventBus, SqliteDatabase
+
+
+@dataclass
+class ServiceContainer:
+    settings: object
+    event_bus: RabbitMQEventBus
+    state_memory: StateMemoryService
+    market_data: DataIngestService
+    news_events: NewsEventService
+    quant_intelligence: QuantIntelligenceService
+    policy_risk: PolicyRiskService
+    trade_execution: ExecutionGatewayService
+    agent_gateway: AgentGatewayService
+    notification_service: NotificationService
+    replay_frontend: ReplayFrontendService
+    workflow_orchestrator: WorkflowOrchestratorService
+
+    @property
+    def memory_assets(self) -> StateMemoryService:
+        return self.state_memory
+
+    def close(self) -> None:
+        self.workflow_orchestrator.close()
+        self.event_bus.close()
+
+
+def _build_agent_runner(name: str, *, enabled: bool, timeout_seconds: int):
+    if enabled:
+        return OpenClawAgentRunner(name, timeout_seconds=timeout_seconds)
+    return DeterministicAgentRunner()
+
+
+def _agent_timeout_seconds(*, settings: object, agent_role: str) -> int:
+    base_timeout = int(settings.agents.openclaw_timeout_seconds)
+    if agent_role in {"risk_trader", "crypto_chief"}:
+        return max(base_timeout, int(settings.orchestrator.timeout_seconds))
+    return base_timeout
+
+
+def _build_session_controller(*, settings: object, enabled: bool):
+    if enabled:
+        return OpenClawSessionController(
+            {
+                "pm": settings.agents.pm_agent,
+                "risk_trader": settings.agents.risk_trader_agent,
+                "macro_event_analyst": settings.agents.macro_event_analyst_agent,
+                "crypto_chief": settings.agents.crypto_chief_agent,
+            },
+            timeout_seconds=max(int(settings.agents.openclaw_timeout_seconds), 300),
+        )
+    return DeterministicSessionController()
+
+
+def build_container() -> ServiceContainer:
+    settings = load_system_settings()
+    event_bus = RabbitMQEventBus()
+    database = SqliteDatabase(settings.storage.sqlite_path)
+    state_memory = StateMemoryService(StateMemoryRepository(database))
+    trigger_bridge = WorkflowTriggerBridge(state_memory)
+    state_memory.ensure_bootstrap_parameter(
+        "quant_defaults",
+        "global",
+        {
+            "interval": settings.quant.interval,
+            "history_bars": settings.quant.history_bars,
+            "forecast_horizons": dict(settings.quant.forecast_horizons),
+            "thresholds": {
+                "min_confidence": settings.quant.min_confidence,
+                "min_long_short_probability": settings.quant.min_long_short_probability,
+                "meta_min_confidence": settings.quant.meta_min_confidence,
+            },
+            "horizon_roles": {
+                "12h": "market_direction_context",
+                "4h": "market_structure_context",
+                "1h": "short_horizon_context",
+            },
+        },
+        operator="system",
+        reason="bootstrap_v2_quant_reference",
+    )
+    market_data = DataIngestService(CoinbaseIntxMarketDataProvider())
+    news_events = NewsEventService(DirectPollingNewsProvider())
+    quant_intelligence = QuantIntelligenceService(
+        DirectArtifactQuantProvider(retrain_provider=DirectQuantTrainer())
+    )
+    policy_risk = PolicyRiskService(settings)
+    trade_execution = ExecutionGatewayService(
+        CoinbaseIntxBroker(),
+        live_enabled=bool(settings.app.allow_live_orders and settings.execution.live_enabled),
+    )
+    agent_gateway = AgentGatewayService(
+        pm_runner=_build_agent_runner(
+            settings.agents.pm_agent,
+            enabled=settings.agents.openclaw_enabled,
+            timeout_seconds=_agent_timeout_seconds(settings=settings, agent_role="pm"),
+        ),
+        risk_runner=_build_agent_runner(
+            settings.agents.risk_trader_agent,
+            enabled=settings.agents.openclaw_enabled,
+            timeout_seconds=_agent_timeout_seconds(settings=settings, agent_role="risk_trader"),
+        ),
+        macro_runner=_build_agent_runner(
+            settings.agents.macro_event_analyst_agent,
+            enabled=settings.agents.openclaw_enabled,
+            timeout_seconds=_agent_timeout_seconds(settings=settings, agent_role="macro_event_analyst"),
+        ),
+        chief_runner=_build_agent_runner(
+            settings.agents.crypto_chief_agent,
+            enabled=settings.agents.openclaw_enabled,
+            timeout_seconds=_agent_timeout_seconds(settings=settings, agent_role="crypto_chief"),
+        ),
+        session_controller=_build_session_controller(settings=settings, enabled=settings.agents.openclaw_enabled),
+        agent_name_by_role={
+            "pm": settings.agents.pm_agent,
+            "risk_trader": settings.agents.risk_trader_agent,
+            "macro_event_analyst": settings.agents.macro_event_analyst_agent,
+            "crypto_chief": settings.agents.crypto_chief_agent,
+        },
+        state_memory=state_memory,
+        market_data=market_data,
+        news_events=news_events,
+        quant_intelligence=quant_intelligence,
+        policy_risk=policy_risk,
+        trade_execution=trade_execution,
+        notification_service=None,
+        trigger_bridge=trigger_bridge,
+        event_bus=event_bus,
+    )
+    notification_service = NotificationService(OpenClawNotificationProvider(), state_memory)
+    agent_gateway.notification_service = notification_service
+    replay_frontend = ReplayFrontendService(state_memory)
+    executor = WorkflowCommandExecutor(
+        state_memory=state_memory,
+        event_bus=event_bus,
+        market_data=market_data,
+        news_events=news_events,
+        quant_intelligence=quant_intelligence,
+        policy_risk=policy_risk,
+        trade_execution=trade_execution,
+        agent_gateway=agent_gateway,
+        notification_service=notification_service,
+        replay_frontend=replay_frontend,
+    )
+    workflow_orchestrator = WorkflowOrchestratorService(
+        state_memory=state_memory,
+        event_bus=event_bus,
+        executor=executor,
+        enable_daily_session_reset=True,
+    )
+    return ServiceContainer(
+        settings=settings,
+        event_bus=event_bus,
+        state_memory=state_memory,
+        market_data=market_data,
+        news_events=news_events,
+        quant_intelligence=quant_intelligence,
+        policy_risk=policy_risk,
+        trade_execution=trade_execution,
+        agent_gateway=agent_gateway,
+        notification_service=notification_service,
+        replay_frontend=replay_frontend,
+        workflow_orchestrator=workflow_orchestrator,
+    )

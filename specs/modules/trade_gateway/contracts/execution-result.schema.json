@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TradeGatewayExecutionResult",
+  "type": "object",
+  "required": ["plan_id", "success", "executed_at"],
+  "properties": {
+    "plan_id": {"type": "string"},
+    "success": {"type": "boolean"},
+    "exchange_order_id": {"type": ["string", "null"]},
+    "message": {"type": ["string", "null"]},
+    "fills": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "executed_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

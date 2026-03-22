@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/007/state-snapshot.schema.json",
+  "title": "StateSnapshot",
+  "type": "object",
+  "required": [
+    "snapshot_id",
+    "trace_id",
+    "workflow_state",
+    "captured_at"
+  ],
+  "properties": {
+    "snapshot_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "workflow_state": {"type": "object"},
+    "portfolio_state": {"type": ["object", "null"]},
+    "strategy_ref": {"type": ["string", "null"]},
+    "captured_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

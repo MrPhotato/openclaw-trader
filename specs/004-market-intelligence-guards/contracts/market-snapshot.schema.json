@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/004/market-snapshot.schema.json",
+  "title": "MarketSnapshotNormalized",
+  "type": "object",
+  "required": [
+    "snapshot_id",
+    "coin",
+    "mark_price",
+    "captured_at"
+  ],
+  "properties": {
+    "snapshot_id": {"type": "string"},
+    "coin": {"type": "string"},
+    "mark_price": {"type": "string"},
+    "funding_rate": {"type": ["string", "null"]},
+    "premium": {"type": ["string", "null"]},
+    "open_interest": {"type": ["string", "null"]},
+    "day_notional_volume": {"type": ["string", "null"]},
+    "captured_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

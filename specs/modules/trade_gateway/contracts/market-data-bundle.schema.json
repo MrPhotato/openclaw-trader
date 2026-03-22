@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TradeGatewayMarketDataBundle",
+  "type": "object",
+  "required": ["trace_id", "market", "accounts", "portfolio", "market_context", "execution_history", "product_metadata"],
+  "properties": {
+    "trace_id": {"type": "string"},
+    "market": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/market_snapshot"}
+    },
+    "accounts": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/account_snapshot"}
+    },
+    "portfolio": {"$ref": "#/definitions/portfolio_snapshot"},
+    "market_context": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/market_context"}
+    },
+    "execution_history": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/execution_history"}
+    },
+    "product_metadata": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/definitions/product_metadata"}
+    }
+  },
+  "definitions": {
+    "market_snapshot": {
+      "type": "object",
+      "required": ["snapshot_id", "coin", "product_id", "mark_price", "captured_at"],
+      "properties": {
+        "snapshot_id": {"type": "string"},
+        "coin": {"type": "string"},
+        "product_id": {"type": "string"},
+        "mark_price": {"type": "string"},
+        "index_price": {"type": ["string", "null"]},
+        "funding_rate": {"type": ["string", "null"]},
+        "premium": {"type": ["string", "null"]},
+        "open_interest": {"type": ["string", "null"]},
+        "day_notional_volume": {"type": ["string", "null"]},
+        "spread_bps": {"type": ["number", "null"]},
+        "trading_status": {"type": ["string", "null"]},
+        "trading_disabled": {"type": "boolean"},
+        "cancel_only": {"type": "boolean"},
+        "limit_only": {"type": "boolean"},
+        "post_only": {"type": "boolean"},
+        "captured_at": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": true
+    },
+    "account_snapshot": {
+      "type": "object",
+      "required": ["coin", "total_equity_usd", "available_equity_usd"],
+      "properties": {
+        "coin": {"type": "string"},
+        "total_equity_usd": {"type": "string"},
+        "available_equity_usd": {"type": "string"},
+        "current_side": {"type": ["string", "null"]},
+        "current_notional_usd": {"type": ["string", "null"]},
+        "current_leverage": {"type": ["string", "null"]},
+        "current_quantity": {"type": ["string", "null"]},
+        "entry_price": {"type": ["string", "null"]},
+        "unrealized_pnl_usd": {"type": ["string", "null"]},
+        "liquidation_price": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "portfolio_snapshot": {
+      "type": "object",
+      "properties": {
+        "starting_equity_usd": {"type": "string"},
+        "realized_pnl_usd": {"type": "string"},
+        "unrealized_pnl_usd": {"type": "string"},
+        "total_equity_usd": {"type": "string"},
+        "available_equity_usd": {"type": "string"},
+        "total_exposure_usd": {"type": "string"},
+        "open_order_hold_usd": {"type": "string"},
+        "positions": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
+    "market_context": {
+      "type": "object",
+      "properties": {
+        "compressed_price_series": {"type": "object"},
+        "key_levels": {"type": "array"},
+        "breakout_retest_state": {"type": "object"},
+        "volatility_state": {"type": "object"},
+        "shape_summary": {"type": "string"},
+        "liquidity": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "execution_history": {
+      "type": "object",
+      "properties": {
+        "recent_orders": {"type": "array"},
+        "recent_fills": {"type": "array"},
+        "failure_sources": {"type": "array"},
+        "open_orders": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
+    "product_metadata": {
+      "type": "object",
+      "required": ["coin", "product_id", "tick_size", "size_increment", "min_notional"],
+      "properties": {
+        "coin": {"type": "string"},
+        "product_id": {"type": "string"},
+        "tick_size": {"type": "string"},
+        "size_increment": {"type": "string"},
+        "min_size": {"type": ["string", "null"]},
+        "min_notional": {"type": "string"},
+        "max_leverage": {"type": ["string", "null"]},
+        "trading_status": {"type": ["string", "null"]},
+        "trading_disabled": {"type": "boolean"},
+        "cancel_only": {"type": "boolean"},
+        "limit_only": {"type": "boolean"},
+        "post_only": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

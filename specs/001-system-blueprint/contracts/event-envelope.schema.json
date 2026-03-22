@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw-trader.local/schemas/event-envelope.schema.json",
+  "title": "EventEnvelope",
+  "type": "object",
+  "required": [
+    "event_id",
+    "trace_id",
+    "module",
+    "entity_type",
+    "entity_id",
+    "event_type",
+    "event_level",
+    "occurred_at",
+    "schema_version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "causation_id": {
+      "type": "string"
+    },
+    "module": {
+      "type": "string"
+    },
+    "entity_type": {
+      "type": "string"
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "event_level": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "human_summary": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

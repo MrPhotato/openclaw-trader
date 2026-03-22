@@ -1,0 +1,4 @@
+interface:
+  display_name: "Risk Trader"
+  short_description: "Turn strategy into execution JSON"
+  default_prompt: "Use $risk-trader-decision to review strategy, market, and risk facts and emit a pure JSON execution submission."

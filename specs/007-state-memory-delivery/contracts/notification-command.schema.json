@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/007/notification-command.schema.json",
+  "title": "NotificationCommand",
+  "type": "object",
+  "required": [
+    "notification_id",
+    "channel",
+    "recipient",
+    "message_type",
+    "payload"
+  ],
+  "properties": {
+    "notification_id": {"type": "string"},
+    "channel": {"type": "string"},
+    "recipient": {"type": "string"},
+    "message_type": {"type": "string"},
+    "payload": {"type": "object"}
+  },
+  "additionalProperties": false
+}

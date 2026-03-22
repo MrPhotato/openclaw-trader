@@ -1,0 +1,7 @@
+MODULE_NAME = "agent_gateway"
+EVENT_AGENT_TASK_SENT = "agent.task.sent"
+EVENT_AGENT_REPLY_RECEIVED = "agent.reply.received"
+EVENT_AGENT_ESCALATED = "agent.escalated"
+EVENT_SUBMISSION_VALIDATED = "agent.submission.validated"
+EVENT_SUBMISSION_REJECTED = "agent.submission.rejected"
+EVENT_AGENT_SESSION_RESET = "agent.session.reset"

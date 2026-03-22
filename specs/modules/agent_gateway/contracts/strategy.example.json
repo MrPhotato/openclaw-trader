@@ -1,0 +1,43 @@
+{
+  "portfolio_mode": "normal",
+  "target_gross_exposure_band_pct": [
+    180.0,
+    260.0
+  ],
+  "portfolio_thesis": "BTC and ETH remain the core risk-on exposure for the day.",
+  "portfolio_invalidation": "If macro risk rises sharply or BTC loses structure, rebuild the book.",
+  "change_summary": "Reduce SOL focus and keep BTC as primary anchor.",
+  "targets": [
+    {
+      "symbol": "BTCUSDT",
+      "state": "active",
+      "direction": "long",
+      "target_exposure_band_pct": [
+        90.0,
+        130.0
+      ],
+      "rt_discretion_band_pct": 8.0,
+      "no_new_risk": false,
+      "priority": 1
+    },
+    {
+      "symbol": "ETHUSDT",
+      "state": "active",
+      "direction": "long",
+      "target_exposure_band_pct": [
+        50.0,
+        80.0
+      ],
+      "rt_discretion_band_pct": 6.0,
+      "no_new_risk": false,
+      "priority": 2
+    }
+  ],
+  "scheduled_rechecks": [
+    {
+      "recheck_at_utc": "2026-03-16T09:00:00Z",
+      "scope": "portfolio",
+      "reason": "Recheck whether ETF flow and funding still support the current gross exposure."
+    }
+  ]
+}

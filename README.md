@@ -8,7 +8,9 @@ Local runtime state is stored outside the repository under the current user's ho
 ## Features
 
 - Coinbase INTX perpetuals runtime
-- Strategy refresh and trade-review loop
+- Multi-horizon `market-intelligence` with `1h / 4h / 12h` prediction
+- Event-action, portfolio-risk, and model-uncertainty execution overlays
+- Strategy refresh, shadow policy, and trade-review loop
 - Local dispatch briefs and daily reports
 - Risk controls, panic lock, and cooldown handling
 - FastAPI service and `otrader` CLI
@@ -50,6 +52,9 @@ otrader run-dispatcher
 otrader strategy-refresh --reason manual_refresh --deliver
 otrader perp-account --coin BTC
 otrader perp-signal --coin BTC
+otrader perp-model-status --coin BTC
+otrader perp-shadow-policy --coin BTC
+otrader perp-market-events --coin BTC
 ```
 
 ## Documentation
@@ -57,6 +62,7 @@ otrader perp-signal --coin BTC
 - [docs/README.md](docs/README.md)
 - [docs/system-overview.md](docs/system-overview.md)
 - [docs/config-and-runtime.md](docs/config-and-runtime.md)
+- [docs/market-intelligence.md](docs/market-intelligence.md)
 - [docs/strategy-and-risk.md](docs/strategy-and-risk.md)
 - [docs/dispatch-and-sessions.md](docs/dispatch-and-sessions.md)
 - [docs/operations.md](docs/operations.md)

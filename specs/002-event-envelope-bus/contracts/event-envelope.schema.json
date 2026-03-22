@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/002/event-envelope.schema.json",
+  "title": "EventEnvelope",
+  "type": "object",
+  "required": [
+    "event_id",
+    "trace_id",
+    "module",
+    "entity_type",
+    "entity_id",
+    "event_type",
+    "event_level",
+    "occurred_at",
+    "schema_version",
+    "payload",
+    "human_summary"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "trace_id": {"type": "string", "minLength": 1},
+    "causation_id": {"type": ["string", "null"]},
+    "module": {"type": "string", "minLength": 1},
+    "entity_type": {"type": "string", "minLength": 1},
+    "entity_id": {"type": "string", "minLength": 1},
+    "event_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+)+$"
+    },
+    "event_level": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"]
+    },
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "schema_version": {"type": "string", "minLength": 1},
+    "payload": {"type": "object"},
+    "human_summary": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

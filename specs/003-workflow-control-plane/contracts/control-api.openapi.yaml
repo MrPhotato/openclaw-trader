@@ -1,0 +1,47 @@
+openapi: 3.1.0
+info:
+  title: OpenClaw Trader Workflow Control API
+  version: 0.1.0
+paths:
+  /api/control/commands:
+    post:
+      summary: Submit a workflow command
+      operationId: submitWorkflowCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [command_id, command_type, initiator, requested_at]
+              properties:
+                command_id:
+                  type: string
+                command_type:
+                  type: string
+                  enum:
+                    - refresh_strategy
+                    - rerun_trade_review
+                    - dispatch_once
+                    - sync_news
+                    - emit_daily_report
+                    - retrain_models
+                    - replay_window
+                    - pause_workflow
+                    - resume_workflow
+                initiator:
+                  type: string
+                scope:
+                  type: object
+                params:
+                  type: object
+                requested_at:
+                  type: string
+                  format: date-time
+      responses:
+        "202":
+          description: Command accepted
+        "409":
+          description: Duplicate or conflicting command
+        "422":
+          description: Invalid command

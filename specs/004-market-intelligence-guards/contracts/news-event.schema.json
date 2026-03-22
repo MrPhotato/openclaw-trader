@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw/specs/004/news-event.schema.json",
+  "title": "NewsEventMaterialized",
+  "type": "object",
+  "required": [
+    "event_id",
+    "source",
+    "title",
+    "severity",
+    "published_at",
+    "summary"
+  ],
+  "properties": {
+    "event_id": {"type": "string"},
+    "source": {"type": "string"},
+    "title": {"type": "string"},
+    "severity": {"type": "string"},
+    "layer": {"type": ["string", "null"]},
+    "scope": {"type": ["string", "null"]},
+    "published_at": {"type": "string", "format": "date-time"},
+    "summary": {"type": "string"}
+  },
+  "additionalProperties": false
+}

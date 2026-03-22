@@ -1,0 +1,4 @@
+interface:
+  display_name: "PM Strategy"
+  short_description: "Review facts and submit strategy JSON"
+  default_prompt: "Use $pm-strategy-cycle to review the latest structured facts and produce a pure JSON strategy submission."
