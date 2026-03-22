@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import App from "../app";
+import { useMissionControlStore } from "../lib/store";
 
 const overviewPayload = {
   system: { strategy_present: true, execution_present: true, updated_at: "2026-03-20T08:00:00Z" },
@@ -162,6 +163,16 @@ class MockWebSocket {
 
 describe("App", () => {
   beforeEach(() => {
+    useMissionControlStore.setState({
+      activeView: "overview",
+      connectionState: "closed",
+      liveEvents: [],
+      streamOverview: undefined,
+      replayFilters: {
+        traceId: "",
+        module: "",
+      },
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -212,5 +223,22 @@ describe("App", () => {
 
     fireEvent.click(screen.getByText("回放"));
     await waitFor(() => expect(screen.getByTestId("replay-view")).toBeInTheDocument());
+  });
+
+  test("switches balance granularity without crashing", async () => {
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("账户余额轨迹")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "15 分钟" }));
+    await waitFor(() => expect(screen.getByText(/15 分钟\s*视角下/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "日线" }));
+    await waitFor(() => expect(screen.getByText(/日线\s*视角下/)).toBeInTheDocument());
   });
 });

@@ -1,0 +1,108 @@
+name: Frontend CD
+
+on:
+  push:
+    branches:
+      - public
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-cd.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-cd
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend tests
+        run: npm run test
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/public'
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+
+      - name: Validate deployment secrets
+        env:
+          HOST: ${{ secrets.DISPLAY_ECS_HOST }}
+          USERNAME: ${{ secrets.DISPLAY_ECS_USER }}
+          SSH_KEY: ${{ secrets.DISPLAY_ECS_SSH_KEY }}
+          TARGET_DIR: ${{ secrets.DISPLAY_DEPLOY_PATH }}
+        run: |
+          missing=0
+          for key in HOST USERNAME SSH_KEY TARGET_DIR; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required secret: ${key}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DISPLAY_ECS_SSH_KEY }}
+          HOST: ${{ secrets.DISPLAY_ECS_HOST }}
+          PORT: ${{ secrets.DISPLAY_ECS_PORT }}
+        run: |
+          PORT="${PORT:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure target directory
+        env:
+          HOST: ${{ secrets.DISPLAY_ECS_HOST }}
+          USERNAME: ${{ secrets.DISPLAY_ECS_USER }}
+          PORT: ${{ secrets.DISPLAY_ECS_PORT }}
+          TARGET_DIR: ${{ secrets.DISPLAY_DEPLOY_PATH }}
+        run: |
+          PORT="${PORT:-22}"
+          ssh -p "$PORT" "$USERNAME@$HOST" "mkdir -p '$TARGET_DIR'"
+
+      - name: Deploy static assets
+        env:
+          HOST: ${{ secrets.DISPLAY_ECS_HOST }}
+          USERNAME: ${{ secrets.DISPLAY_ECS_USER }}
+          PORT: ${{ secrets.DISPLAY_ECS_PORT }}
+          TARGET_DIR: ${{ secrets.DISPLAY_DEPLOY_PATH }}
+        run: |
+          PORT="${PORT:-22}"
+          rsync -az --delete -e "ssh -p $PORT" frontend-dist/ "$USERNAME@$HOST:$TARGET_DIR/"

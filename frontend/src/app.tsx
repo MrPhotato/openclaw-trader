@@ -27,7 +27,7 @@ const moduleLabels: Record<string, string> = {
 };
 
 export default function App() {
-  const [balanceWindow, setBalanceWindow] = useState<"15m" | "1h" | "24h">("1h");
+  const [balanceGranularity, setBalanceGranularity] = useState<"15m" | "1h" | "1d">("1h");
   const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
   const connectionState = useMissionControlStore((state) => state.connectionState);
@@ -76,7 +76,7 @@ export default function App() {
   const eventFeed = liveEvents.length ? liveEvents : overview?.recent_events ?? [];
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
-  const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceWindow);
+  const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceGranularity);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
 
   return (
@@ -203,7 +203,7 @@ export default function App() {
                       <YAxis tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} domain={["dataMin", "dataMax"]} />
                       <Tooltip
                         cursor={{ stroke: "rgba(113,246,209,0.35)" }}
-                        formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceWindow)]}
+                        formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
                         labelFormatter={(label) => `时间：${label}`}
                       />
                       <Line type="monotone" dataKey="equity" stroke="#71f6d1" strokeWidth={3} dot={false} activeDot={{ r: 4 }} />
@@ -214,14 +214,14 @@ export default function App() {
                   {([
                     ["15m", "15 分钟"],
                     ["1h", "1 小时"],
-                    ["24h", "日线"],
+                    ["1d", "日线"],
                   ] as const).map(([key, label]) => (
                     <button
                       key={key}
                       type="button"
-                      onClick={() => setBalanceWindow(key)}
+                      onClick={() => setBalanceGranularity(key)}
                       className={`rounded-full px-3 py-1.5 text-xs transition ${
-                        balanceWindow === key
+                        balanceGranularity === key
                           ? "bg-neon/90 text-ink"
                           : "border border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/10"
                       }`}
@@ -231,7 +231,7 @@ export default function App() {
                   ))}
                 </div>
                 <div className="mt-3 text-sm text-slate-400">
-                  {balanceNarrative(latestPortfolio, balanceWindow, balanceSeries)}
+                  {balanceNarrative(latestPortfolio, balanceGranularity, balanceSeries)}
                 </div>
               </Panel>
             </div>
@@ -601,19 +601,25 @@ function formatTime(value: string) {
   });
 }
 
-function formatBalanceLabel(value: string, window: "15m" | "1h" | "24h") {
+function formatBalanceLabel(value: number, granularity: "15m" | "1h" | "1d") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return value;
+    return String(value);
   }
-  if (window === "24h") {
+  if (granularity === "1d") {
     return date.toLocaleString("zh-CN", {
-      month: "numeric",
-      day: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+  }
+  if (granularity === "1h") {
+    return date.toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
       hour: "2-digit",
     });
   }
-  return date.toLocaleTimeString("zh-CN", {
+  return date.toLocaleString("zh-CN", {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -653,24 +659,34 @@ function strategyBadgeValue(strategy: Record<string, unknown>) {
   return "待生成";
 }
 
-function balanceWindowLabel(window: "15m" | "1h" | "24h") {
-  if (window === "15m") {
+function balanceWindowLabel(granularity: "15m" | "1h" | "1d") {
+  if (granularity === "15m") {
     return "15 分钟";
   }
-  if (window === "1h") {
+  if (granularity === "1h") {
     return "1 小时";
   }
   return "日线";
 }
 
-function balanceWindowMs(window: "15m" | "1h" | "24h") {
-  if (window === "15m") {
+function balanceGranularityMs(granularity: "15m" | "1h" | "1d") {
+  if (granularity === "15m") {
     return 15 * 60 * 1000;
   }
-  if (window === "1h") {
+  if (granularity === "1h") {
     return 60 * 60 * 1000;
   }
   return 24 * 60 * 60 * 1000;
+}
+
+function balanceBucketCount(granularity: "15m" | "1h" | "1d") {
+  if (granularity === "15m") {
+    return 48;
+  }
+  if (granularity === "1h") {
+    return 48;
+  }
+  return 7;
 }
 
 function strategyReadyText(overview?: OverviewData) {
@@ -724,7 +740,7 @@ function strategyIdentity(strategy: Record<string, unknown>) {
 
 function balanceNarrative(
   latestPortfolio: Record<string, unknown>,
-  window: "15m" | "1h" | "24h",
+  granularity: "15m" | "1h" | "1d",
   points: Array<{ equity: number }>,
 ) {
   if (points.length === 0) {
@@ -735,7 +751,7 @@ function balanceNarrative(
   const delta = last.equity - first.equity;
   const available = usdCompactText(latestPortfolio["available_equity_usd"]);
   const direction = delta > 0 ? "上升" : delta < 0 ? "回落" : "基本持平";
-  return `${balanceWindowLabel(window)} 视角下，账户总权益目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
+  return `${balanceWindowLabel(granularity)}视角下，横轴已经按固定粒度重排。账户总权益目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
     Math.abs(delta),
   )}。当前可用资金 ${available}。`;
 }
@@ -806,9 +822,10 @@ function formatBandValue(value: unknown) {
   return number === null ? "0%" : `${trimNumber(number)}%`;
 }
 
-function buildBalanceHistory(history: AssetRecord[], latestPortfolio: Record<string, unknown>, window: "15m" | "1h" | "24h") {
-  const cutoffMs = Date.now() - balanceWindowMs(window);
-  const points = history
+function buildBalanceHistory(history: AssetRecord[], latestPortfolio: Record<string, unknown>, granularity: "15m" | "1h" | "1d") {
+  const intervalMs = balanceGranularityMs(granularity);
+  const bucketCount = balanceBucketCount(granularity);
+  const rawPoints = history
     .map((record) => {
       const createdAt = record.created_at;
       const createdAtMs = new Date(createdAt).getTime();
@@ -817,34 +834,65 @@ function buildBalanceHistory(history: AssetRecord[], latestPortfolio: Record<str
         return null;
       }
       return {
-        label: formatBalanceLabel(createdAt, window),
         equity,
         createdAtMs,
       };
     })
-    .filter((item): item is { label: string; equity: number; createdAtMs: number } => item !== null)
+    .filter((item): item is { equity: number; createdAtMs: number } => item !== null)
     .sort((left, right) => left.createdAtMs - right.createdAtMs);
 
-  const filtered = points.filter((item) => item.createdAtMs >= cutoffMs);
-  if (filtered.length > 0) {
-    return filtered;
-  }
-  if (points.length > 0) {
-    return points.slice(-Math.min(points.length, window === "24h" ? 24 : 12));
-  }
-
   const fallbackEquity = toNumber(latestPortfolio["total_equity_usd"]);
-  if (fallbackEquity === null) {
+  if (rawPoints.length === 0 && fallbackEquity === null) {
     return [];
   }
 
-  return [
-    {
-      label: "现在",
-      equity: fallbackEquity,
-      createdAtMs: Date.now(),
-    },
-  ];
+  const now = Date.now();
+  const endBucketMs = Math.floor(now / intervalMs) * intervalMs;
+  const startBucketMs = endBucketMs - intervalMs * (bucketCount - 1);
+  const seededPoints =
+    rawPoints.length > 0
+      ? rawPoints
+      : [
+          {
+            equity: fallbackEquity ?? 0,
+            createdAtMs: now,
+          },
+        ];
+
+  let pointIndex = 0;
+  let lastEquity: number | null = null;
+  const series: Array<{ label: string; equity: number; createdAtMs: number }> = [];
+
+  for (let bucketMs = startBucketMs; bucketMs <= endBucketMs; bucketMs += intervalMs) {
+    const bucketEndMs = bucketMs + intervalMs - 1;
+    while (pointIndex < seededPoints.length && seededPoints[pointIndex].createdAtMs <= bucketEndMs) {
+      lastEquity = seededPoints[pointIndex].equity;
+      pointIndex += 1;
+    }
+
+    if (lastEquity === null && rawPoints.length === 0 && fallbackEquity !== null) {
+      lastEquity = fallbackEquity;
+    }
+    if (lastEquity === null) {
+      continue;
+    }
+
+    series.push({
+      label: formatBalanceLabel(bucketMs, granularity),
+      equity: lastEquity,
+      createdAtMs: bucketMs,
+    });
+  }
+
+  return series.length > 0
+    ? series
+    : [
+        {
+          label: formatBalanceLabel(endBucketMs, granularity),
+          equity: fallbackEquity ?? 0,
+          createdAtMs: endBucketMs,
+        },
+      ];
 }
 
 function executionRecordTitle(asset: AssetRecord) {
