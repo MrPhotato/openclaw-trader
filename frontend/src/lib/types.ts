@@ -27,7 +27,10 @@ export type OverviewData = {
   system: Record<string, unknown>;
   latest_strategy?: AssetRecord | null;
   latest_portfolio?: AssetRecord | null;
-  portfolio_history: AssetRecord[];
+  portfolio_history: Array<{
+    created_at: string;
+    total_equity_usd?: string | number | null;
+  }>;
   latest_execution_batch?: AssetRecord | null;
   recent_execution_results: AssetRecord[];
   current_macro_events: AssetRecord[];

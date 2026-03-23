@@ -32,18 +32,12 @@ const overviewPayload = {
   },
   portfolio_history: [
     {
-      asset_id: "portfolio-0",
-      asset_type: "portfolio_snapshot",
-      payload: { total_equity_usd: "998.2" },
-      metadata: {},
       created_at: "2026-03-20T07:30:00Z",
+      total_equity_usd: "998.2",
     },
     {
-      asset_id: "portfolio-1",
-      asset_type: "portfolio_snapshot",
-      payload: { total_equity_usd: "1002.5" },
-      metadata: {},
       created_at: "2026-03-20T08:00:00Z",
+      total_equity_usd: "1002.5",
     },
   ],
   latest_execution_batch: null,

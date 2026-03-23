@@ -315,6 +315,13 @@ class StateMemoryService:
         recent_execution_results = self.recent_assets(asset_type="execution_result", limit=10)
         current_macro_events = self.recent_assets(asset_type="macro_event", limit=10)
         recent_notifications = self.recent_assets(asset_type="notification_result", limit=10)
+        portfolio_history = [
+            {
+                "created_at": item["created_at"],
+                "total_equity_usd": item.get("payload", {}).get("total_equity_usd"),
+            }
+            for item in self.recent_portfolios(limit=1000)
+        ]
         return OverviewQueryView(
             system={
                 "strategy_present": latest_strategy is not None,
@@ -324,7 +331,7 @@ class StateMemoryService:
             },
             latest_strategy=latest_strategy,
             latest_portfolio=latest_portfolio,
-            portfolio_history=self.recent_portfolios(limit=1000),
+            portfolio_history=portfolio_history,
             latest_execution_batch=latest_execution_batch,
             recent_execution_results=recent_execution_results,
             current_macro_events=current_macro_events,

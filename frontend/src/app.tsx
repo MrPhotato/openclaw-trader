@@ -42,28 +42,32 @@ export default function App() {
   const overviewQuery = useQuery({
     queryKey: ["overview"],
     queryFn: fetchOverview,
-    refetchInterval: 10000,
+    refetchInterval: 15000,
   });
   const newsQuery = useQuery({
     queryKey: ["news"],
     queryFn: fetchNews,
-    refetchInterval: 10000,
+    enabled: activeView === "overview" || activeView === "news",
+    refetchInterval: 30000,
   });
   const executionsQuery = useQuery({
     queryKey: ["executions"],
     queryFn: fetchExecutions,
-    refetchInterval: 10000,
+    enabled: activeView === "overview" || activeView === "strategy",
+    refetchInterval: 15000,
   });
   const replayQuery = useQuery({
     queryKey: ["replay", replayFilters.traceId, replayFilters.module],
     queryFn: () => fetchReplay(replayFilters.traceId || undefined, replayFilters.module || undefined),
-    refetchInterval: activeView === "replay" ? 10000 : false,
+    enabled: activeView === "replay",
+    refetchInterval: activeView === "replay" ? 15000 : false,
   });
   const agentQueries = useQueries({
     queries: agentRoles.map((agent) => ({
       queryKey: ["agent", agent.key],
       queryFn: () => fetchAgentLatest(agent.key),
-      refetchInterval: 15000,
+      enabled: activeView === "agents",
+      refetchInterval: 30000,
     })),
   });
 
@@ -845,14 +849,18 @@ function formatBandValue(value: unknown) {
   return number === null ? "0%" : `${trimNumber(number)}%`;
 }
 
-function buildBalanceHistory(history: AssetRecord[], latestPortfolio: Record<string, unknown>, granularity: "15m" | "1h" | "1d") {
+function buildBalanceHistory(
+  history: Array<{ created_at: string; total_equity_usd?: string | number | null }>,
+  latestPortfolio: Record<string, unknown>,
+  granularity: "15m" | "1h" | "1d",
+) {
   const intervalMs = balanceGranularityMs(granularity);
   const bucketCount = balanceBucketCount(granularity);
   const rawPoints = history
     .map((record) => {
       const createdAt = record.created_at;
       const createdAtMs = new Date(createdAt).getTime();
-      const equity = toNumber(record.payload["total_equity_usd"]);
+      const equity = toNumber(record.total_equity_usd);
       if (Number.isNaN(createdAtMs) || equity === null) {
         return null;
       }
