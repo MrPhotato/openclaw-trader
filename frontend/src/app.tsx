@@ -77,6 +77,7 @@ export default function App() {
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
   const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceGranularity);
+  const balanceTicks = buildBalanceTicks(balanceSeries);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
 
   return (
@@ -199,14 +200,36 @@ export default function App() {
                   <ResponsiveContainer width="100%" height={260}>
                     <LineChart data={balanceSeries}>
                       <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} domain={["dataMin", "dataMax"]} />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval="preserveStartEnd"
+                        minTickGap={28}
+                      />
+                      <YAxis
+                        tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                        domain={["dataMin", "dataMax"]}
+                        ticks={balanceTicks}
+                        width={72}
+                      />
                       <Tooltip
                         cursor={{ stroke: "rgba(113,246,209,0.35)" }}
                         formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
                         labelFormatter={(label) => `时间：${label}`}
                       />
-                      <Line type="monotone" dataKey="equity" stroke="#71f6d1" strokeWidth={3} dot={false} activeDot={{ r: 4 }} />
+                      <Line
+                        type="monotone"
+                        dataKey="equity"
+                        stroke="#71f6d1"
+                        strokeWidth={3}
+                        dot={false}
+                        connectNulls
+                        activeDot={{ r: 4 }}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 </ChartShell>
@@ -893,6 +916,22 @@ function buildBalanceHistory(history: AssetRecord[], latestPortfolio: Record<str
           createdAtMs: endBucketMs,
         },
       ];
+}
+
+function buildBalanceTicks(points: Array<{ equity: number }>) {
+  if (points.length === 0) {
+    return [];
+  }
+  const values = points.map((point) => point.equity);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (Math.abs(max - min) < 0.0001) {
+    return [min];
+  }
+
+  const tickCount = 6;
+  const step = (max - min) / (tickCount - 1);
+  return Array.from({ length: tickCount }, (_, index) => Number((min + step * index).toFixed(4)));
 }
 
 function executionRecordTitle(asset: AssetRecord) {

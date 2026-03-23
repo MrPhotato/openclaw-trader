@@ -324,7 +324,7 @@ class StateMemoryService:
             },
             latest_strategy=latest_strategy,
             latest_portfolio=latest_portfolio,
-            portfolio_history=self.recent_portfolios(limit=240),
+            portfolio_history=self.recent_portfolios(limit=1000),
             latest_execution_batch=latest_execution_batch,
             recent_execution_results=recent_execution_results,
             current_macro_events=current_macro_events,
