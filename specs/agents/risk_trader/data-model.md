@@ -29,7 +29,7 @@
 
 - 一次 `ExecutionSubmission` 可以包含多个 symbol 的短执行批次
 - RT 只定义“这轮怎么打”，不直接定义交易所订单细节
-- `size_pct_of_equity`、`direction` 与 `action` 必须受 PM 的 `target_exposure_band_pct`、`rt_discretion_band_pct` 和 `no_new_risk` 约束
+- `size_pct_of_equity`、`direction` 与 `action` 必须受 PM 的 `target_exposure_band_pct` 和 `rt_discretion_band_pct` 约束
 - `size_pct_of_equity` 的百分比口径虽然沿用旧字段名，但语义已统一为 `% of exposure budget`
 - RT 不依赖长期记忆；输入默认来自当前 `ExecutionContext`、`market_data`、`policy_risk` 与 `quant_intelligence`
 - 对应的最小执行流水由 `Trade Gateway.execution` 记录，不视为 RT 记忆

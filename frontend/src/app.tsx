@@ -840,8 +840,7 @@ function summarizeTarget(item: Record<string, unknown>, band: unknown[]) {
   const min = formatBandValue(band[0]);
   const max = formatBandValue(band[1]);
   const discretion = formatPct(item.rt_discretion_band_pct);
-  const noNewRisk = item.no_new_risk ? "禁止新增风险。" : "允许在策略框架内开新仓。";
-  return `${stateLabel(item.state)}，目标敞口 ${min} 到 ${max}。RT 机动额度 ${discretion}。${noNewRisk}`;
+  return `${stateLabel(item.state)}，目标敞口 ${min} 到 ${max}。RT 机动额度 ${discretion}。`;
 }
 
 function formatBandValue(value: unknown) {

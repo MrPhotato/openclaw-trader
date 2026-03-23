@@ -102,12 +102,13 @@ class RetroMeetingResult(BaseModel):
 
 
 class StrategySubmissionTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     symbol: str
     state: str
     direction: str
     target_exposure_band_pct: list[float] = Field(default_factory=list)
     rt_discretion_band_pct: float = 0.0
-    no_new_risk: bool = False
     priority: int = 1
 
 
@@ -118,6 +119,8 @@ class StrategyScheduledRecheck(BaseModel):
 
 
 class StrategySubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     portfolio_mode: str
     target_gross_exposure_band_pct: list[float] = Field(default_factory=list)
     portfolio_thesis: str

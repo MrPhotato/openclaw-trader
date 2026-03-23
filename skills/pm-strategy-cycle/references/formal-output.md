@@ -15,7 +15,6 @@ Important fields to always think about:
 - `targets[]`
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
-- `no_new_risk`
 - `scheduled_rechecks[]`
 
 Rules:
@@ -48,7 +47,6 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
         "direction": "long",
         "target_exposure_band_pct": [0, 10],
         "rt_discretion_band_pct": 5,
-        "no_new_risk": false,
         "priority": 1
       },
       {
@@ -57,7 +55,6 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
         "direction": "flat",
         "target_exposure_band_pct": [0, 5],
         "rt_discretion_band_pct": 5,
-        "no_new_risk": true,
         "priority": 2
       }
     ],

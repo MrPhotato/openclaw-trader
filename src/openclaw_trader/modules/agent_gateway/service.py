@@ -569,6 +569,8 @@ class AgentGatewayService:
         else:
             payload = dict(runtime_input.payload)
             payload["trigger_context"] = trigger_context
+            if agent_role == "risk_trader":
+                payload["recent_execution_thoughts"] = self.state_memory.get_recent_execution_thoughts(limit=5)
             hidden_payload = {
                 "market": context["market"].model_dump(mode="json"),
                 "policies": {coin: decision.model_dump(mode="json") for coin, decision in context["policies"].items()},
@@ -842,6 +844,7 @@ class AgentGatewayService:
                     "market": rt_market_payload,
                     "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
                     "forecasts": self._forecast_payload(forecasts),
+                    "news_events": self._compact_news_events(news_events, limit=5),
                     "strategy": rt_strategy_payload,
                     "execution_contexts": rt_execution_contexts,
                 },
@@ -1283,7 +1286,6 @@ class AgentGatewayService:
                     "direction": str(item.get("direction") or ""),
                     "target_exposure_band_pct": list(item.get("target_exposure_band_pct") or []),
                     "rt_discretion_band_pct": item.get("rt_discretion_band_pct"),
-                    "no_new_risk": bool(item.get("no_new_risk", False)),
                     "priority": item.get("priority"),
                 }
                 for item in list(payload.get("targets") or [])
@@ -1333,7 +1335,6 @@ class AgentGatewayService:
                     "direction": str(target.get("direction") or ""),
                     "target_exposure_band_pct": list(target.get("target_exposure_band_pct") or []),
                     "rt_discretion_band_pct": target.get("rt_discretion_band_pct"),
-                    "no_new_risk": bool(target.get("no_new_risk", False)),
                     "current_position_share_pct": item.get("current_position_share_pct"),
                     "mark_price": str(market_snapshot.get("mark_price") or ""),
                     "trading_status": str(market_snapshot.get("trading_status") or ""),
@@ -2051,7 +2052,6 @@ class AgentGatewayService:
             "direction",
             "target_exposure_band_pct",
             "rt_discretion_band_pct",
-            "no_new_risk",
             "priority",
         }
         return {
@@ -2123,6 +2123,24 @@ class AgentGatewayService:
                 "failure_count": len(history.get("failure_sources", [])),
             }
         return summary
+
+    @staticmethod
+    def _compact_news_events(events: list[NewsDigestEvent], *, limit: int) -> list[dict[str, Any]]:
+        compacted: list[dict[str, Any]] = []
+        for item in list(events or [])[:limit]:
+            payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item or {})
+            compacted.append(
+                {
+                    "news_id": payload.get("news_id"),
+                    "source": payload.get("source"),
+                    "title": payload.get("title"),
+                    "summary": payload.get("summary"),
+                    "severity": payload.get("severity"),
+                    "published_at": payload.get("published_at"),
+                    "tags": payload.get("tags") or [],
+                }
+            )
+        return compacted
 
     @staticmethod
     def _should_retry_after_session_reset(*, task: AgentTask, meta: dict[str, Any]) -> bool:

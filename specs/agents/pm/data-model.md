@@ -26,7 +26,6 @@
 | `direction` | string | `long` / `short` / `flat` |
 | `target_exposure_band_pct` | number[2] | 目标暴露区间，按 exposure budget 百分比表示 |
 | `rt_discretion_band_pct` | number | RT 可围绕该目标额外上下浮动的幅度，单位为 exposure budget 百分点 |
-| `no_new_risk` | boolean | 若为 `true`，RT 当前只能减仓或保持，不能新增该目标风险 |
 | `priority` | integer | 执行优先级 |
 
 ## 3. ScheduledRecheck

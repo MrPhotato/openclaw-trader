@@ -58,7 +58,7 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/execution \
         "priority": 2,
         "urgency": "low",
         "valid_for_minutes": 15,
-        "reason": "ETH remains on watch with no_new_risk=true.",
+        "reason": "ETH remains on watch and there is no higher-quality tactical action this round.",
         "escalate_to_pm": false
       }
     ]

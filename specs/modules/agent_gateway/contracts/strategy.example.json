@@ -17,7 +17,6 @@
         130.0
       ],
       "rt_discretion_band_pct": 8.0,
-      "no_new_risk": false,
       "priority": 1
     },
     {
@@ -29,7 +28,6 @@
         80.0
       ],
       "rt_discretion_band_pct": 6.0,
-      "no_new_risk": false,
       "priority": 2
     }
   ],

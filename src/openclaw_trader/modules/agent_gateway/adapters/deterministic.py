@@ -43,10 +43,9 @@ class DeterministicAgentRunner:
                 current_share = float(item.get("current_position_share_pct") or 0.0)
                 band = target.get("target_exposure_band_pct") or [0.0, 0.0]
                 band_high = float(band[1] if len(band) > 1 else band[0] if band else 0.0)
-                no_new_risk = bool(target.get("no_new_risk"))
                 action = "wait"
                 size_pct = 0.0
-                if state == "active" and direction in {"long", "short"} and not no_new_risk and current_share < band_high:
+                if state == "active" and direction in {"long", "short"} and current_share < band_high:
                     action = "open" if current_share == 0 else "add"
                     size_pct = round(min(max(band_high - current_share, 0.0), 3.0), 2)
                 elif state in {"only_reduce", "disabled"} and current_share > 0:
@@ -105,7 +104,6 @@ class DeterministicAgentRunner:
                         "direction": direction,
                         "target_exposure_band_pct": band,
                         "rt_discretion_band_pct": 1.0,
-                        "no_new_risk": portfolio_mode == "defensive",
                         "priority": index,
                     }
                 )

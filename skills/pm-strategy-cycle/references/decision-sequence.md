@@ -30,4 +30,3 @@ Then decide:
 - per-symbol direction
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
-- `no_new_risk`

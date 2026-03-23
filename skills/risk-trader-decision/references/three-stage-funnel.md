@@ -5,7 +5,6 @@ Read first:
 - current target and target gap
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
-- `no_new_risk`
 - `policy_risk`
 - current positions and account state
 

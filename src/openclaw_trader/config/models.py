@@ -267,16 +267,16 @@ class RiskSettings(BaseModel):
     risk_profile: str = "normal"
     max_order_quote_usd: float | None = None
     max_position_quote_usd: float | None = None
-    max_order_pct_of_equity: float = 15.0
-    max_position_pct_of_equity: float = 35.0
-    daily_loss_limit_pct_of_equity: float = 6.0
+    max_order_pct_of_equity: float = 33.0
+    max_position_pct_of_equity: float = 66.0
+    daily_loss_limit_pct_of_equity: float = 10.0
     emergency_exit_enabled: bool = True
     position_observe_drawdown_pct: float = 4.0
     position_reduce_drawdown_pct: float = 7.0
     position_exit_drawdown_pct: float = 10.0
     emergency_exit_on_exchange_status: bool = True
     max_live_orders_per_day: int = 5
-    max_leverage: float = 1.0
+    max_leverage: float = 5.0
     symbol_whitelist: list[str] = Field(default_factory=lambda: ["BTC-USDC"])
     require_news_confirmation: bool = False
 
@@ -288,8 +288,8 @@ class ExecutionSettings(BaseModel):
     live_enabled: bool = True
     max_leverage: float = 5.0
     max_total_exposure_pct_of_equity: float = 100.0
-    max_order_share_pct_of_exposure_budget: float = 66.0
-    max_position_share_pct_of_exposure_budget: float = 100.0
+    max_order_share_pct_of_exposure_budget: float = 33.0
+    max_position_share_pct_of_exposure_budget: float = 66.0
     mode: str = "live"
     poll_seconds: int = 60
     primary_coin: str = "BTC"

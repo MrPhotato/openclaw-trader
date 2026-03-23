@@ -61,7 +61,6 @@ class StrategyTargetAsset(BaseModel):
     direction: str
     target_exposure_band_pct: list[float] = Field(default_factory=list)
     rt_discretion_band_pct: float = 0.0
-    no_new_risk: bool = False
     priority: int = 1
 
 

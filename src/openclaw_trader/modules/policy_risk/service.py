@@ -153,9 +153,6 @@ class PolicyRiskService:
                     reasons.append("breaker_active")
                 if decision.size_pct_of_equity and decision.size_pct_of_equity > policy.risk_limits.max_order_pct_of_equity:
                     reasons.append("order_size_limit_breached")
-            no_new_risk = bool(target.get("no_new_risk"))
-            if no_new_risk and decision.action in {"open", "add", "flip"}:
-                reasons.append("no_new_risk")
             if decision.action in {"open", "add"} and total_equity <= 0:
                 reasons.append("non_positive_equity")
             if reasons:

@@ -7,7 +7,7 @@
 - [x] 已明确正式提交为 JSON `ExecutionDecision`
 - [x] 已明确不是 approve/reject 审核器
 - [x] 已明确 `MEA` 的 `high` 级事件会直接提醒 `RT`
-- [x] 已明确 RT 必须遵守 PM 给出的 `rt_discretion_band_pct` 与 `no_new_risk`
+- [x] 已明确 RT 必须遵守 PM 给出的 `target_exposure_band_pct` 与 `rt_discretion_band_pct`
 - [x] 已明确 RT 采用固定的三段式阅读顺序，而不是平铺读取所有信息
 - [x] 已明确 RT 默认固定 `10` 分钟一轮，并支持重大事件立即触发
 - [x] 已明确 RT 默认不使用长期记忆或 recall，learning 只在复盘时单独生成

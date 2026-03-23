@@ -50,7 +50,6 @@
           "direction",
           "target_exposure_band_pct",
           "rt_discretion_band_pct",
-          "no_new_risk",
           "priority"
         ],
         "properties": {
@@ -85,9 +84,6 @@
           "rt_discretion_band_pct": {
             "type": "number",
             "minimum": 0
-          },
-          "no_new_risk": {
-            "type": "boolean"
           },
           "priority": {
             "type": "integer",

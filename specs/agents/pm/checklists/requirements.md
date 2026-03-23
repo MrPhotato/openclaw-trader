@@ -10,4 +10,4 @@
 - [x] 已明确 PM 不自管长期记忆
 - [x] 已明确 PM 即使维持原判也直接刷新为新策略版本
 - [x] 已明确 PM 的复盘 learning 固定写入 `.learnings/pm.md`
-- [x] 已明确每币 `rt_discretion_band_pct` 与 `no_new_risk` 属于 PM 正式策略约束
+- [x] 已明确每币 `rt_discretion_band_pct` 属于 PM 正式策略约束

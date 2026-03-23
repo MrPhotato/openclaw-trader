@@ -208,6 +208,53 @@ class StateMemoryService:
     def get_recent_execution_results(self, *, limit: int = 10) -> list[dict]:
         return [item["payload"] for item in self.recent_assets(asset_type="execution_result", limit=limit)]
 
+    def get_recent_execution_thoughts(self, *, limit: int = 5) -> list[dict]:
+        batch_assets = self.recent_assets(asset_type="execution_batch", actor_role="risk_trader", limit=max(limit * 3, 10))
+        result_assets = self.recent_assets(asset_type="execution_result", actor_role="risk_trader", limit=max(limit * 6, 20))
+
+        results_by_key: dict[tuple[str, str], dict] = {}
+        for asset in result_assets:
+            payload = dict(asset.get("payload") or {})
+            decision_id = str(payload.get("decision_id") or "").strip()
+            coin = str(payload.get("coin") or "").strip().upper()
+            if not decision_id or not coin:
+                continue
+            results_by_key.setdefault((decision_id, coin), payload)
+
+        thoughts: list[dict] = []
+        for asset in batch_assets:
+            payload = dict(asset.get("payload") or {})
+            decision_id = str(payload.get("decision_id") or "").strip()
+            if not decision_id:
+                continue
+            strategy_id = str(payload.get("strategy_id") or "").strip() or None
+            generated_at_utc = payload.get("generated_at_utc") or asset.get("created_at")
+            for item in list(payload.get("decisions") or []):
+                if not isinstance(item, dict):
+                    continue
+                symbol = str(item.get("symbol") or "").strip().upper()
+                if not symbol:
+                    continue
+                thoughts.append(
+                    {
+                        "generated_at_utc": generated_at_utc,
+                        "decision_id": decision_id,
+                        "strategy_id": strategy_id,
+                        "symbol": symbol,
+                        "action": item.get("action"),
+                        "direction": item.get("direction"),
+                        "reason": item.get("reason"),
+                        "size_pct_of_equity": item.get("size_pct_of_equity"),
+                        "urgency": item.get("urgency"),
+                        "execution_result": self._compact_execution_result_for_thought(
+                            results_by_key.get((decision_id, symbol))
+                        ),
+                    }
+                )
+                if len(thoughts) >= limit:
+                    return thoughts
+        return thoughts
+
     def get_recent_news_submissions(self, *, limit: int = 10) -> list[dict]:
         return [item["payload"] for item in self.recent_assets(asset_type="news_submission", limit=limit)]
 
@@ -339,3 +386,21 @@ class StateMemoryService:
             recent_notifications=recent_notifications,
             recent_events=self.query_events(limit=25),
         )
+
+    @staticmethod
+    def _compact_execution_result_for_thought(payload: dict | None) -> dict | None:
+        if not payload:
+            return None
+        fills = list(payload.get("fills") or [])
+        first_fill = dict(fills[0]) if fills else {}
+        return {
+            "success": payload.get("success"),
+            "technical_failure": payload.get("technical_failure"),
+            "message": payload.get("message"),
+            "exchange_order_id": payload.get("exchange_order_id"),
+            "notional_usd": payload.get("notional_usd"),
+            "executed_at": payload.get("executed_at"),
+            "fills_count": len(fills),
+            "first_fill_price": first_fill.get("price"),
+            "first_fill_size": first_fill.get("size"),
+        }

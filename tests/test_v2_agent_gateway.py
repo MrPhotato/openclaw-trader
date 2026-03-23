@@ -107,6 +107,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertIn("execution_contexts", inputs["risk_trader"].payload)
         self.assertIn("forecasts", inputs["risk_trader"].payload)
         self.assertIn("market", inputs["risk_trader"].payload)
+        self.assertIn("news_events", inputs["risk_trader"].payload)
         self.assertIn("product_metadata", inputs["risk_trader"].payload["market"])
         self.assertIn("execution_history", inputs["risk_trader"].payload["market"])
         self.assertNotIn("raw", str(inputs["pm"].payload["market"]))
@@ -130,6 +131,8 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertNotIn("position_risk_state", rt_context)
         self.assertNotIn("forecast_snapshot", rt_context)
         self.assertEqual(rt_context["current_position_share_pct"], 4.0)
+        self.assertLessEqual(len(inputs["risk_trader"].payload["news_events"]), 5)
+        self.assertEqual(inputs["risk_trader"].payload["news_events"][0]["title"], "Macro headline")
 
     def test_validate_submission_failure_exposes_schema_and_prompt_refs(self) -> None:
         gateway = AgentGatewayService(
@@ -174,7 +177,6 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         "direction": "long",
                         "target_exposure_band_pct": [1.0, 2.0],
                         "rt_discretion_band_pct": 1.0,
-                        "no_new_risk": False,
                         "priority": 1,
                     }
                 ],
@@ -293,6 +295,62 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertIsNotNone(lease_asset)
             self.assertEqual(lease_asset["asset_type"], "agent_runtime_lease")
             self.assertEqual(lease_asset["payload"]["status"], "issued")
+        finally:
+            harness.cleanup()
+
+    def test_pull_rt_runtime_input_includes_recent_execution_thoughts(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            harness.container.state_memory.save_asset(
+                asset_type="execution_batch",
+                trace_id="trace-old",
+                actor_role="risk_trader",
+                payload={
+                    "decision_id": "decision-old-1",
+                    "strategy_id": "strategy-old-1",
+                    "generated_at_utc": "2026-03-23T00:00:00Z",
+                    "decisions": [
+                        {
+                            "symbol": "BTC",
+                            "action": "add",
+                            "direction": "long",
+                            "reason": "Breakout held and liquidity improved.",
+                            "size_pct_of_equity": 3.0,
+                            "urgency": "high",
+                        }
+                    ],
+                },
+            )
+            harness.container.state_memory.save_asset(
+                asset_type="execution_result",
+                trace_id="trace-old",
+                actor_role="risk_trader",
+                payload={
+                    "decision_id": "decision-old-1",
+                    "coin": "BTC",
+                    "success": True,
+                    "technical_failure": False,
+                    "message": "filled",
+                    "exchange_order_id": "order-old-1",
+                    "notional_usd": "125.50",
+                    "executed_at": "2026-03-23T00:01:00Z",
+                    "fills": [{"price": "68000", "size": "0.0018"}],
+                },
+            )
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(
+                trigger_type="cadence",
+                params={"cadence_source": "openclaw_cron", "cadence_label": "rt_15m"},
+            )
+            self.assertIn("news_events", pack.payload)
+            self.assertTrue(pack.payload["news_events"])
+            thoughts = pack.payload["recent_execution_thoughts"]
+            self.assertEqual(len(thoughts), 1)
+            self.assertEqual(thoughts[0]["symbol"], "BTC")
+            self.assertEqual(thoughts[0]["reason"], "Breakout held and liquidity improved.")
+            self.assertEqual(thoughts[0]["execution_result"]["exchange_order_id"], "order-old-1")
+            self.assertEqual(thoughts[0]["execution_result"]["first_fill_price"], "68000")
         finally:
             harness.cleanup()
 
@@ -648,7 +706,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                                 "portfolio_thesis": "Stay defensive.",
                                 "portfolio_invalidation": "Break higher.",
                                 "change_summary": "No change.",
-                                "targets": [{"symbol": "BTC", "state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0, "no_new_risk": False, "priority": 1}],
+                                "targets": [{"symbol": "BTC", "state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0, "priority": 1}],
                             },
                             "news_events": [{"news_id": "news-1", "title": "Fed", "summary": "Policy unchanged", "severity": "medium"}],
                             "macro_memory": [{"memory_day_utc": "2026-03-21", "summary": "Quiet macro day", "event_ids": ["news-1"]}],
@@ -661,7 +719,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         payload={
                             "trace_id": "trace-meeting",
                             "strategy": {"strategy_id": "strategy-1", "portfolio_mode": "defensive", "targets": []},
-                            "execution_contexts": [{"coin": "BTC", "product_id": "BTC-PERP-INTX", "target": {"state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0, "no_new_risk": False}, "current_position_share_pct": 0.0, "market_snapshot": {"mark_price": "70000", "trading_status": "STANDARD"}, "execution_summary": {"recent_order_count": 1}}],
+                            "execution_contexts": [{"coin": "BTC", "product_id": "BTC-PERP-INTX", "target": {"state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0}, "current_position_share_pct": 0.0, "market_snapshot": {"mark_price": "70000", "trading_status": "STANDARD"}, "execution_summary": {"recent_order_count": 1}}],
                         },
                     ),
                     "macro_event_analyst": AgentRuntimeInput(
