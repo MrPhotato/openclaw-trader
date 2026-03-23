@@ -22,8 +22,7 @@
 | `urgency` | string | `low` / `normal` / `high` |
 | `valid_for_minutes` | integer | 本轮判断在多长时间内有效 |
 | `reason` | string | 这条动作的简短解释 |
-| `escalate_to_pm` | boolean | 是否需要就该币或该批次升级给 PM |
-| `escalation_reason` | string? | 升级理由 |
+| `reference_take_profit_condition` | string? | 纯文字的参考止盈/退出条件，供下一次 RT cadence 续接思路，不直接生成订单 |
 
 ## 3. 关系与约束
 

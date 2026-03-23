@@ -238,7 +238,12 @@ class CoinbaseIntxRuntimeClient:
             reduce_only=reduce_only,
         )
         if not preview.success:
-            return {"success": False, "message": preview.message, "preview": preview.raw}
+            return {
+                "success": False,
+                "message": preview.message or "preview_failed",
+                "preview": preview.raw,
+                "technical_failure": False,
+            }
         order = self.client.create_intx_market_order(
             portfolio_uuid=self.portfolio_uuid,
             product_id=self.product_id(coin),
@@ -249,12 +254,14 @@ class CoinbaseIntxRuntimeClient:
             preview_id=preview.preview_id,
         )
         fills = self.client.list_fills(order_id=order.order_id, product_id=self.product_id(coin)) if order.order_id else []
+        message = order.message or ("submitted" if order.success else "order_failed")
         return {
             "success": order.success,
-            "message": order.message or ("submitted" if order.success else "order_failed"),
+            "message": message,
             "order_id": order.order_id,
             "preview_id": preview.preview_id,
             "fills": fills,
             "base_size": str(base_size),
             "product": product.raw,
+            "technical_failure": (not order.success) and not bool(order.message),
         }

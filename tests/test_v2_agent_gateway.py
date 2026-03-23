@@ -249,7 +249,6 @@ class AgentGatewayServiceTests(unittest.TestCase):
                                 "priority": 1,
                                 "urgency": "normal",
                                 "valid_for_minutes": 10,
-                                "escalate_to_pm": False,
                             }
                         ]
                     },
@@ -277,6 +276,42 @@ class AgentGatewayServiceTests(unittest.TestCase):
             },
         )
         self.assertEqual(envelope.payload["decisions"], [])
+
+    def test_validate_execution_submission_accepts_reference_take_profit_condition(self) -> None:
+        gateway = AgentGatewayService(
+            pm_runner=DeterministicAgentRunner(),
+            risk_runner=DeterministicAgentRunner(),
+            macro_runner=DeterministicAgentRunner(),
+            chief_runner=DeterministicAgentRunner(),
+            session_controller=DeterministicSessionController(),
+        )
+        envelope = gateway.validate_submission(
+            submission_kind="execution",
+            agent_role="risk_trader",
+            trace_id="trace-1",
+            payload={
+                "decision_id": "decision-1",
+                "generated_at_utc": "2026-03-22T00:00:00Z",
+                "trigger_type": "cadence",
+                "decisions": [
+                    {
+                        "symbol": "BTC",
+                        "action": "add",
+                        "direction": "long",
+                        "reason": "Momentum remains constructive.",
+                        "reference_take_profit_condition": "Trim if BTC tags the upper intraday range and loses momentum.",
+                        "size_pct_of_equity": 2.0,
+                        "priority": 1,
+                        "urgency": "normal",
+                        "valid_for_minutes": 15,
+                    }
+                ],
+            },
+        )
+        self.assertEqual(
+            envelope.payload["decisions"][0]["reference_take_profit_condition"],
+            "Trim if BTC tags the upper intraday range and loses momentum.",
+        )
 
     def test_pull_pm_runtime_input_issues_single_runtime_pack_with_lease(self) -> None:
         from .helpers_v2 import build_test_harness
@@ -317,6 +352,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                             "action": "add",
                             "direction": "long",
                             "reason": "Breakout held and liquidity improved.",
+                            "reference_take_profit_condition": "Trim into strength if BTC reaches the 1h range high and stalls.",
                             "size_pct_of_equity": 3.0,
                             "urgency": "high",
                         }
@@ -349,6 +385,10 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(len(thoughts), 1)
             self.assertEqual(thoughts[0]["symbol"], "BTC")
             self.assertEqual(thoughts[0]["reason"], "Breakout held and liquidity improved.")
+            self.assertEqual(
+                thoughts[0]["reference_take_profit_condition"],
+                "Trim into strength if BTC reaches the 1h range high and stalls.",
+            )
             self.assertEqual(thoughts[0]["execution_result"]["exchange_order_id"], "order-old-1")
             self.assertEqual(thoughts[0]["execution_result"]["first_fill_price"], "68000")
         finally:
@@ -433,7 +473,6 @@ class AgentGatewayServiceTests(unittest.TestCase):
                             "priority": 1,
                             "urgency": "normal",
                             "valid_for_minutes": 10,
-                            "escalate_to_pm": False,
                         }
                     ],
                 },
@@ -1166,7 +1205,7 @@ class OpenClawAgentRunnerTests(unittest.TestCase):
 
             def fake_run(*args, **kwargs):
                 fallback_path.write_text(
-                    '{"decision_id":"dec-1","strategy_id":"strat-1","generated_at_utc":"2026-03-21T00:00:00Z","trigger_type":"manual","decisions":[{"symbol":"BTC","action":"wait","direction":"long","reason":"fallback","size_pct_of_equity":0.0,"priority":1,"urgency":"low","valid_for_minutes":10,"escalate_to_pm":false}]}'
+                    '{"decision_id":"dec-1","strategy_id":"strat-1","generated_at_utc":"2026-03-21T00:00:00Z","trigger_type":"manual","decisions":[{"symbol":"BTC","action":"wait","direction":"long","reason":"fallback","size_pct_of_equity":0.0,"priority":1,"urgency":"low","valid_for_minutes":10}]}'
                 )
                 return _CommandResult(returncode=-1, stdout="", stderr="", timed_out=True)
 

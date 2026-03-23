@@ -61,7 +61,6 @@ class DeterministicAgentRunner:
                         "priority": index,
                         "urgency": "normal" if action != "wait" else "low",
                         "valid_for_minutes": 10,
-                        "escalate_to_pm": False,
                     }
                 )
             return AgentReply(

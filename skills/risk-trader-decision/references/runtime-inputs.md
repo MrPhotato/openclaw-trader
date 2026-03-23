@@ -31,6 +31,7 @@ The runtime pack from `/api/agent/pull/rt` contains:
 - `market.portfolio` - portfolio-level summary with positions array
 - `news_events` - a thin, trade-oriented recent news layer for headline risk
 - `recent_execution_thoughts` - the last 5 RT decision summaries paired with actual execution outcome details
+- when present, each recent thought may also carry `reference_take_profit_condition`, a textual exit clue left by RT for the next cadence
 - Real-time `captured_at` timestamps
 - Normalized exposure/share fields that already follow the new house convention:
   - `% of exposure budget`
@@ -93,7 +94,7 @@ RT also remains a decision agent, not an order router.
 - Pull once, work from that pack, and submit against the same `input_id`.
 - Treat `execution_contexts` as the actionable bridge from PM formal strategy to RT execution batching.
 - Use `news_events` as a thin headline-risk layer, not as a substitute for PM or MEA analysis.
-- Use `recent_execution_thoughts` to remember what you recently tried, why you tried it, and what actually filled.
+- Use `recent_execution_thoughts` to remember what you recently tried, why you tried it, what actually filled, and what reference take-profit condition you previously left for yourself.
 - When reasoning about exposure, quote the normalized share from the runtime pack instead of recomputing it from raw notional and equity.
 - For official cadence and PM follow-up operation, submit with `live=true`.
 - Only pass `max_notional_usd` when the user or upstream trigger explicitly asks for a temporary execution cap.

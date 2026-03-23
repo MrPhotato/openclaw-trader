@@ -156,6 +156,27 @@ class CoinbaseAdvancedClientTests(unittest.TestCase):
         self.assertTrue(order.success)
         client.close()
 
+    def test_intx_preview_with_errs_is_not_treated_as_success(self) -> None:
+        client = CoinbaseAdvancedClient(
+            CoinbaseCredentials(api_key_id="key", api_key_secret="secret", api_base="https://example.com"),
+        )
+        with patch.object(
+            client,
+            "_request",
+            return_value={"preview_id": "preview-1", "errs": ["PREVIEW_INSUFFICIENT_FUNDS_FOR_FUTURES"]},
+        ):
+            preview = client.preview_intx_market_order(
+                portfolio_uuid="portfolio-123",
+                product_id="ETH-PERP-INTX",
+                side="BUY",
+                base_size=Decimal("0.1"),
+                leverage=Decimal("2"),
+                reduce_only=False,
+            )
+        self.assertFalse(preview.success)
+        self.assertEqual(preview.message, "PREVIEW_INSUFFICIENT_FUNDS_FOR_FUTURES")
+        client.close()
+
 
 if __name__ == "__main__":
     unittest.main()

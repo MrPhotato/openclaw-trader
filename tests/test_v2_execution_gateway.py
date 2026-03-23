@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
 
-from openclaw_trader.modules.trade_gateway.execution import ExecutionDecision
+from openclaw_trader.modules.trade_gateway.execution import ExecutionDecision, ExecutionResult
 from openclaw_trader.modules.trade_gateway.execution.service import ExecutionGatewayService
 
 from .helpers_v2 import FakeBroker
@@ -63,6 +64,49 @@ class ExecutionGatewayServiceTests(unittest.TestCase):
         )
         plans = service.build_execution_plans(decisions=[decision])
         self.assertEqual(plans, [])
+
+    def test_execute_preserves_non_technical_broker_failure(self) -> None:
+        class BusinessRejectingBroker:
+            def execute_plan(self, plan):
+                return ExecutionResult(
+                    plan_id=plan.plan_id,
+                    decision_id=plan.decision_id,
+                    strategy_version=plan.strategy_version,
+                    coin=plan.coin,
+                    action=plan.action,
+                    side=plan.side,
+                    notional_usd=plan.notional_usd,
+                    success=False,
+                    message="PREVIEW_INSUFFICIENT_FUNDS_FOR_FUTURES",
+                    fills=[],
+                    executed_at=datetime.now(UTC),
+                    technical_failure=False,
+                )
+
+            def portfolio(self):
+                raise NotImplementedError
+
+        service = ExecutionGatewayService(BusinessRejectingBroker(), live_enabled=True)
+        plans = service.build_execution_plans(
+            decisions=[
+                ExecutionDecision(
+                    decision_id="d4",
+                    context_id="ctx-4",
+                    strategy_version="v1",
+                    product_id="ETH-PERP-INTX",
+                    coin="ETH",
+                    action="open",
+                    side="long",
+                    notional_usd="400",
+                    leverage="5",
+                    reason="test",
+                )
+            ]
+        )
+        results = service.execute(plans, live=True)
+        self.assertFalse(results[0].success)
+        self.assertEqual(results[0].message, "PREVIEW_INSUFFICIENT_FUNDS_FOR_FUTURES")
+        self.assertFalse(results[0].technical_failure)
 
 
 if __name__ == "__main__":

@@ -244,6 +244,7 @@ class StateMemoryService:
                         "action": item.get("action"),
                         "direction": item.get("direction"),
                         "reason": item.get("reason"),
+                        "reference_take_profit_condition": item.get("reference_take_profit_condition"),
                         "size_pct_of_equity": item.get("size_pct_of_equity"),
                         "urgency": item.get("urgency"),
                         "execution_result": self._compact_execution_result_for_thought(

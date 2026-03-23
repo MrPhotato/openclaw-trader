@@ -16,7 +16,7 @@ class CoinbaseIntxBroker:
             action=plan.action,
             side=plan.side,
             notional_usd=Decimal(plan.notional_usd or plan.margin_usd or "0"),
-            leverage=Decimal(plan.leverage or "2"),
+            leverage=Decimal(plan.leverage or str(self.runtime_client.settings.execution.max_leverage)),
         )
         return ExecutionResult(
             plan_id=plan.plan_id,
@@ -24,6 +24,7 @@ class CoinbaseIntxBroker:
             exchange_order_id=payload.get("order_id"),
             message=payload.get("message"),
             fills=list(payload.get("fills") or []),
+            technical_failure=bool(payload.get("technical_failure", False)),
         )
 
     def portfolio(self) -> PortfolioView:

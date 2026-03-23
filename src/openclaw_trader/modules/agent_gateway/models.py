@@ -137,12 +137,11 @@ class ExecutionSubmissionDecision(BaseModel):
     action: Literal["open", "add", "reduce", "close", "flip", "wait", "hold"]
     direction: Literal["long", "short", "flat"] | None = None
     reason: str
+    reference_take_profit_condition: str | None = None
     size_pct_of_equity: float | None = None
     priority: int
     urgency: Literal["low", "normal", "high"]
     valid_for_minutes: int
-    escalate_to_pm: bool
-    escalation_reason: str | None = None
 
 
 class ExecutionSubmission(BaseModel):

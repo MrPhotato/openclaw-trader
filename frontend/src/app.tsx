@@ -160,28 +160,6 @@ export default function App() {
         {activeView === "overview" && (
           <section className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]" data-testid="overview-view">
             <div className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <MetricCard
-                  label="策略状态"
-                  value={strategyReadyText(overview)}
-                  detail={strategyStatusDetail(latestStrategy)}
-                />
-                <MetricCard
-                  label="执行结果"
-                  value={executionCountText(overview?.recent_execution_results?.length ?? 0)}
-                  detail={latestExecutionBatchDetail(overview?.latest_execution_batch)}
-                />
-                <MetricCard
-                  label="宏观事件"
-                  value={eventCountText(overview?.current_macro_events?.length ?? 0)}
-                  detail={overviewUpdatedText(overview?.system?.updated_at)}
-                />
-                <MetricCard
-                  label="通知动态"
-                  value={notificationCountText(overview?.recent_notifications?.length ?? 0)}
-                  detail={latestNotificationDetail(overview?.recent_notifications?.[0])}
-                />
-              </div>
               <Panel title="账户余额轨迹" kicker="OpenClaw 组合快照">
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
                   <SummaryPill
@@ -714,49 +692,6 @@ function balanceBucketCount(granularity: "15m" | "1h" | "1d") {
     return 48;
   }
   return 7;
-}
-
-function strategyReadyText(overview?: OverviewData) {
-  return overview?.system?.strategy_present ? "已就位" : "待生成";
-}
-
-function strategyStatusDetail(strategy: Record<string, unknown>) {
-  const mode = portfolioModeLabel(strategy["portfolio_mode"]);
-  const revision = strategyRevision(strategy);
-  return revision ? `${mode} · 当前为第 ${revision} 版` : `${mode} · 还没有正式策略`;
-}
-
-function executionCountText(count: number) {
-  return count > 0 ? `${count} 条` : "暂无";
-}
-
-function latestExecutionBatchDetail(asset?: AssetRecord | null) {
-  if (!asset) {
-    return "最近还没有新的执行批次。";
-  }
-  return assetPreview(asset);
-}
-
-function eventCountText(count: number) {
-  return count > 0 ? `${count} 条` : "平静";
-}
-
-function overviewUpdatedText(value: unknown) {
-  if (typeof value !== "string") {
-    return "等待新一轮汇总。";
-  }
-  return `最近更新于 ${formatTime(value)}`;
-}
-
-function notificationCountText(count: number) {
-  return count > 0 ? `${count} 条` : "安静";
-}
-
-function latestNotificationDetail(asset?: AssetRecord) {
-  if (!asset) {
-    return "最近没有新的通知。";
-  }
-  return assetPreview(asset);
 }
 
 function strategyIdentity(strategy: Record<string, unknown>) {

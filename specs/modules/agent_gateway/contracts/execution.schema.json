@@ -34,8 +34,7 @@
           "priority",
           "urgency",
           "valid_for_minutes",
-          "reason",
-          "escalate_to_pm"
+          "reason"
         ],
         "properties": {
           "symbol": {
@@ -64,6 +63,9 @@
           "reason": {
             "type": "string"
           },
+          "reference_take_profit_condition": {
+            "type": "string"
+          },
           "size_pct_of_equity": {
             "type": "number"
           },
@@ -82,12 +84,6 @@
           "valid_for_minutes": {
             "type": "integer",
             "minimum": 1
-          },
-          "escalate_to_pm": {
-            "type": "boolean"
-          },
-          "escalation_reason": {
-            "type": "string"
           }
         }
       }

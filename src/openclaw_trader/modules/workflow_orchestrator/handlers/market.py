@@ -290,8 +290,6 @@ class MarketWorkflowHandler(WorkflowEventRecorder):
                     valid_for_minutes=item.valid_for_minutes,
                     reason=item.reason,
                     priority=item.priority,
-                    escalate_to_pm=item.escalate_to_pm,
-                    escalation_reason=item.escalation_reason,
                 )
             )
 

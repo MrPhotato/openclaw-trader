@@ -165,7 +165,13 @@ class PolicyRiskService:
                     }
                 )
                 continue
-            accepted.append(decision.model_dump(mode="json"))
+            accepted_payload = decision.model_dump(mode="json")
+            if policy is not None:
+                accepted_payload["leverage"] = self._effective_execution_leverage(
+                    requested=decision.leverage,
+                    max_allowed=policy.risk_limits.max_leverage,
+                )
+            accepted.append(accepted_payload)
         return ExecutionAuthorization(accepted=accepted, rejected=rejected)
 
     def build_policy_events(self, *, trace_id: str, policies: dict[str, GuardDecision]):
@@ -275,3 +281,11 @@ class PolicyRiskService:
         else:
             adverse_move = max(0.0, (entry - mark) / entry * 100.0)
         return round(adverse_move, 4)
+
+    @staticmethod
+    def _effective_execution_leverage(*, requested: str | None, max_allowed: float) -> str:
+        try:
+            requested_value = float(requested) if requested is not None else max_allowed
+        except (TypeError, ValueError):
+            requested_value = max_allowed
+        return str(min(requested_value, max_allowed))

@@ -130,7 +130,6 @@ class ApiIntegrationTests(unittest.TestCase):
                                     "priority": 1,
                                     "urgency": "low",
                                     "valid_for_minutes": 10,
-                                    "escalate_to_pm": False,
                                 }
                             ],
                         },

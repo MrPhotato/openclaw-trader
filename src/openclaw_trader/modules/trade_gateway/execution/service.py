@@ -53,7 +53,6 @@ class ExecutionGatewayService:
                     preflight={
                         "urgency": decision.urgency,
                         "valid_for_minutes": decision.valid_for_minutes,
-                        "escalate_to_pm": decision.escalate_to_pm,
                     },
                 )
             )
@@ -93,7 +92,7 @@ class ExecutionGatewayService:
                     message=payload.message,
                     fills=payload.fills,
                     executed_at=payload.executed_at,
-                    technical_failure=not payload.success,
+                    technical_failure=payload.technical_failure,
                 )
             )
         return results

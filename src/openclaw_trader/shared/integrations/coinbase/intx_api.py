@@ -48,12 +48,13 @@ class CoinbaseIntxApiMixin:
                 "leverage": f"{leverage:f}",
             },
         )
+        message = payload.get("error_response", {}).get("message") or (payload.get("errs") or [None])[0]
         return OrderResult(
-            success=bool(payload.get("preview_id")),
+            success=bool(payload.get("preview_id")) and not bool(message),
             preview_id=payload.get("preview_id"),
             product_id=product_id,
             side=side,
-            message=payload.get("error_response", {}).get("message") or (payload.get("errs") or [None])[0],
+            message=message,
             raw=payload,
         )
 

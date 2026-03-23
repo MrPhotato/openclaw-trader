@@ -13,7 +13,7 @@
       "urgency": "high",
       "valid_for_minutes": 10,
       "reason": "Current exposure is below target band and market conditions remain executable.",
-      "escalate_to_pm": false
+      "reference_take_profit_condition": "If BTC reclaims the 1h range high and then stalls near the upper band, consider trimming 2% to 4% of exposure budget into strength."
     },
     {
       "symbol": "ETHUSDT",
@@ -21,9 +21,7 @@
       "priority": 2,
       "urgency": "normal",
       "valid_for_minutes": 10,
-      "reason": "Spread and short-term structure make entry unattractive for now.",
-      "escalate_to_pm": true,
-      "escalation_reason": "Current market structure does not support clean execution near PM target."
+      "reason": "Spread and short-term structure make entry unattractive for now."
     }
   ]
 }

@@ -18,8 +18,6 @@ class ExecutionDecision(BaseModel):
     priority: int = 1
     urgency: str = "normal"
     valid_for_minutes: int = 10
-    escalate_to_pm: bool = False
-    escalation_reason: str | None = None
     notional_usd: str | None = None
     leverage: str | None = None
     reason: str | None = None
