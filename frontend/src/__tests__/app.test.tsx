@@ -30,6 +30,7 @@ const overviewPayload = {
         {
           coin: "BTC",
           position_share_pct_of_equity: 12.3,
+          notional_usd: "161.3",
         },
       ],
     },
@@ -216,7 +217,7 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getByText("交易看板")).toBeInTheDocument());
     expect(screen.getByTestId("overview-view")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("12.3%")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("$161.3")).toHaveLength(2));
     await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());

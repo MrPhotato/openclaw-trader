@@ -803,22 +803,19 @@ function buildCoinExposurePills(latestPortfolio: Record<string, unknown>) {
 
   return ["BTC", "ETH", "SOL"].map((coin) => ({
     coin,
-    exposure: positionExposureLabel(positionMap.get(coin)),
+    exposure: positionNotionalLabel(positionMap.get(coin)),
   }));
 }
 
-function positionExposureLabel(position?: Record<string, unknown>) {
+function positionNotionalLabel(position?: Record<string, unknown>) {
   if (!position) {
-    return "0%";
+    return "$0";
   }
-  const share =
-    toNumber(position.position_share_pct_of_equity) ??
-    toNumber(position.position_share_pct) ??
-    toNumber(position.share_pct);
-  if (share === null) {
-    return "0%";
+  const notional = toNumber(position.notional_usd) ?? toNumber(position.current_notional_usd);
+  if (notional === null) {
+    return "$0";
   }
-  return `${trimNumber(share)}%`;
+  return usdCompactText(notional);
 }
 
 function buildBalanceHistory(
