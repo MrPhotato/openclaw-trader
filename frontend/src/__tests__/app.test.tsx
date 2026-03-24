@@ -26,6 +26,12 @@ const overviewPayload = {
       total_equity_usd: "1002.5",
       available_equity_usd: "841.2",
       total_exposure_usd: "161.3",
+      positions: [
+        {
+          coin: "BTC",
+          position_share_pct_of_equity: 12.3,
+        },
+      ],
     },
     metadata: {},
     created_at: "2026-03-20T08:00:00Z",
@@ -210,6 +216,9 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getByText("交易看板")).toBeInTheDocument());
     expect(screen.getByTestId("overview-view")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("12.3%")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("成交金额：219.7 美元")).toBeInTheDocument());

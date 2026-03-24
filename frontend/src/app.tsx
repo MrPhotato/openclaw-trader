@@ -160,23 +160,25 @@ export default function App() {
         {activeView === "overview" && (
           <section className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]" data-testid="overview-view">
             <div className="space-y-6">
-              <Panel title="账户余额轨迹" kicker="OpenClaw 组合快照">
+              <Panel title="账户余额轨迹">
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
                   <SummaryPill
                     label="总权益"
                     value={usdCompactText(latestPortfolio["total_equity_usd"])}
-                    detail="账户当前总权益"
                   />
                   <SummaryPill
                     label="可用资金"
                     value={usdCompactText(latestPortfolio["available_equity_usd"])}
-                    detail="还能继续部署的资金"
                   />
                   <SummaryPill
                     label="当前敞口"
                     value={usdCompactText(latestPortfolio["total_exposure_usd"])}
-                    detail="当前已占用的名义敞口"
                   />
+                </div>
+                <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                  {buildCoinExposurePills(latestPortfolio).map((item) => (
+                    <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} />
+                  ))}
                 </div>
                 <ChartShell>
                   <ResponsiveContainer width="100%" height={260}>
@@ -240,7 +242,7 @@ export default function App() {
                 </div>
               </Panel>
             </div>
-            <Panel title="下单动态" kicker="什么时候下单、下了什么、下了多少">
+            <Panel title="下单动态">
               <div className="space-y-3">
                 {(executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 12).map((record) => (
                   <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />
@@ -252,7 +254,7 @@ export default function App() {
 
         {activeView === "strategy" && (
           <section className="grid gap-6 lg:grid-cols-[1.05fr_1fr]" data-testid="strategy-view">
-            <Panel title="PM 最新策略" kicker="正式提交后的当前判断">
+            <Panel title="PM 最新策略">
               <div className="space-y-4">
                 <Headline label="策略版本" value={strategyIdentity(latestStrategy)} />
                 <Headline label="组合模式" value={portfolioModeLabel(latestStrategy["portfolio_mode"])} />
@@ -272,7 +274,7 @@ export default function App() {
               </div>
             </Panel>
             <div className="space-y-6">
-              <Panel title="最近执行" kicker="RT、风控与交易网关的实际动作">
+              <Panel title="最近执行">
                 <div className="space-y-3">
                   {(executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 10).map((record) => (
                     <div key={record.asset_id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -288,7 +290,7 @@ export default function App() {
                   ))}
                 </div>
               </Panel>
-              <Panel title="链路内容" kicker="策略、风控与网关最近发生了什么">
+              <Panel title="链路内容">
                 <div className="space-y-3">
                   {eventFeed.slice(0, 12).map((event) => (
                     <EventRow key={event.event_id} event={event} />
@@ -301,7 +303,7 @@ export default function App() {
 
         {activeView === "news" && (
           <section className="grid gap-6 lg:grid-cols-[1fr_1.1fr]" data-testid="news-view">
-            <Panel title="宏观影响分布" kicker="MEA 当前整理出的事件强度">
+            <Panel title="宏观影响分布">
               <ChartShell>
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={impactBreakdown}>
@@ -321,7 +323,7 @@ export default function App() {
                 {String(newsQuery.data?.macro_daily_memory?.payload?.["summary"] ?? "今天还没有形成正式的宏观日记忆。")}
               </div>
             </Panel>
-            <Panel title="新闻看板" kicker="结构化事件与重点摘要">
+            <Panel title="新闻看板">
               <div className="space-y-3">
                 {(newsQuery.data?.macro_events ?? []).slice(0, 12).map((record) => (
                   <div key={record.asset_id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -353,7 +355,7 @@ export default function App() {
 
         {activeView === "replay" && (
           <section className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr]" data-testid="replay-view">
-            <Panel title="回放筛选" kicker="按 trace 或模块查看链路">
+            <Panel title="回放筛选">
               <div className="space-y-4">
                 <label className="block text-sm text-slate-300">
                   Trace 编号
@@ -378,7 +380,7 @@ export default function App() {
                 </div>
               </div>
             </Panel>
-            <Panel title="回放时间线" kicker="整条链路的正式事件">
+            <Panel title="回放时间线">
               <div className="space-y-3">
                 {(replayQuery.data?.events ?? []).slice(0, 25).map((event) => (
                   <EventRow key={event.event_id} event={event} />
@@ -392,12 +394,11 @@ export default function App() {
   );
 }
 
-function Panel(props: { title: string; kicker: string; children: ReactNode }) {
+function Panel(props: { title: string; children: ReactNode }) {
   return (
     <article className="glass-panel rounded-[28px] p-5 shadow-glow">
       <div className="mb-5">
-        <div className="text-xs tracking-[0.2em] text-slate-500">{props.kicker}</div>
-        <h2 className="mt-2 text-2xl font-semibold">{props.title}</h2>
+        <h2 className="text-2xl font-semibold">{props.title}</h2>
       </div>
       {props.children}
     </article>
@@ -423,12 +424,20 @@ function MetricCard(props: { label: string; value: string; detail: string }) {
   );
 }
 
-function SummaryPill(props: { label: string; value: string; detail: string }) {
+function SummaryPill(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-      <div className="text-[11px] tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-xl font-semibold text-slate-100">{props.value}</div>
-      <div className="mt-1 text-xs text-slate-400">{props.detail}</div>
+    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+      <div className="text-[10px] tracking-[0.2em] text-slate-500">{props.label}</div>
+      <div className="mt-1 text-lg font-semibold text-slate-100 sm:text-xl">{props.value}</div>
+    </div>
+  );
+}
+
+function CoinExposurePill(props: { coin: string; exposure: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+      <div className="text-[10px] tracking-[0.2em] text-slate-500">{props.coin}</div>
+      <div className="mt-1 text-base font-medium text-slate-200">{props.exposure}</div>
     </div>
   );
 }
@@ -503,7 +512,7 @@ function AgentPanel(props: {
   const latestType = String(props.data?.latest_asset?.asset_type ?? "none");
 
   return (
-    <Panel title={props.agent.label} kicker="最近状态与正式产物">
+    <Panel title={props.agent.label}>
       <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -781,6 +790,35 @@ function summarizeTarget(item: Record<string, unknown>, band: unknown[]) {
 function formatBandValue(value: unknown) {
   const number = toNumber(value);
   return number === null ? "0%" : `${trimNumber(number)}%`;
+}
+
+function buildCoinExposurePills(latestPortfolio: Record<string, unknown>) {
+  const positions = Array.isArray(latestPortfolio["positions"]) ? latestPortfolio["positions"] : [];
+  const positionMap = new Map(
+    positions
+      .map((position) => asRecord(position))
+      .filter((position): position is Record<string, unknown> => position !== null)
+      .map((position) => [String(position.coin ?? "").toUpperCase(), position]),
+  );
+
+  return ["BTC", "ETH", "SOL"].map((coin) => ({
+    coin,
+    exposure: positionExposureLabel(positionMap.get(coin)),
+  }));
+}
+
+function positionExposureLabel(position?: Record<string, unknown>) {
+  if (!position) {
+    return "0%";
+  }
+  const share =
+    toNumber(position.position_share_pct_of_equity) ??
+    toNumber(position.position_share_pct) ??
+    toNumber(position.share_pct);
+  if (share === null) {
+    return "0%";
+  }
+  return `${trimNumber(share)}%`;
 }
 
 function buildBalanceHistory(
