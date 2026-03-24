@@ -76,8 +76,8 @@ export default function App() {
     return close;
   }, [setConnectionState, setStreamPayload]);
 
-  const overview = streamOverview ?? overviewQuery.data;
-  const eventFeed = liveEvents.length ? liveEvents : overview?.recent_events ?? [];
+  const overview = newerOverview(streamOverview, overviewQuery.data);
+  const eventFeed = overview === streamOverview && liveEvents.length ? liveEvents : overview?.recent_events ?? [];
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
   const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceGranularity);
@@ -909,6 +909,25 @@ function buildBalanceTicks(points: Array<{ equity: number }>) {
   const tickCount = 6;
   const step = (max - min) / (tickCount - 1);
   return Array.from({ length: tickCount }, (_, index) => Number((min + step * index).toFixed(4)));
+}
+
+function newerOverview(
+  streamOverview: OverviewData | undefined,
+  queryOverview: OverviewData | undefined,
+) {
+  if (!streamOverview) {
+    return queryOverview;
+  }
+  if (!queryOverview) {
+    return streamOverview;
+  }
+  return overviewTimestamp(queryOverview) >= overviewTimestamp(streamOverview) ? queryOverview : streamOverview;
+}
+
+function overviewTimestamp(overview: OverviewData) {
+  const systemUpdatedAt = typeof overview.system?.updated_at === "string" ? overview.system.updated_at : null;
+  const timestamp = systemUpdatedAt ? new Date(systemUpdatedAt).getTime() : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function executionRecordTitle(asset: AssetRecord) {

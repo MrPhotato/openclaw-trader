@@ -245,4 +245,43 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "日线" }));
     await waitFor(() => expect(screen.getByText(/日线\s*视角下/)).toBeInTheDocument());
   });
+
+  test("prefers newer polled overview over stale stream overview", async () => {
+    useMissionControlStore.setState({
+      activeView: "overview",
+      connectionState: "open",
+      liveEvents: [],
+      streamOverview: {
+        ...overviewPayload,
+        system: { ...overviewPayload.system, updated_at: "2026-03-20T07:00:00Z" },
+        latest_portfolio: {
+          ...overviewPayload.latest_portfolio,
+          payload: {
+            ...overviewPayload.latest_portfolio.payload,
+            total_exposure_usd: "999.9",
+            positions: [
+              {
+                coin: "BTC",
+                notional_usd: "999.9",
+              },
+            ],
+          },
+        },
+      },
+      replayFilters: {
+        traceId: "",
+        module: "",
+      },
+    });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getAllByText("$161.3")).toHaveLength(2));
+    expect(screen.queryByText("$999.9")).not.toBeInTheDocument();
+  });
 });
