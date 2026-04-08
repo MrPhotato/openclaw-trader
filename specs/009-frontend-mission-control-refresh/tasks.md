@@ -1,7 +1,7 @@
 # 任务分解：Frontend Mission Control Refresh
 
 **功能分支**：`codex/009-frontend-mission-control-refresh`  
-**规格文档**：`/Users/chenzian/openclaw-trader/specs/009-frontend-mission-control-refresh/spec.md`
+**规格文档**：`specs/009-frontend-mission-control-refresh/spec.md`
 
 ## 第一波：现状拆解与事实归档
 

@@ -130,8 +130,6 @@ export default function App() {
                   >
                     GitHub
                   </a>
-                  <span className="ml-2 text-slate-500">·</span>
-                  <span className="ml-2 text-slate-400">作者 MrPhotato</span>
                 </p>
               </div>
             </div>

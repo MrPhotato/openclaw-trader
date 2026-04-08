@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning  
 **Created**: 2026-04-08  
-**Feature**: [spec.md](/Users/chenzian/openclaw-trader/specs/008-risk-peak-brakes/spec.md)
+**Feature**: `specs/008-risk-peak-brakes/spec.md`
 
 ## Content Quality
 

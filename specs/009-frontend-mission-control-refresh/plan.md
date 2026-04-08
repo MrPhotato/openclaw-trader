@@ -1,7 +1,7 @@
 # 实施计划：Frontend Mission Control Refresh
 
 **功能分支**：`codex/009-frontend-mission-control-refresh`  
-**规格文档**：`/Users/chenzian/openclaw-trader/specs/009-frontend-mission-control-refresh/spec.md`  
+**规格文档**：`specs/009-frontend-mission-control-refresh/spec.md`
 **计划日期**：2026-04-09
 
 ## 1. 执行摘要
