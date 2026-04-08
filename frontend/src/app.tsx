@@ -101,6 +101,7 @@ export default function App() {
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     const stepSize = Math.max(1, Math.round(Math.abs(event.deltaY) / 120));
     const deltaSteps = event.deltaY > 0 ? stepSize : -stepSize;
     setBalanceViewport((current) =>
@@ -255,12 +256,13 @@ export default function App() {
                 </div>
                 <div
                   data-testid="balance-chart-viewport"
+                  onWheelCapture={handleBalanceWheel}
                   onWheel={handleBalanceWheel}
                   onTouchStart={handleBalanceTouchStart}
                   onTouchMove={handleBalanceTouchMove}
                   onTouchEnd={clearBalanceTouchGesture}
                   onTouchCancel={clearBalanceTouchGesture}
-                  style={{ touchAction: "pan-y" }}
+                  style={{ touchAction: "none", overscrollBehavior: "contain" }}
                 >
                   <ChartShell>
                     <ResponsiveContainer width="100%" height={260}>
