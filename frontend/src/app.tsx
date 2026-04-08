@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ReactNode, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, Brush, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, isStreamDisabled, openEventStream } from "./lib/api";
 import { useMissionControlStore } from "./lib/store";
@@ -32,10 +32,12 @@ const DISPLAY_NOMINAL_USD = DISPLAY_PRINCIPAL_USD * DISPLAY_LEVERAGE;
 type BalanceGranularity = "15m" | "1h" | "1d";
 type BalancePoint = { label: string; equity: number; createdAtMs: number };
 type BalanceViewport = { startIndex: number; endIndex: number };
+type TouchGestureState = { x: number; y: number; viewport: BalanceViewport };
 
 export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
   const [balanceViewport, setBalanceViewport] = useState<BalanceViewport>({ startIndex: 0, endIndex: 0 });
+  const touchGestureRef = useRef<TouchGestureState | null>(null);
   const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
   const connectionState = useMissionControlStore((state) => state.connectionState);
@@ -93,6 +95,70 @@ export default function App() {
   useEffect(() => {
     setBalanceViewport((current) => normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity));
   }, [balanceGranularity, balanceSeries.length]);
+
+  function handleBalanceWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    if (balanceSeries.length <= 1) {
+      return;
+    }
+    event.preventDefault();
+    const stepSize = Math.max(1, Math.round(Math.abs(event.deltaY) / 120));
+    const deltaSteps = event.deltaY > 0 ? stepSize : -stepSize;
+    setBalanceViewport((current) =>
+      shiftBalanceViewport(
+        normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity),
+        balanceSeries.length,
+        deltaSteps,
+        balanceGranularity,
+      ),
+    );
+  }
+
+  function handleBalanceTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
+    if (event.touches.length !== 1) {
+      touchGestureRef.current = null;
+      return;
+    }
+    const touch = event.touches[0];
+    touchGestureRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      viewport: normalizedBalanceViewport,
+    };
+  }
+
+  function handleBalanceTouchMove(event: ReactTouchEvent<HTMLDivElement>) {
+    const gesture = touchGestureRef.current;
+    if (!gesture || event.touches.length !== 1 || balanceSeries.length <= 1) {
+      return;
+    }
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - gesture.x;
+    const deltaY = touch.clientY - gesture.y;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) {
+      return;
+    }
+    const stepSize = Math.trunc(deltaX / 24);
+    if (stepSize === 0) {
+      return;
+    }
+    event.preventDefault();
+    const nextViewport = shiftBalanceViewport(
+      gesture.viewport,
+      balanceSeries.length,
+      -stepSize,
+      balanceGranularity,
+    );
+    touchGestureRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      viewport: nextViewport,
+    };
+    setBalanceViewport(nextViewport);
+  }
+
+  function clearBalanceTouchGesture() {
+    touchGestureRef.current = null;
+  }
 
   return (
     <div className="min-h-screen bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
@@ -187,67 +253,53 @@ export default function App() {
                     <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} share={item.share} />
                   ))}
                 </div>
-                <ChartShell>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={balanceSeries}>
-                      <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fill: "#9fb0c7", fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                        interval="preserveStartEnd"
-                        minTickGap={28}
-                      />
-                      <YAxis
-                        tick={{ fill: "#9fb0c7", fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                        domain={["dataMin", "dataMax"]}
-                        ticks={balanceTicks}
-                        width={72}
-                      />
-                      <Tooltip
-                        cursor={{ stroke: "rgba(113,246,209,0.35)" }}
-                        formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
-                        labelFormatter={(label) => `时间：${label}`}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="equity"
-                        stroke="#71f6d1"
-                        strokeWidth={3}
-                        dot={false}
-                        connectNulls
-                        activeDot={{ r: 4 }}
-                      />
-                      {balanceSeries.length > 1 ? (
-                        <Brush
+                <div
+                  data-testid="balance-chart-viewport"
+                  onWheel={handleBalanceWheel}
+                  onTouchStart={handleBalanceTouchStart}
+                  onTouchMove={handleBalanceTouchMove}
+                  onTouchEnd={clearBalanceTouchGesture}
+                  onTouchCancel={clearBalanceTouchGesture}
+                  style={{ touchAction: "pan-y" }}
+                >
+                  <ChartShell>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <LineChart data={visibleBalanceSeries}>
+                        <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                        <XAxis
                           dataKey="label"
-                          height={30}
-                          stroke="#71f6d1"
-                          fill="rgba(255,255,255,0.03)"
-                          travellerWidth={12}
-                          startIndex={normalizedBalanceViewport.startIndex}
-                          endIndex={normalizedBalanceViewport.endIndex}
-                          onChange={(next) =>
-                            setBalanceViewport(
-                              normalizeBalanceViewport(
-                                {
-                                  startIndex: next.startIndex ?? normalizedBalanceViewport.startIndex,
-                                  endIndex: next.endIndex ?? normalizedBalanceViewport.endIndex,
-                                },
-                                balanceSeries.length,
-                                balanceGranularity,
-                              ),
-                            )
-                          }
-                          tickFormatter={() => ""}
+                          tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          interval="preserveStartEnd"
+                          minTickGap={28}
                         />
-                      ) : null}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartShell>
+                        <YAxis
+                          tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          domain={["dataMin", "dataMax"]}
+                          ticks={balanceTicks}
+                          width={72}
+                        />
+                        <Tooltip
+                          cursor={{ stroke: "rgba(113,246,209,0.35)" }}
+                          formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
+                          labelFormatter={(label) => `时间：${label}`}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="equity"
+                          stroke="#71f6d1"
+                          strokeWidth={3}
+                          dot={false}
+                          connectNulls
+                          activeDot={{ r: 4 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </ChartShell>
+                </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap gap-2">
                     {([
@@ -958,6 +1010,24 @@ function normalizeBalanceViewport(
   return { startIndex: safeStart, endIndex: safeEnd };
 }
 
+function shiftBalanceViewport(
+  viewport: BalanceViewport,
+  length: number,
+  deltaSteps: number,
+  granularity: BalanceGranularity,
+): BalanceViewport {
+  if (length <= 1 || deltaSteps === 0) {
+    return normalizeBalanceViewport(viewport, length, granularity);
+  }
+  const windowSize = Math.max(2, viewport.endIndex - viewport.startIndex + 1);
+  const maxStart = Math.max(0, length - windowSize);
+  const nextStart = clampNumber(viewport.startIndex + deltaSteps, 0, maxStart);
+  return {
+    startIndex: nextStart,
+    endIndex: Math.min(length - 1, nextStart + windowSize - 1),
+  };
+}
+
 function sliceBalanceSeries(points: BalancePoint[], viewport: BalanceViewport) {
   if (points.length === 0) {
     return [];
@@ -983,8 +1053,9 @@ function balanceViewportCaption(
   if (points.length <= 1) {
     return "等待更多历史快照";
   }
-  const visibleCount = viewport.endIndex - viewport.startIndex + 1;
-  return `已同步 ${points.length} 个 ${balanceWindowLabel(granularity)}点，当前窗口 ${visibleCount} 个，拖动下方时间窗可查看更早数据`;
+  const start = points[viewport.startIndex]?.label ?? "--";
+  const end = points[viewport.endIndex]?.label ?? "--";
+  return `已同步 ${points.length} 个 ${balanceWindowLabel(granularity)}点，当前查看 ${start} 至 ${end}。桌面滚轮上下翻阅，手机左右滑动。`;
 }
 
 function buildBalanceTicks(points: Array<{ equity: number }>) {

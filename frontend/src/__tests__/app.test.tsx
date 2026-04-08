@@ -183,7 +183,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("总敞口")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("拖动下方时间窗可查看更早数据"));
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("桌面滚轮上下翻阅，手机左右滑动"));
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("成交金额：219.7 美元")).toBeInTheDocument());
@@ -215,6 +215,20 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "日线" }));
     await waitFor(() => expect(screen.getByText(/日线\s*视角下/)).toBeInTheDocument());
+  });
+
+  test("updates viewport when scrolling balance chart", async () => {
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <App />
+      </QueryClientProvider>,
+    );
+
+    const caption = await screen.findByTestId("balance-viewport-caption");
+    const initialCaption = caption.textContent;
+    fireEvent.wheel(screen.getByTestId("balance-chart-viewport"), { deltaY: -240 });
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption").textContent).not.toEqual(initialCaption));
   });
 
   test("prefers newer polled overview over stale stream overview", async () => {
