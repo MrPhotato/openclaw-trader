@@ -183,7 +183,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("总敞口")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("桌面滚轮上下翻阅，手机左右滑动"));
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("整张图会真实横向滚动"));
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("成交金额：219.7 美元")).toBeInTheDocument());
@@ -217,7 +217,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText(/日线\s*视角下/)).toBeInTheDocument());
   });
 
-  test("updates viewport when scrolling balance chart", async () => {
+  test("renders balance chart inside a horizontal scroll container", async () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
@@ -225,10 +225,10 @@ describe("App", () => {
       </QueryClientProvider>,
     );
 
-    const caption = await screen.findByTestId("balance-viewport-caption");
-    const initialCaption = caption.textContent;
-    fireEvent.wheel(screen.getByTestId("balance-chart-viewport"), { deltaY: -240 });
-    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption").textContent).not.toEqual(initialCaption));
+    const viewport = await screen.findByTestId("balance-chart-viewport");
+    expect(viewport.className).toContain("overflow-x-auto");
+    expect(viewport.style.touchAction).toBe("pan-x");
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("整张图会真实横向滚动"));
   });
 
   test("prefers newer polled overview over stale stream overview", async () => {

@@ -31,14 +31,10 @@ const DISPLAY_LEVERAGE = 5;
 const DISPLAY_NOMINAL_USD = DISPLAY_PRINCIPAL_USD * DISPLAY_LEVERAGE;
 type BalanceGranularity = "15m" | "1h" | "1d";
 type BalancePoint = { label: string; equity: number; createdAtMs: number };
-type BalanceViewport = { startIndex: number; endIndex: number };
-type TouchGestureState = { x: number; y: number; viewport: BalanceViewport };
 
 export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
-  const [balanceViewport, setBalanceViewport] = useState<BalanceViewport>({ startIndex: 0, endIndex: 0 });
   const chartViewportRef = useRef<HTMLDivElement | null>(null);
-  const touchGestureRef = useRef<TouchGestureState | null>(null);
   const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
   const connectionState = useMissionControlStore((state) => state.connectionState);
@@ -84,18 +80,9 @@ export default function App() {
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
   const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceGranularity);
-  const normalizedBalanceViewport = normalizeBalanceViewport(balanceViewport, balanceSeries.length, balanceGranularity);
-  const visibleBalanceSeries = sliceBalanceSeries(balanceSeries, normalizedBalanceViewport);
-  const balanceTicks = buildBalanceTicks(visibleBalanceSeries);
+  const balanceTicks = buildBalanceTicks(balanceSeries);
+  const balanceChartWidth = computeBalanceChartWidth(balanceSeries.length, balanceGranularity);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
-
-  useEffect(() => {
-    setBalanceViewport(defaultBalanceViewport(balanceSeries.length, balanceGranularity));
-  }, [balanceGranularity]);
-
-  useEffect(() => {
-    setBalanceViewport((current) => normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity));
-  }, [balanceGranularity, balanceSeries.length]);
 
   useEffect(() => {
     const node = chartViewportRef.current;
@@ -109,80 +96,16 @@ export default function App() {
       }
       event.preventDefault();
       event.stopPropagation();
-      const stepSize = Math.max(1, Math.round(Math.abs(event.deltaY) / 120));
-      const deltaSteps = event.deltaY > 0 ? stepSize : -stepSize;
-      setBalanceViewport((current) =>
-        shiftBalanceViewport(
-          normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity),
-          balanceSeries.length,
-          deltaSteps,
-          balanceGranularity,
-        ),
-      );
-    };
-
-    const handleTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1) {
-        touchGestureRef.current = null;
-        return;
-      }
-      const touch = event.touches[0];
-      touchGestureRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        viewport: normalizedBalanceViewport,
-      };
-    };
-
-    const handleTouchMove = (event: TouchEvent) => {
-      const gesture = touchGestureRef.current;
-      if (!gesture || event.touches.length !== 1 || balanceSeries.length <= 1) {
-        return;
-      }
-      const touch = event.touches[0];
-      const deltaX = touch.clientX - gesture.x;
-      const deltaY = touch.clientY - gesture.y;
-      if (Math.abs(deltaX) <= Math.abs(deltaY)) {
-        return;
-      }
-      const stepSize = Math.trunc(deltaX / 24);
-      if (stepSize === 0) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      const nextViewport = shiftBalanceViewport(
-        gesture.viewport,
-        balanceSeries.length,
-        -stepSize,
-        balanceGranularity,
-      );
-      touchGestureRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        viewport: nextViewport,
-      };
-      setBalanceViewport(nextViewport);
-    };
-
-    const clearTouchGesture = () => {
-      touchGestureRef.current = null;
+      const delta = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+      node.scrollLeft += delta;
     };
 
     node.addEventListener("wheel", handleWheel, { passive: false });
-    node.addEventListener("touchstart", handleTouchStart, { passive: false });
-    node.addEventListener("touchmove", handleTouchMove, { passive: false });
-    node.addEventListener("touchend", clearTouchGesture);
-    node.addEventListener("touchcancel", clearTouchGesture);
 
     return () => {
       node.removeEventListener("wheel", handleWheel);
-      node.removeEventListener("touchstart", handleTouchStart);
-      node.removeEventListener("touchmove", handleTouchMove);
-      node.removeEventListener("touchend", clearTouchGesture);
-      node.removeEventListener("touchcancel", clearTouchGesture);
     };
-  }, [balanceGranularity, balanceSeries.length, normalizedBalanceViewport]);
+  }, [balanceSeries.length]);
 
   return (
     <div className="min-h-screen bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
@@ -280,11 +203,12 @@ export default function App() {
                 <div
                   ref={chartViewportRef}
                   data-testid="balance-chart-viewport"
-                  style={{ touchAction: "none", overscrollBehavior: "contain" }}
+                  className="overflow-x-auto overflow-y-hidden rounded-[24px]"
+                  style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
                 >
                   <ChartShell>
-                    <ResponsiveContainer width="100%" height={260}>
-                      <LineChart data={visibleBalanceSeries}>
+                    <div style={{ width: `${balanceChartWidth}px`, minWidth: "100%" }}>
+                      <LineChart width={balanceChartWidth} height={260} data={balanceSeries}>
                         <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
                         <XAxis
                           dataKey="label"
@@ -317,7 +241,7 @@ export default function App() {
                           activeDot={{ r: 4 }}
                         />
                       </LineChart>
-                    </ResponsiveContainer>
+                    </div>
                   </ChartShell>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -342,11 +266,11 @@ export default function App() {
                     ))}
                   </div>
                   <div className="text-xs text-slate-500" data-testid="balance-viewport-caption">
-                    {balanceViewportCaption(balanceSeries, normalizedBalanceViewport, balanceGranularity)}
+                    {balanceScrollCaption(balanceSeries.length, balanceGranularity)}
                   </div>
                 </div>
                 <div className="mt-3 text-sm text-slate-400">
-                  {balanceNarrative(latestPortfolio, balanceGranularity, visibleBalanceSeries)}
+                  {balanceNarrative(latestPortfolio, balanceGranularity, balanceSeries)}
                 </div>
               </Panel>
             </div>
@@ -1003,79 +927,17 @@ function buildBalanceHistory(
       ];
 }
 
-function defaultBalanceViewport(length: number, granularity: BalanceGranularity): BalanceViewport {
+function computeBalanceChartWidth(length: number, granularity: BalanceGranularity) {
+  const minWidth = 760;
+  const pointWidth = granularity === "15m" ? 36 : granularity === "1h" ? 44 : 72;
+  return Math.max(minWidth, length * pointWidth);
+}
+
+function balanceScrollCaption(length: number, granularity: BalanceGranularity) {
   if (length <= 1) {
-    return { startIndex: 0, endIndex: Math.max(0, length - 1) };
-  }
-  const visibleCount = Math.min(defaultVisiblePointCount(granularity), length);
-  return {
-    startIndex: Math.max(0, length - visibleCount),
-    endIndex: length - 1,
-  };
-}
-
-function normalizeBalanceViewport(
-  viewport: BalanceViewport,
-  length: number,
-  granularity: BalanceGranularity,
-): BalanceViewport {
-  if (length <= 1) {
-    return { startIndex: 0, endIndex: Math.max(0, length - 1) };
-  }
-  const safeStart = clampNumber(viewport.startIndex, 0, length - 1);
-  const safeEnd = clampNumber(viewport.endIndex, safeStart, length - 1);
-  if (safeEnd - safeStart + 1 < 2) {
-    return defaultBalanceViewport(length, granularity);
-  }
-  return { startIndex: safeStart, endIndex: safeEnd };
-}
-
-function shiftBalanceViewport(
-  viewport: BalanceViewport,
-  length: number,
-  deltaSteps: number,
-  granularity: BalanceGranularity,
-): BalanceViewport {
-  if (length <= 1 || deltaSteps === 0) {
-    return normalizeBalanceViewport(viewport, length, granularity);
-  }
-  const windowSize = Math.max(2, viewport.endIndex - viewport.startIndex + 1);
-  const maxStart = Math.max(0, length - windowSize);
-  const nextStart = clampNumber(viewport.startIndex + deltaSteps, 0, maxStart);
-  return {
-    startIndex: nextStart,
-    endIndex: Math.min(length - 1, nextStart + windowSize - 1),
-  };
-}
-
-function sliceBalanceSeries(points: BalancePoint[], viewport: BalanceViewport) {
-  if (points.length === 0) {
-    return [];
-  }
-  return points.slice(viewport.startIndex, viewport.endIndex + 1);
-}
-
-function defaultVisiblePointCount(granularity: BalanceGranularity) {
-  if (granularity === "15m") {
-    return 24;
-  }
-  if (granularity === "1h") {
-    return 24;
-  }
-  return 7;
-}
-
-function balanceViewportCaption(
-  points: BalancePoint[],
-  viewport: BalanceViewport,
-  granularity: BalanceGranularity,
-) {
-  if (points.length <= 1) {
     return "等待更多历史快照";
   }
-  const start = points[viewport.startIndex]?.label ?? "--";
-  const end = points[viewport.endIndex]?.label ?? "--";
-  return `已同步 ${points.length} 个 ${balanceWindowLabel(granularity)}点，当前查看 ${start} 至 ${end}。桌面滚轮上下翻阅，手机左右滑动。`;
+  return `已同步 ${length} 个 ${balanceWindowLabel(granularity)}点。桌面滚轮浏览，移动端左右滑动，整张图会真实横向滚动。`;
 }
 
 function buildBalanceTicks(points: Array<{ equity: number }>) {
@@ -1428,10 +1290,6 @@ function toNumber(value: unknown) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function asRecord(value: unknown) {
