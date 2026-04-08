@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from "react";
+import type { ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -37,6 +37,7 @@ type TouchGestureState = { x: number; y: number; viewport: BalanceViewport };
 export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
   const [balanceViewport, setBalanceViewport] = useState<BalanceViewport>({ startIndex: 0, endIndex: 0 });
+  const chartViewportRef = useRef<HTMLDivElement | null>(null);
   const touchGestureRef = useRef<TouchGestureState | null>(null);
   const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
@@ -96,70 +97,92 @@ export default function App() {
     setBalanceViewport((current) => normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity));
   }, [balanceGranularity, balanceSeries.length]);
 
-  function handleBalanceWheel(event: ReactWheelEvent<HTMLDivElement>) {
-    if (balanceSeries.length <= 1) {
+  useEffect(() => {
+    const node = chartViewportRef.current;
+    if (!node) {
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
-    const stepSize = Math.max(1, Math.round(Math.abs(event.deltaY) / 120));
-    const deltaSteps = event.deltaY > 0 ? stepSize : -stepSize;
-    setBalanceViewport((current) =>
-      shiftBalanceViewport(
-        normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity),
+
+    const handleWheel = (event: WheelEvent) => {
+      if (balanceSeries.length <= 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const stepSize = Math.max(1, Math.round(Math.abs(event.deltaY) / 120));
+      const deltaSteps = event.deltaY > 0 ? stepSize : -stepSize;
+      setBalanceViewport((current) =>
+        shiftBalanceViewport(
+          normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity),
+          balanceSeries.length,
+          deltaSteps,
+          balanceGranularity,
+        ),
+      );
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        touchGestureRef.current = null;
+        return;
+      }
+      const touch = event.touches[0];
+      touchGestureRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        viewport: normalizedBalanceViewport,
+      };
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const gesture = touchGestureRef.current;
+      if (!gesture || event.touches.length !== 1 || balanceSeries.length <= 1) {
+        return;
+      }
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - gesture.x;
+      const deltaY = touch.clientY - gesture.y;
+      if (Math.abs(deltaX) <= Math.abs(deltaY)) {
+        return;
+      }
+      const stepSize = Math.trunc(deltaX / 24);
+      if (stepSize === 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const nextViewport = shiftBalanceViewport(
+        gesture.viewport,
         balanceSeries.length,
-        deltaSteps,
+        -stepSize,
         balanceGranularity,
-      ),
-    );
-  }
+      );
+      touchGestureRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        viewport: nextViewport,
+      };
+      setBalanceViewport(nextViewport);
+    };
 
-  function handleBalanceTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
-    if (event.touches.length !== 1) {
+    const clearTouchGesture = () => {
       touchGestureRef.current = null;
-      return;
-    }
-    const touch = event.touches[0];
-    touchGestureRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      viewport: normalizedBalanceViewport,
     };
-  }
 
-  function handleBalanceTouchMove(event: ReactTouchEvent<HTMLDivElement>) {
-    const gesture = touchGestureRef.current;
-    if (!gesture || event.touches.length !== 1 || balanceSeries.length <= 1) {
-      return;
-    }
-    const touch = event.touches[0];
-    const deltaX = touch.clientX - gesture.x;
-    const deltaY = touch.clientY - gesture.y;
-    if (Math.abs(deltaX) <= Math.abs(deltaY)) {
-      return;
-    }
-    const stepSize = Math.trunc(deltaX / 24);
-    if (stepSize === 0) {
-      return;
-    }
-    event.preventDefault();
-    const nextViewport = shiftBalanceViewport(
-      gesture.viewport,
-      balanceSeries.length,
-      -stepSize,
-      balanceGranularity,
-    );
-    touchGestureRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      viewport: nextViewport,
+    node.addEventListener("wheel", handleWheel, { passive: false });
+    node.addEventListener("touchstart", handleTouchStart, { passive: false });
+    node.addEventListener("touchmove", handleTouchMove, { passive: false });
+    node.addEventListener("touchend", clearTouchGesture);
+    node.addEventListener("touchcancel", clearTouchGesture);
+
+    return () => {
+      node.removeEventListener("wheel", handleWheel);
+      node.removeEventListener("touchstart", handleTouchStart);
+      node.removeEventListener("touchmove", handleTouchMove);
+      node.removeEventListener("touchend", clearTouchGesture);
+      node.removeEventListener("touchcancel", clearTouchGesture);
     };
-    setBalanceViewport(nextViewport);
-  }
-
-  function clearBalanceTouchGesture() {
-    touchGestureRef.current = null;
-  }
+  }, [balanceGranularity, balanceSeries.length, normalizedBalanceViewport]);
 
   return (
     <div className="min-h-screen bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
@@ -255,13 +278,8 @@ export default function App() {
                   ))}
                 </div>
                 <div
+                  ref={chartViewportRef}
                   data-testid="balance-chart-viewport"
-                  onWheelCapture={handleBalanceWheel}
-                  onWheel={handleBalanceWheel}
-                  onTouchStart={handleBalanceTouchStart}
-                  onTouchMove={handleBalanceTouchMove}
-                  onTouchEnd={clearBalanceTouchGesture}
-                  onTouchCancel={clearBalanceTouchGesture}
                   style={{ touchAction: "none", overscrollBehavior: "contain" }}
                 >
                   <ChartShell>
