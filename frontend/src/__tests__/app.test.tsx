@@ -177,11 +177,13 @@ describe("App", () => {
     expect(screen.getByTestId("overview-view")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("账户余额（本金$1000）")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("5x（名义$5000）")).toBeInTheDocument());
+    expect(screen.queryByText("当前敞口")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("$161.3").length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getAllByText("名义占用 3.23%").length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("总敞口")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("拖动下方时间窗可查看更早数据"));
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("成交金额：219.7 美元")).toBeInTheDocument());

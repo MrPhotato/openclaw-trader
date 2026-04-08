@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, Brush, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, isStreamDisabled, openEventStream } from "./lib/api";
 import { useMissionControlStore } from "./lib/store";
@@ -29,9 +29,13 @@ const moduleLabels: Record<string, string> = {
 const DISPLAY_PRINCIPAL_USD = 1000;
 const DISPLAY_LEVERAGE = 5;
 const DISPLAY_NOMINAL_USD = DISPLAY_PRINCIPAL_USD * DISPLAY_LEVERAGE;
+type BalanceGranularity = "15m" | "1h" | "1d";
+type BalancePoint = { label: string; equity: number; createdAtMs: number };
+type BalanceViewport = { startIndex: number; endIndex: number };
 
 export default function App() {
-  const [balanceGranularity, setBalanceGranularity] = useState<"15m" | "1h" | "1d">("1h");
+  const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
+  const [balanceViewport, setBalanceViewport] = useState<BalanceViewport>({ startIndex: 0, endIndex: 0 });
   const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
   const connectionState = useMissionControlStore((state) => state.connectionState);
@@ -77,8 +81,18 @@ export default function App() {
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
   const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceGranularity);
-  const balanceTicks = buildBalanceTicks(balanceSeries);
+  const normalizedBalanceViewport = normalizeBalanceViewport(balanceViewport, balanceSeries.length, balanceGranularity);
+  const visibleBalanceSeries = sliceBalanceSeries(balanceSeries, normalizedBalanceViewport);
+  const balanceTicks = buildBalanceTicks(visibleBalanceSeries);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
+
+  useEffect(() => {
+    setBalanceViewport(defaultBalanceViewport(balanceSeries.length, balanceGranularity));
+  }, [balanceGranularity]);
+
+  useEffect(() => {
+    setBalanceViewport((current) => normalizeBalanceViewport(current, balanceSeries.length, balanceGranularity));
+  }, [balanceGranularity, balanceSeries.length]);
 
   return (
     <div className="min-h-screen bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
@@ -158,7 +172,7 @@ export default function App() {
           <section className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]" data-testid="overview-view">
             <div className="space-y-6">
               <Panel title="账户余额轨迹">
-                <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                <div className="mb-4 grid gap-3 sm:grid-cols-2">
                   <SummaryPill
                     label="账户余额（本金$1000）"
                     value={usdCompactText(latestPortfolio["total_equity_usd"])}
@@ -166,10 +180,6 @@ export default function App() {
                   <SummaryPill
                     label="当前杠杆"
                     value={configuredLeverageLabel()}
-                  />
-                  <SummaryPill
-                    label="当前敞口"
-                    value={usdCompactText(latestPortfolio["total_exposure_usd"])}
                   />
                 </div>
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -211,31 +221,60 @@ export default function App() {
                         connectNulls
                         activeDot={{ r: 4 }}
                       />
+                      {balanceSeries.length > 1 ? (
+                        <Brush
+                          dataKey="label"
+                          height={30}
+                          stroke="#71f6d1"
+                          fill="rgba(255,255,255,0.03)"
+                          travellerWidth={12}
+                          startIndex={normalizedBalanceViewport.startIndex}
+                          endIndex={normalizedBalanceViewport.endIndex}
+                          onChange={(next) =>
+                            setBalanceViewport(
+                              normalizeBalanceViewport(
+                                {
+                                  startIndex: next.startIndex ?? normalizedBalanceViewport.startIndex,
+                                  endIndex: next.endIndex ?? normalizedBalanceViewport.endIndex,
+                                },
+                                balanceSeries.length,
+                                balanceGranularity,
+                              ),
+                            )
+                          }
+                          tickFormatter={() => ""}
+                        />
+                      ) : null}
                     </LineChart>
                   </ResponsiveContainer>
                 </ChartShell>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {([
-                    ["15m", "15 分钟"],
-                    ["1h", "1 小时"],
-                    ["1d", "日线"],
-                  ] as const).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setBalanceGranularity(key)}
-                      className={`rounded-full px-3 py-1.5 text-xs transition ${
-                        balanceGranularity === key
-                          ? "bg-neon/90 text-ink"
-                          : "border border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/10"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ["15m", "15 分钟"],
+                      ["1h", "1 小时"],
+                      ["1d", "日线"],
+                    ] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setBalanceGranularity(key)}
+                        className={`rounded-full px-3 py-1.5 text-xs transition ${
+                          balanceGranularity === key
+                            ? "bg-neon/90 text-ink"
+                            : "border border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/10"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-xs text-slate-500" data-testid="balance-viewport-caption">
+                    {balanceViewportCaption(balanceSeries, normalizedBalanceViewport, balanceGranularity)}
+                  </div>
                 </div>
                 <div className="mt-3 text-sm text-slate-400">
-                  {balanceNarrative(latestPortfolio, balanceGranularity, balanceSeries)}
+                  {balanceNarrative(latestPortfolio, balanceGranularity, visibleBalanceSeries)}
                 </div>
               </Panel>
             </div>
@@ -637,7 +676,7 @@ function strategyBadgeValue(strategy: Record<string, unknown>) {
   return "待生成";
 }
 
-function balanceWindowLabel(granularity: "15m" | "1h" | "1d") {
+function balanceWindowLabel(granularity: BalanceGranularity) {
   if (granularity === "15m") {
     return "15 分钟";
   }
@@ -647,7 +686,7 @@ function balanceWindowLabel(granularity: "15m" | "1h" | "1d") {
   return "日线";
 }
 
-function balanceGranularityMs(granularity: "15m" | "1h" | "1d") {
+function balanceGranularityMs(granularity: BalanceGranularity) {
   if (granularity === "15m") {
     return 15 * 60 * 1000;
   }
@@ -657,7 +696,7 @@ function balanceGranularityMs(granularity: "15m" | "1h" | "1d") {
   return 24 * 60 * 60 * 1000;
 }
 
-function balanceBucketCount(granularity: "15m" | "1h" | "1d") {
+function balanceBucketCount(granularity: BalanceGranularity) {
   if (granularity === "15m") {
     return 48;
   }
@@ -675,7 +714,7 @@ function strategyIdentity(strategy: Record<string, unknown>) {
 
 function balanceNarrative(
   latestPortfolio: Record<string, unknown>,
-  granularity: "15m" | "1h" | "1d",
+  granularity: BalanceGranularity,
   points: Array<{ equity: number }>,
 ) {
   if (points.length === 0) {
@@ -818,8 +857,8 @@ function nominalMarginPctLabel(value: unknown) {
 function buildBalanceHistory(
   history: Array<{ created_at: string; total_equity_usd?: string | number | null }>,
   latestPortfolio: Record<string, unknown>,
-  granularity: "15m" | "1h" | "1d",
-) {
+  granularity: BalanceGranularity,
+): BalancePoint[] {
   const intervalMs = balanceGranularityMs(granularity);
   const bucketCount = balanceBucketCount(granularity);
   const rawPoints = history
@@ -858,7 +897,7 @@ function buildBalanceHistory(
 
   let pointIndex = 0;
   let lastEquity: number | null = null;
-  const series: Array<{ label: string; equity: number; createdAtMs: number }> = [];
+  const series: BalancePoint[] = [];
 
   for (let bucketMs = startBucketMs; bucketMs <= endBucketMs; bucketMs += intervalMs) {
     const bucketEndMs = bucketMs + intervalMs - 1;
@@ -890,6 +929,62 @@ function buildBalanceHistory(
           createdAtMs: endBucketMs,
         },
       ];
+}
+
+function defaultBalanceViewport(length: number, granularity: BalanceGranularity): BalanceViewport {
+  if (length <= 1) {
+    return { startIndex: 0, endIndex: Math.max(0, length - 1) };
+  }
+  const visibleCount = Math.min(defaultVisiblePointCount(granularity), length);
+  return {
+    startIndex: Math.max(0, length - visibleCount),
+    endIndex: length - 1,
+  };
+}
+
+function normalizeBalanceViewport(
+  viewport: BalanceViewport,
+  length: number,
+  granularity: BalanceGranularity,
+): BalanceViewport {
+  if (length <= 1) {
+    return { startIndex: 0, endIndex: Math.max(0, length - 1) };
+  }
+  const safeStart = clampNumber(viewport.startIndex, 0, length - 1);
+  const safeEnd = clampNumber(viewport.endIndex, safeStart, length - 1);
+  if (safeEnd - safeStart + 1 < 2) {
+    return defaultBalanceViewport(length, granularity);
+  }
+  return { startIndex: safeStart, endIndex: safeEnd };
+}
+
+function sliceBalanceSeries(points: BalancePoint[], viewport: BalanceViewport) {
+  if (points.length === 0) {
+    return [];
+  }
+  return points.slice(viewport.startIndex, viewport.endIndex + 1);
+}
+
+function defaultVisiblePointCount(granularity: BalanceGranularity) {
+  if (granularity === "15m") {
+    return 24;
+  }
+  if (granularity === "1h") {
+    return 24;
+  }
+  return 7;
+}
+
+function balanceViewportCaption(
+  points: BalancePoint[],
+  viewport: BalanceViewport,
+  granularity: BalanceGranularity,
+) {
+  if (points.length <= 1) {
+    return "等待更多历史快照";
+  }
+  const visibleCount = viewport.endIndex - viewport.startIndex + 1;
+  return `已同步 ${points.length} 个 ${balanceWindowLabel(granularity)}点，当前窗口 ${visibleCount} 个，拖动下方时间窗可查看更早数据`;
 }
 
 function buildBalanceTicks(points: Array<{ equity: number }>) {
@@ -1242,6 +1337,10 @@ function toNumber(value: unknown) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function asRecord(value: unknown) {
