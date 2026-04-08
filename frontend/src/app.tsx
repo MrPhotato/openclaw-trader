@@ -26,6 +26,10 @@ const moduleLabels: Record<string, string> = {
   quant_intelligence: "量化洞察",
 };
 
+const DISPLAY_PRINCIPAL_USD = 1000;
+const DISPLAY_LEVERAGE = 5;
+const DISPLAY_NOMINAL_USD = DISPLAY_PRINCIPAL_USD * DISPLAY_LEVERAGE;
+
 export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<"15m" | "1h" | "1d">("1h");
   const streamDisabled = isStreamDisabled();
@@ -85,12 +89,22 @@ export default function App() {
               <div className="flex items-center gap-3 text-xs uppercase tracking-[0.35em] text-ember">
                 <span className="rounded-full border border-white/10 px-3 py-1 text-neon">OpenClaw</span>
                 <span className="h-px w-16 animate-pulseLine bg-gradient-to-r from-neon via-white/30 to-transparent" />
-                <span className="text-slate-400">live desk</span>
+                <span className="text-slate-400">公开看板</span>
               </div>
               <div>
                 <h1 className="text-3xl font-semibold leading-none sm:text-5xl">交易指挥台</h1>
                 <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300 sm:text-base">
-                  只看策略、执行、风险和事件，不在首屏堆解释文字。
+                  <span className="text-slate-200">openclaw-trader 是 OpenClaw 加密工作流背后的交易运行时，当前公开展示本金 $1000。</span>
+                  <a
+                    href="https://github.com/MrPhotato/openclaw-trader"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-2 inline-flex items-center text-neon underline decoration-neon/50 underline-offset-4 hover:text-white"
+                  >
+                    GitHub
+                  </a>
+                  <span className="ml-2 text-slate-500">·</span>
+                  <span className="ml-2 text-slate-400">作者 MrPhotato</span>
                 </p>
               </div>
             </div>
@@ -146,21 +160,21 @@ export default function App() {
               <Panel title="账户余额轨迹">
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
                   <SummaryPill
-                    label="总权益"
+                    label="账户余额（本金$1000）"
                     value={usdCompactText(latestPortfolio["total_equity_usd"])}
                   />
                   <SummaryPill
-                    label="可用资金"
-                    value={usdCompactText(latestPortfolio["available_equity_usd"])}
+                    label="当前杠杆"
+                    value={configuredLeverageLabel()}
                   />
                   <SummaryPill
                     label="当前敞口"
                     value={usdCompactText(latestPortfolio["total_exposure_usd"])}
                   />
                 </div>
-                <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                  {buildCoinExposurePills(latestPortfolio).map((item) => (
-                    <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} />
+                <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {buildNominalExposurePills(latestPortfolio).map((item) => (
+                    <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} share={item.share} />
                   ))}
                 </div>
                 <ChartShell>
@@ -379,11 +393,12 @@ function SummaryPill(props: { label: string; value: string }) {
   );
 }
 
-function CoinExposurePill(props: { coin: string; exposure: string }) {
+function CoinExposurePill(props: { coin: string; exposure: string; share: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
       <div className="text-[10px] tracking-[0.2em] text-slate-500">{props.coin}</div>
       <div className="mt-1 text-base font-medium text-slate-200">{props.exposure}</div>
+      <div className="mt-1 text-xs text-slate-400">{props.share}</div>
     </div>
   );
 }
@@ -531,7 +546,7 @@ function assetPreview(asset: AssetRecord) {
   if (typeof asset.payload.category === "string" && typeof asset.payload.summary === "string") {
     return `${newsCategoryLabel(asset.payload.category)}：${asset.payload.summary}`;
   }
-  return "已生成结构化记录，详细字段请进入回放页查看。";
+  return "已生成结构化记录，详细链路会在系统归档中继续保留。";
 }
 
 function impactTone(impact: string) {
@@ -669,11 +684,11 @@ function balanceNarrative(
   const first = points[0];
   const last = points[points.length - 1];
   const delta = last.equity - first.equity;
-  const available = usdCompactText(latestPortfolio["available_equity_usd"]);
+  const exposure = nominalMarginPctLabel(latestPortfolio["total_exposure_usd"]);
   const direction = delta > 0 ? "上升" : delta < 0 ? "回落" : "基本持平";
-  return `${balanceWindowLabel(granularity)}视角下，横轴已经按固定粒度重排。账户总权益目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
+  return `${balanceWindowLabel(granularity)}视角下，横轴已经按固定粒度重排。账户余额目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
     Math.abs(delta),
-  )}。当前可用资金 ${available}。`;
+  )}。当前总敞口约占名义保证金 ${exposure}。`;
 }
 
 function strategyRevision(strategy: Record<string, unknown>) {
@@ -749,7 +764,7 @@ function formatBandValue(value: unknown) {
   return number === null ? "0%" : `${trimNumber(number)}%`;
 }
 
-function buildCoinExposurePills(latestPortfolio: Record<string, unknown>) {
+function buildNominalExposurePills(latestPortfolio: Record<string, unknown>) {
   const positions = Array.isArray(latestPortfolio["positions"]) ? latestPortfolio["positions"] : [];
   const positionMap = new Map(
     positions
@@ -758,10 +773,18 @@ function buildCoinExposurePills(latestPortfolio: Record<string, unknown>) {
       .map((position) => [String(position.coin ?? "").toUpperCase(), position]),
   );
 
-  return ["BTC", "ETH", "SOL"].map((coin) => ({
-    coin,
-    exposure: positionNotionalLabel(positionMap.get(coin)),
-  }));
+  return [
+    ...["BTC", "ETH", "SOL"].map((coin) => ({
+      coin,
+      exposure: positionNotionalLabel(positionMap.get(coin)),
+      share: nominalMarginPctLabel(positionNotionalValue(positionMap.get(coin))),
+    })),
+    {
+      coin: "总敞口",
+      exposure: usdCompactText(latestPortfolio["total_exposure_usd"]),
+      share: nominalMarginPctLabel(latestPortfolio["total_exposure_usd"]),
+    },
+  ];
 }
 
 function positionNotionalLabel(position?: Record<string, unknown>) {
@@ -773,6 +796,23 @@ function positionNotionalLabel(position?: Record<string, unknown>) {
     return "$0";
   }
   return usdCompactText(notional);
+}
+
+function positionNotionalValue(position?: Record<string, unknown>) {
+  if (!position) {
+    return 0;
+  }
+  return toNumber(position.notional_usd) ?? toNumber(position.current_notional_usd) ?? 0;
+}
+
+function configuredLeverageLabel() {
+  return `${DISPLAY_LEVERAGE}x（名义$${DISPLAY_NOMINAL_USD}）`;
+}
+
+function nominalMarginPctLabel(value: unknown) {
+  const notional = toNumber(value) ?? 0;
+  const pct = DISPLAY_NOMINAL_USD > 0 ? (notional / DISPLAY_NOMINAL_USD) * 100 : 0;
+  return `名义占用 ${pct.toLocaleString("zh-CN", { minimumFractionDigits: pct === 0 ? 0 : 2, maximumFractionDigits: 2 })}%`;
 }
 
 function buildBalanceHistory(
