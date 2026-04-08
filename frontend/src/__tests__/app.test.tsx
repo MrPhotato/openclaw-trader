@@ -106,38 +106,6 @@ const executionPayload = {
   ],
 };
 
-const marketContextPayload = {
-  market_context: {
-    BTC: {
-      compressed_price_series: {
-        "15m": {
-          points: [
-            { timestamp: 1774150200, close: "70100" },
-            { timestamp: 1774151100, close: "70220" },
-          ],
-          change_pct: 0.8,
-        },
-        "1h": {
-          points: [
-            { timestamp: 1774148400, close: "69880" },
-            { timestamp: 1774152000, close: "70220" },
-          ],
-          change_pct: 1.1,
-        },
-        "24h": {
-          points: [
-            { timestamp: 1774065600, close: "69010" },
-            { timestamp: 1774152000, close: "70220" },
-          ],
-          change_pct: 1.75,
-        },
-      },
-      breakout_retest_state: { state: "range" },
-      volatility_state: { state: "contracting" },
-    },
-  },
-};
-
 const agentPayload = {
   session: { status: "active" },
   latest_asset: null,
@@ -169,10 +137,6 @@ describe("App", () => {
       connectionState: "closed",
       liveEvents: [],
       streamOverview: undefined,
-      replayFilters: {
-        traceId: "",
-        module: "",
-      },
     });
     vi.stubGlobal(
       "fetch",
@@ -186,12 +150,6 @@ describe("App", () => {
         }
         if (url.includes("/api/query/executions/recent")) {
           return Promise.resolve(new Response(JSON.stringify(executionPayload)));
-        }
-        if (url.includes("/api/query/market/context")) {
-          return Promise.resolve(new Response(JSON.stringify(marketContextPayload)));
-        }
-        if (url.includes("/api/query/replay")) {
-          return Promise.resolve(new Response(JSON.stringify({ trace_id: null, events: [], states: [], render_hints: { mode: "timeline" } })));
         }
         if (url.includes("/api/query/agents/")) {
           return Promise.resolve(new Response(JSON.stringify(agentPayload)));
@@ -207,7 +165,7 @@ describe("App", () => {
     MockWebSocket.instances = [];
   });
 
-  test("renders dashboard and replay view", async () => {
+  test("renders dashboard and switches between four views", async () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
@@ -215,7 +173,7 @@ describe("App", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("交易看板")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("交易指挥台")).toBeInTheDocument());
     expect(screen.getByTestId("overview-view")).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("$161.3")).toHaveLength(2));
     await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
@@ -225,8 +183,15 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("成交金额：219.7 美元")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("计划金额：736.6 美元")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText("回放"));
-    await waitFor(() => expect(screen.getByTestId("replay-view")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "策略" }));
+    await waitFor(() => expect(screen.getByTestId("desk-view")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("策略重点")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "事件" }));
+    await waitFor(() => expect(screen.getByTestId("signals-view")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "席位" }));
+    await waitFor(() => expect(screen.getByTestId("agents-view")).toBeInTheDocument());
   });
 
   test("switches balance granularity without crashing", async () => {
@@ -267,10 +232,6 @@ describe("App", () => {
             ],
           },
         },
-      },
-      replayFilters: {
-        traceId: "",
-        module: "",
       },
     });
 
