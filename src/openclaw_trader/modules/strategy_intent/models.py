@@ -2,15 +2,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class StrategyTarget(BaseModel):
     coin: str
     product_id: str
     bias: str
-    target_position_share_pct: float
-    max_position_share_pct: float
+    target_position_pct_of_exposure_budget: float = Field(
+        validation_alias=AliasChoices(
+            "target_position_pct_of_exposure_budget",
+            "target_position_share_pct",
+        )
+    )
+    max_position_pct_of_exposure_budget: float = Field(
+        validation_alias=AliasChoices(
+            "max_position_pct_of_exposure_budget",
+            "max_position_share_pct",
+        )
+    )
     rationale: str
 
 
@@ -29,8 +39,18 @@ class ExecutionContext(BaseModel):
     coin: str
     product_id: str
     target_bias: str
-    target_position_share_pct: float
-    max_position_share_pct: float
+    target_position_pct_of_exposure_budget: float = Field(
+        validation_alias=AliasChoices(
+            "target_position_pct_of_exposure_budget",
+            "target_position_share_pct",
+        )
+    )
+    max_position_pct_of_exposure_budget: float = Field(
+        validation_alias=AliasChoices(
+            "max_position_pct_of_exposure_budget",
+            "max_position_share_pct",
+        )
+    )
     rationale: str
     market_snapshot: dict[str, Any] = Field(default_factory=dict)
     account_snapshot: dict[str, Any] = Field(default_factory=dict)

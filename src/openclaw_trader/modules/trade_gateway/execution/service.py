@@ -27,9 +27,9 @@ class ExecutionGatewayService:
             if decision.action in {"wait", "hold"}:
                 continue
             notional_usd = decision.notional_usd
-            if not notional_usd and decision.size_pct_of_equity is not None:
+            if not notional_usd and decision.size_pct_of_exposure_budget is not None:
                 notional_value = pct_to_notional_usd(
-                    pct_of_exposure_budget=decision.size_pct_of_equity,
+                    pct_of_exposure_budget=decision.size_pct_of_exposure_budget,
                     total_equity_usd=total_equity_usd,
                     max_leverage=max_leverage,
                 )
@@ -46,7 +46,7 @@ class ExecutionGatewayService:
                     coin=decision.coin,
                     action=decision.action,
                     side=decision.side,
-                    size_pct_of_equity=decision.size_pct_of_equity,
+                    size_pct_of_exposure_budget=decision.size_pct_of_exposure_budget,
                     margin_usd=notional_usd,
                     notional_usd=notional_usd,
                     leverage=decision.leverage,

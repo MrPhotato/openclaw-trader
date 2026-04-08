@@ -66,7 +66,10 @@
           "reference_take_profit_condition": {
             "type": "string"
           },
-          "size_pct_of_equity": {
+          "reference_stop_loss_condition": {
+            "type": "string"
+          },
+          "size_pct_of_exposure_budget": {
             "type": "number"
           },
           "priority": {

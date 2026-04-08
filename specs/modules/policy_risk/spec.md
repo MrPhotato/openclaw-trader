@@ -11,7 +11,7 @@
 ## 2. 职责
 
 - 产出交易可用性、杠杆和敞口上限
-- 维护 `position_risk_state`、`cooldown`、`panic_exit`、`breaker`
+- 维护 `position_risk_state`、`portfolio_risk_state`、`cooldown`、`panic_exit`、`breaker`
 - 向策略层和执行层提供不可绕过的硬边界
 - 作为 RT 正式执行命令进入 execution 之前的唯一业务检查关口
 
@@ -20,6 +20,7 @@
 - `TradeAvailability`
 - `RiskLimits`
 - `PositionRiskState`
+- `PortfolioRiskState`
 - `GuardDecision`
 
 ## 4. 输入
@@ -34,6 +35,7 @@
 - `TradeAvailability`
 - `RiskLimits`
 - `PositionRiskState`
+- `PortfolioRiskState`
 - `GuardDecision`
 - 可供 PM、`Risk Trader` 和 `Trade Gateway.execution` 消费的统一边界
 
@@ -56,15 +58,21 @@
 - `max_total_exposure_pct = 100.0`
 - `max_symbol_position_pct = 66.0`
 - `max_order_pct = 33.0`
-- `position_risk_state` 阈值为 `observe 4% / reduce 7% / exit 10%`
+- `position_risk_state` 阈值为 `observe 0.8% / reduce 1.4% / exit 2.2%`
+- `position_risk_state` 统一按单仓自身 trailing peak/trough drawdown 计算，不再按入场价 adverse move 计算
+- `portfolio_risk_state` 阈值为 `observe 0.6% / reduce 1.0% / exit 1.8%`
+- `portfolio_risk_state` 统一按 `UTC` 当日峰值权益回撤计算
 - `cooldown` 仅由 `position_risk_state = exit` 触发，持续单币 `30` 分钟
-- `panic_exit` 为当日账户权益相对 `UTC 00:00` 下降 `15%`
+- `panic_exit` 为账户级灾难刹车，阈值严格读取配置，不替代组合高点回撤刹车
 - `breaker` 为当日 `1` 次 `panic_exit` 或 `2` 次 `position_risk_state = exit`
 - `breaker` 持续到次日 `UTC 00:00`，支持人工提前解除或人工延长
 - 所有 exposure 类百分比边界统一按 `total_equity_usd * max_leverage` 为分母，不按裸权益为分母
 - `policy_risk` 只输出硬边界，不输出软建议、不做 approve/reject 审核
 - `1h` 市场事实不进入 `policy_risk` 主判断链，主用 `4h / 12h`
 - RT 正式执行链中的业务检查统一由 `policy_risk` 承担，execution 不重复检查
+- `reduce_only` 表示只允许 `reduce / close / hold / wait`
+- `flat_only` 表示只允许 `close / hold / wait`
+- `reduce_only / flat_only` 风险锁统一由新的 PM strategy revision 释放，不靠固定时间自动解锁
 
 ## 9. 待后续讨论
 

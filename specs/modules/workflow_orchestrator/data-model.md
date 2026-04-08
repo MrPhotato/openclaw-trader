@@ -52,6 +52,38 @@
 | `source` | string | 固定为外部调度器，例如 `openclaw_cron` |
 | `cadence_label` | string | `pm_0100` / `pm_1300` / `rt_10m` / `mea_2h` / `chief_2300` |
 
+## 4.2 RTTriggerState
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `last_scan_at_utc` | datetime? | 最近轻量扫描时间 |
+| `last_trigger_at_utc` | datetime? | 最近成功触发 RT 的时间 |
+| `last_seen_strategy_key` | string? | 最近已处理的 PM strategy id/revision |
+| `last_seen_event_ids` | string[] | 已处理的 `macro_event` / `news_submission` 资产 ID |
+| `last_seen_execution_result_ids` | string[] | 已处理的 RT execution result 资产 ID |
+| `last_market_state_by_coin` | object | 每币最近一次扫描到的 breakout / volatility / 1h level 状态 |
+| `last_trigger_by_key` | object | 冷却键到最近触发时间的映射 |
+| `recent_trigger_times_utc` | datetime[] | 最近一小时普通触发计数窗口 |
+
+## 4.3 RTTriggerEvent
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `trigger_id` | string | 触发事件 ID |
+| `detected_at_utc` | datetime | 触发检测时间 |
+| `reason` | string | `pm_strategy_update` / `mea_high_impact_event` / `market_structure_change` / `exposure_drift` / `execution_followup` / `reference_tp_sl_proxy` / `heartbeat` |
+| `severity` | string | `low` / `normal` / `high` / `critical` |
+| `coins` | string[] | 相关币种 |
+| `cooldown_key` | string | 冷却键 |
+| `bypass_cooldown` | boolean | 是否绕过普通冷却 |
+| `metrics` | object | 触发判定使用的客观指标 |
+| `source_asset_ids` | string[] | 来源资产 ID |
+| `rt_cron_job_id` | string | 被触发的 OpenClaw RT cron job ID |
+| `dispatched` | boolean | 是否已成功调用 `openclaw cron run` |
+| `skipped_reason` | string? | `global_cooldown` / `key_cooldown` / `hourly_limit` / `cron_running` / `cron_run_failed` |
+| `cron_stdout` | string? | `openclaw cron run` stdout 摘要 |
+| `cron_stderr` | string? | `openclaw cron run` stderr 摘要 |
+
 ## 5. StrategyRecheckRegistration
 
 | 字段 | 类型 | 说明 |
@@ -66,5 +98,7 @@
 - `ManualTriggerCommand.command_id` 必须用于幂等判定
 - `MEATimerState` 只能由客观事件或计时器推进
 - `ExternalCadenceWakeup` 只表示固定班次已送达，不替代 `WorkflowStateRecord`
+- `RTTriggerState` 使用固定 asset id `rt_trigger_state` upsert；不作为正式交易事实
+- `RTTriggerEvent` 是 RT 条件触发记录，会进入 RT runtime pack 的 `latest_rt_trigger_event`
 - `workflow_orchestrator` 不以 `MEA` 结果内容为状态推进前提
 - `StrategyRecheckRegistration` 只能来自通过 AG 校验的 PM 正式策略

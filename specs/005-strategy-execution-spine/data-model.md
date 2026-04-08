@@ -20,8 +20,8 @@
 | `coin` | string | 币种 |
 | `product_id` | string | 交易标的 |
 | `target_bias` | string | 目标方向 |
-| `target_position_share_pct` | number | 目标仓位占比 |
-| `max_position_share_pct` | number | 该币允许上限 |
+| `target_position_pct_of_exposure_budget` | number | 目标仓位占 exposure budget 的百分比 |
+| `max_position_pct_of_exposure_budget` | number | 该币允许的 exposure budget 上限 |
 | `rationale` | string | 目标仓位理由 |
 | `market_snapshot` | object | 市场事实快照 |
 | `account_snapshot` | object | 账户事实快照 |

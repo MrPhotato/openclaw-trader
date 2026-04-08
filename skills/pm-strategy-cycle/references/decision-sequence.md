@@ -30,3 +30,6 @@ Then decide:
 - per-symbol direction
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
+- `regime-switch triggers`
+
+`regime-switch triggers` means the specific conditions that would not just invalidate the current thesis, but justify flipping directional bias from long to short, short to long, or from active risk to flat/only_reduce.

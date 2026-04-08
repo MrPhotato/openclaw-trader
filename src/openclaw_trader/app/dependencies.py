@@ -26,6 +26,8 @@ from ..modules.trade_gateway.market_data.adapters import CoinbaseIntxMarketDataP
 from ..modules.workflow_orchestrator import WorkflowOrchestratorService
 from ..modules.workflow_orchestrator.trigger_bridge import WorkflowTriggerBridge
 from ..modules.workflow_orchestrator.handlers import WorkflowCommandExecutor
+from ..modules.workflow_orchestrator.risk_brake import RiskBrakeConfig, RiskBrakeMonitor
+from ..modules.workflow_orchestrator.rt_trigger import RTTriggerConfig, RTTriggerMonitor
 from ..shared.infra import RabbitMQEventBus, SqliteDatabase
 
 
@@ -170,11 +172,60 @@ def build_container() -> ServiceContainer:
         notification_service=notification_service,
         replay_frontend=replay_frontend,
     )
+    rt_trigger_monitor = None
+    if bool(settings.orchestrator.rt_event_trigger_enabled):
+        rt_trigger_monitor = RTTriggerMonitor(
+            state_memory=state_memory,
+            market_data=market_data,
+            event_bus=event_bus,
+            config=RTTriggerConfig(
+                enabled=True,
+                rt_job_id=str(settings.orchestrator.rt_event_trigger_job_id),
+                scan_interval_seconds=int(settings.orchestrator.rt_event_trigger_scan_interval_seconds),
+                global_cooldown_seconds=int(settings.orchestrator.rt_event_trigger_global_cooldown_seconds),
+                key_cooldown_seconds=int(settings.orchestrator.rt_event_trigger_key_cooldown_seconds),
+                max_runs_per_hour=int(settings.orchestrator.rt_event_trigger_max_runs_per_hour),
+                position_heartbeat_minutes=int(settings.orchestrator.rt_event_trigger_position_heartbeat_minutes),
+                flat_heartbeat_minutes=int(settings.orchestrator.rt_event_trigger_flat_heartbeat_minutes),
+                exposure_drift_pct_of_exposure_budget=float(
+                    settings.orchestrator.rt_event_trigger_exposure_drift_pct_of_exposure_budget
+                ),
+                execution_followup_delay_seconds=int(
+                    settings.orchestrator.rt_event_trigger_execution_followup_delay_seconds
+                ),
+                cron_subprocess_timeout_seconds=int(
+                    settings.orchestrator.rt_event_trigger_cron_subprocess_timeout_seconds
+                ),
+                max_leverage=float(settings.execution.max_leverage),
+                openclaw_bin=str(settings.orchestrator.rt_event_trigger_openclaw_bin),
+            ),
+        )
+    risk_brake_monitor = None
+    if bool(settings.orchestrator.risk_brake_enabled):
+        risk_brake_monitor = RiskBrakeMonitor(
+            state_memory=state_memory,
+            market_data=market_data,
+            policy_risk=policy_risk,
+            trade_execution=trade_execution,
+            event_bus=event_bus,
+            config=RiskBrakeConfig(
+                enabled=True,
+                scan_interval_seconds=int(settings.orchestrator.risk_brake_scan_interval_seconds),
+                rt_job_id=str(settings.orchestrator.risk_brake_rt_job_id),
+                pm_job_id=str(settings.orchestrator.risk_brake_pm_job_id),
+                cron_subprocess_timeout_seconds=int(
+                    settings.orchestrator.risk_brake_cron_subprocess_timeout_seconds
+                ),
+                openclaw_bin=str(settings.orchestrator.risk_brake_openclaw_bin),
+            ),
+        )
     workflow_orchestrator = WorkflowOrchestratorService(
         state_memory=state_memory,
         event_bus=event_bus,
         executor=executor,
         enable_daily_session_reset=True,
+        rt_trigger_monitor=rt_trigger_monitor,
+        risk_brake_monitor=risk_brake_monitor,
     )
     return ServiceContainer(
         settings=settings,

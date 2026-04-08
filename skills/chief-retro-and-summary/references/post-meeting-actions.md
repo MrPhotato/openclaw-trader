@@ -17,6 +17,16 @@ Execute in this order:
 
 3. Retro outcome submit
 - submit the final retro outcome with the same `input_id` from the Chief retro pack
+- the HTTP body must include:
+  - the same `input_id`
+  - a non-empty `owner_summary`
+- optional fields:
+  - `reset_command`
+  - `learning_results`
+  - `transcript`
+  - `round_count`
+  - `meeting_id`
+- write the submit payload to a local JSON file first, then `POST` that file
 - if needed, parse the top-level `input_id` directly from the saved pull response before submitting
 - never fabricate a local id such as `chief-retro-...`
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class ExecutionDecision(BaseModel):
@@ -14,7 +14,13 @@ class ExecutionDecision(BaseModel):
     coin: str
     action: str
     side: str
-    size_pct_of_equity: float | None = None
+    size_pct_of_exposure_budget: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "size_pct_of_exposure_budget",
+            "size_pct_of_equity",
+        ),
+    )
     priority: int = 1
     urgency: str = "normal"
     valid_for_minutes: int = 10
@@ -32,7 +38,13 @@ class ExecutionPlan(BaseModel):
     coin: str
     action: str
     side: str
-    size_pct_of_equity: float | None = None
+    size_pct_of_exposure_budget: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "size_pct_of_exposure_budget",
+            "size_pct_of_equity",
+        ),
+    )
     margin_usd: str | None = None
     notional_usd: str | None = None
     leverage: str | None = None

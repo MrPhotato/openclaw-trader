@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class WorkflowStateRef(BaseModel):
@@ -92,7 +92,14 @@ class ExecutionDecisionRecord(BaseModel):
     direction: str | None = None
     reason: str
     reference_take_profit_condition: str | None = None
-    size_pct_of_equity: float | None = None
+    reference_stop_loss_condition: str | None = None
+    size_pct_of_exposure_budget: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "size_pct_of_exposure_budget",
+            "size_pct_of_equity",
+        ),
+    )
     priority: int
     urgency: str
     valid_for_minutes: int

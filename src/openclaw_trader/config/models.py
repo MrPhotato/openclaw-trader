@@ -267,13 +267,28 @@ class RiskSettings(BaseModel):
     risk_profile: str = "normal"
     max_order_quote_usd: float | None = None
     max_position_quote_usd: float | None = None
-    max_order_pct_of_equity: float = 33.0
-    max_position_pct_of_equity: float = 66.0
+    max_order_pct_of_exposure_budget: float = Field(
+        default=33.0,
+        validation_alias=AliasChoices(
+            "max_order_pct_of_exposure_budget",
+            "max_order_pct_of_equity",
+        ),
+    )
+    max_position_pct_of_exposure_budget: float = Field(
+        default=66.0,
+        validation_alias=AliasChoices(
+            "max_position_pct_of_exposure_budget",
+            "max_position_pct_of_equity",
+        ),
+    )
     daily_loss_limit_pct_of_equity: float = 10.0
     emergency_exit_enabled: bool = True
-    position_observe_drawdown_pct: float = 4.0
-    position_reduce_drawdown_pct: float = 7.0
-    position_exit_drawdown_pct: float = 10.0
+    position_observe_drawdown_pct: float = 0.8
+    position_reduce_drawdown_pct: float = 1.4
+    position_exit_drawdown_pct: float = 2.2
+    portfolio_peak_observe_drawdown_pct: float = 0.6
+    portfolio_peak_reduce_drawdown_pct: float = 1.0
+    portfolio_peak_exit_drawdown_pct: float = 1.8
     emergency_exit_on_exchange_status: bool = True
     max_live_orders_per_day: int = 5
     max_leverage: float = 5.0
@@ -287,9 +302,27 @@ class ExecutionSettings(BaseModel):
     supported_coins: list[str] = Field(default_factory=list)
     live_enabled: bool = True
     max_leverage: float = 5.0
-    max_total_exposure_pct_of_equity: float = 100.0
-    max_order_share_pct_of_exposure_budget: float = 33.0
-    max_position_share_pct_of_exposure_budget: float = 66.0
+    max_total_exposure_pct_of_exposure_budget: float = Field(
+        default=100.0,
+        validation_alias=AliasChoices(
+            "max_total_exposure_pct_of_exposure_budget",
+            "max_total_exposure_pct_of_equity",
+        ),
+    )
+    max_order_pct_of_exposure_budget: float = Field(
+        default=33.0,
+        validation_alias=AliasChoices(
+            "max_order_pct_of_exposure_budget",
+            "max_order_share_pct_of_exposure_budget",
+        ),
+    )
+    max_position_pct_of_exposure_budget: float = Field(
+        default=66.0,
+        validation_alias=AliasChoices(
+            "max_position_pct_of_exposure_budget",
+            "max_position_share_pct_of_exposure_budget",
+        ),
+    )
     mode: str = "live"
     poll_seconds: int = 60
     primary_coin: str = "BTC"
@@ -312,6 +345,24 @@ class OrchestratorSettings(BaseModel):
     thinking: str = "minimal"
     timeout_seconds: int = 180
     process_timeout_grace_seconds: int = 15
+    rt_event_trigger_enabled: bool = False
+    rt_event_trigger_job_id: str = "ccbf7286-dba4-4d57-bebe-932340374492"
+    rt_event_trigger_scan_interval_seconds: int = 30
+    rt_event_trigger_global_cooldown_seconds: int = 300
+    rt_event_trigger_key_cooldown_seconds: int = 900
+    rt_event_trigger_max_runs_per_hour: int = 4
+    rt_event_trigger_position_heartbeat_minutes: int = 60
+    rt_event_trigger_flat_heartbeat_minutes: int = 120
+    rt_event_trigger_exposure_drift_pct_of_exposure_budget: float = 2.0
+    rt_event_trigger_execution_followup_delay_seconds: int = 180
+    rt_event_trigger_cron_subprocess_timeout_seconds: int = 15
+    rt_event_trigger_openclaw_bin: str = "openclaw"
+    risk_brake_enabled: bool = False
+    risk_brake_scan_interval_seconds: int = 30
+    risk_brake_rt_job_id: str = "ccbf7286-dba4-4d57-bebe-932340374492"
+    risk_brake_pm_job_id: str = "d4153cc9-1cbf-431d-b45a-d822054672c5"
+    risk_brake_cron_subprocess_timeout_seconds: int = 15
+    risk_brake_openclaw_bin: str = "openclaw"
 
 
 class StrategySettings(BaseModel):
@@ -332,34 +383,178 @@ class StrategySettings(BaseModel):
             "允许override决策临场开仓",
         ),
     )
-    neutral_position_share_pct: float = 0.0
-    neutral_order_share_pct: float = 0.0
+    neutral_position_pct_of_exposure_budget: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices(
+            "neutral_position_pct_of_exposure_budget",
+            "neutral_position_share_pct",
+        ),
+    )
+    neutral_order_pct_of_exposure_budget: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices(
+            "neutral_order_pct_of_exposure_budget",
+            "neutral_order_share_pct",
+        ),
+    )
     weak_signal_confidence: float = 0.70
-    weak_signal_min_position_share_pct: float = 15.0
-    weak_signal_max_position_share_pct: float = 25.0
-    weak_signal_position_share_pct: float = 20.0
-    weak_signal_order_share_pct: float = 15.0
-    medium_signal_min_position_share_pct: float = 30.0
-    medium_signal_max_position_share_pct: float = 50.0
-    medium_signal_position_share_pct: float = 40.0
-    medium_signal_order_share_pct: float = 25.0
+    weak_signal_min_position_pct_of_exposure_budget: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices(
+            "weak_signal_min_position_pct_of_exposure_budget",
+            "weak_signal_min_position_share_pct",
+        ),
+    )
+    weak_signal_max_position_pct_of_exposure_budget: float = Field(
+        default=25.0,
+        validation_alias=AliasChoices(
+            "weak_signal_max_position_pct_of_exposure_budget",
+            "weak_signal_max_position_share_pct",
+        ),
+    )
+    weak_signal_position_pct_of_exposure_budget: float = Field(
+        default=20.0,
+        validation_alias=AliasChoices(
+            "weak_signal_position_pct_of_exposure_budget",
+            "weak_signal_position_share_pct",
+        ),
+    )
+    weak_signal_order_pct_of_exposure_budget: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices(
+            "weak_signal_order_pct_of_exposure_budget",
+            "weak_signal_order_share_pct",
+        ),
+    )
+    medium_signal_min_position_pct_of_exposure_budget: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices(
+            "medium_signal_min_position_pct_of_exposure_budget",
+            "medium_signal_min_position_share_pct",
+        ),
+    )
+    medium_signal_max_position_pct_of_exposure_budget: float = Field(
+        default=50.0,
+        validation_alias=AliasChoices(
+            "medium_signal_max_position_pct_of_exposure_budget",
+            "medium_signal_max_position_share_pct",
+        ),
+    )
+    medium_signal_position_pct_of_exposure_budget: float = Field(
+        default=40.0,
+        validation_alias=AliasChoices(
+            "medium_signal_position_pct_of_exposure_budget",
+            "medium_signal_position_share_pct",
+        ),
+    )
+    medium_signal_order_pct_of_exposure_budget: float = Field(
+        default=25.0,
+        validation_alias=AliasChoices(
+            "medium_signal_order_pct_of_exposure_budget",
+            "medium_signal_order_share_pct",
+        ),
+    )
     strong_signal_confidence: float = 0.82
-    strong_signal_min_position_share_pct: float = 50.0
-    strong_signal_max_position_share_pct: float = 70.0
-    strong_signal_position_share_pct: float = 60.0
-    strong_signal_order_share_pct: float = 35.0
-    probe_min_position_share_pct: float = 15.0
-    probe_order_share_pct: float = 15.0
+    strong_signal_min_position_pct_of_exposure_budget: float = Field(
+        default=50.0,
+        validation_alias=AliasChoices(
+            "strong_signal_min_position_pct_of_exposure_budget",
+            "strong_signal_min_position_share_pct",
+        ),
+    )
+    strong_signal_max_position_pct_of_exposure_budget: float = Field(
+        default=70.0,
+        validation_alias=AliasChoices(
+            "strong_signal_max_position_pct_of_exposure_budget",
+            "strong_signal_max_position_share_pct",
+        ),
+    )
+    strong_signal_position_pct_of_exposure_budget: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices(
+            "strong_signal_position_pct_of_exposure_budget",
+            "strong_signal_position_share_pct",
+        ),
+    )
+    strong_signal_order_pct_of_exposure_budget: float = Field(
+        default=35.0,
+        validation_alias=AliasChoices(
+            "strong_signal_order_pct_of_exposure_budget",
+            "strong_signal_order_share_pct",
+        ),
+    )
+    probe_min_position_pct_of_exposure_budget: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices(
+            "probe_min_position_pct_of_exposure_budget",
+            "probe_min_position_share_pct",
+        ),
+    )
+    probe_order_pct_of_exposure_budget: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices(
+            "probe_order_pct_of_exposure_budget",
+            "probe_order_share_pct",
+        ),
+    )
     probe_aligned_scale: float = 0.75
-    probe_aligned_cap_position_share_pct: float = 25.0
+    probe_aligned_cap_position_pct_of_exposure_budget: float = Field(
+        default=25.0,
+        validation_alias=AliasChoices(
+            "probe_aligned_cap_position_pct_of_exposure_budget",
+            "probe_aligned_cap_position_share_pct",
+        ),
+    )
     probe_partial_scale: float = 0.50
-    probe_partial_cap_position_share_pct: float = 20.0
-    observe_cap_position_share_pct: float = 15.0
-    observe_cap_order_share_pct: float = 15.0
-    reduce_cap_position_share_pct: float = 4.0
-    reduce_cap_order_share_pct: float = 4.0
-    exit_cap_position_share_pct: float = 0.0
-    exit_cap_order_share_pct: float = 0.0
+    probe_partial_cap_position_pct_of_exposure_budget: float = Field(
+        default=20.0,
+        validation_alias=AliasChoices(
+            "probe_partial_cap_position_pct_of_exposure_budget",
+            "probe_partial_cap_position_share_pct",
+        ),
+    )
+    observe_cap_position_pct_of_exposure_budget: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices(
+            "observe_cap_position_pct_of_exposure_budget",
+            "observe_cap_position_share_pct",
+        ),
+    )
+    observe_cap_order_pct_of_exposure_budget: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices(
+            "observe_cap_order_pct_of_exposure_budget",
+            "observe_cap_order_share_pct",
+        ),
+    )
+    reduce_cap_position_pct_of_exposure_budget: float = Field(
+        default=4.0,
+        validation_alias=AliasChoices(
+            "reduce_cap_position_pct_of_exposure_budget",
+            "reduce_cap_position_share_pct",
+        ),
+    )
+    reduce_cap_order_pct_of_exposure_budget: float = Field(
+        default=4.0,
+        validation_alias=AliasChoices(
+            "reduce_cap_order_pct_of_exposure_budget",
+            "reduce_cap_order_share_pct",
+        ),
+    )
+    exit_cap_position_pct_of_exposure_budget: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices(
+            "exit_cap_position_pct_of_exposure_budget",
+            "exit_cap_position_share_pct",
+        ),
+    )
+    exit_cap_order_pct_of_exposure_budget: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices(
+            "exit_cap_order_pct_of_exposure_budget",
+            "exit_cap_order_share_pct",
+        ),
+    )
     funding_hot_threshold: float = 0.0005
     funding_hot_scale: float = 0.75
     rewrite_layers: list[str] = Field(

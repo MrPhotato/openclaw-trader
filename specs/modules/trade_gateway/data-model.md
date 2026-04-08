@@ -44,7 +44,7 @@
 | `available_equity_usd` | string | 可用权益 |
 | `total_exposure_usd` | string | 总名义暴露 |
 | `open_order_hold_usd` | string | 未完成订单占用 |
-| `positions[]` | array | 每币结构化仓位快照，带 `position_share_pct_of_equity`；该字段当前语义为 exposure budget 占比，分母为 `total_equity_usd * max_leverage` |
+| `positions[]` | array | 每币结构化仓位快照，带 `position_share_pct_of_exposure_budget`；该字段表示 exposure budget 占比，分母为 `total_equity_usd * max_leverage` |
 
 ## 4. ProductMetadataSnapshot
 

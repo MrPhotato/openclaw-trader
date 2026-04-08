@@ -39,6 +39,9 @@ Use this skill for `Crypto Chief` work only.
 - When referring to future checks from the PM strategy, describe them as PM-authored plans.
 - Do not imply a future review is already system-scheduled unless the runtime payload explicitly confirms scheduler state.
 - Prefer wording like `PM scheduled next review at ...` over `next recheck at ...`.
+- `POST /api/agent/submit/retro` must include the exact `input_id` plus a non-empty `owner_summary`.
+- Optional retro payload fields may include `reset_command`, `learning_results`, `transcript`, `round_count`, and `meeting_id`.
+- Do not hand-build a long escaped JSON body on the command line. Write the final submit body to a local JSON file first, then `POST` that file.
 - When replying to the runtime, return exactly one JSON object only.
 - `owner_summary` must be a non-empty string.
 - Never invent, transform, or summarize `input_id`; reuse the exact top-level value returned by the pull bridge.
