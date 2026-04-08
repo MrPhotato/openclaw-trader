@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ..modules.agent_gateway.service import RuntimeInputLeaseError, SubmissionValidationError
 from ..modules.workflow_orchestrator.models import CommandType, ManualTriggerCommand
@@ -45,6 +46,31 @@ def _normalize_agent_submit_body(raw: dict) -> AgentSubmitRequest:
         "max_notional_usd": raw.get("max_notional_usd"),
     }
     return AgentSubmitRequest.model_validate(request)
+
+
+async def _parse_agent_submit_request(request: Request) -> AgentSubmitRequest:
+    try:
+        raw = await request.json()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "invalid_json",
+                "message": "Request body must be valid JSON.",
+                "error": str(exc),
+            },
+        ) from exc
+    try:
+        return _normalize_agent_submit_body(raw)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason": "invalid_submit_request",
+                "message": "Submit body must include a valid input_id.",
+                "errors": exc.errors(),
+            },
+        ) from exc
 
 
 def build_router() -> APIRouter:
@@ -103,7 +129,7 @@ def build_router() -> APIRouter:
     @router.post("/api/agent/submit/strategy")
     async def submit_strategy(request: Request):
         container = request.app.state.container
-        req = _normalize_agent_submit_body(await request.json())
+        req = await _parse_agent_submit_request(request)
         try:
             result = container.agent_gateway.submit_strategy(input_id=req.input_id, payload=req.payload)
         except RuntimeInputLeaseError as exc:
@@ -129,7 +155,7 @@ def build_router() -> APIRouter:
     @router.post("/api/agent/submit/execution")
     async def submit_execution(request: Request):
         container = request.app.state.container
-        req = _normalize_agent_submit_body(await request.json())
+        req = await _parse_agent_submit_request(request)
         try:
             result = container.agent_gateway.submit_execution(
                 input_id=req.input_id,
@@ -154,7 +180,7 @@ def build_router() -> APIRouter:
     @router.post("/api/agent/submit/news")
     async def submit_news(request: Request):
         container = request.app.state.container
-        req = _normalize_agent_submit_body(await request.json())
+        req = await _parse_agent_submit_request(request)
         try:
             result = container.agent_gateway.submit_news(input_id=req.input_id, payload=req.payload)
         except RuntimeInputLeaseError as exc:
@@ -174,16 +200,16 @@ def build_router() -> APIRouter:
     @router.post("/api/agent/submit/retro")
     async def submit_retro(request: Request):
         container = request.app.state.container
-        req = _normalize_agent_submit_body(await request.json())
+        req = await _parse_agent_submit_request(request)
         try:
-            result = container.agent_gateway.submit_retro(input_id=req.input_id)
+            result = container.agent_gateway.submit_retro(input_id=req.input_id, payload=req.payload)
         except RuntimeInputLeaseError as exc:
             raise HTTPException(status_code=409, detail={"reason": exc.reason, "input_id": exc.input_id}) from exc
         except SubmissionValidationError as exc:
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "reason": "submission_validation_failed",
+                    "reason": exc.error_kind,
                     "schema_ref": exc.schema_ref,
                     "prompt_ref": exc.prompt_ref,
                     "errors": exc.errors,

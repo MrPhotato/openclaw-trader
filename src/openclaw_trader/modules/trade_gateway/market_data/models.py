@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class PriceSeriesPoint(BaseModel):
@@ -88,7 +88,13 @@ class PortfolioPositionSnapshot(BaseModel):
     leverage: str
     entry_price: str
     unrealized_pnl_usd: str
-    position_share_pct_of_equity: float = 0.0
+    position_share_pct_of_exposure_budget: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices(
+            "position_share_pct_of_exposure_budget",
+            "position_share_pct_of_equity",
+        ),
+    )
     opened_at: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -19,8 +20,9 @@ from openclaw_trader.modules.quant_intelligence.service import QuantIntelligence
 from openclaw_trader.modules.strategy_intent.models import ExecutionContext
 from openclaw_trader.modules.strategy_intent.service import StrategyIntentService
 from openclaw_trader.modules.trade_gateway.market_data.service import DataIngestService
+from openclaw_trader.modules.news_events.models import NewsDigestEvent
 
-from .helpers_v2 import FakeMarketDataProvider, FakeNewsProvider, FakeQuantProvider, build_test_settings
+from .helpers_v2 import FakeMarketDataProvider, FakeNewsProvider, FakeQuantProvider, build_test_harness, build_test_settings
 
 
 def _write_learning_targets(learning_targets: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -61,8 +63,8 @@ class AgentGatewayServiceTests(unittest.TestCase):
             strategy_version="v1",
             coin="BTC",
             product_id="BTC-PERP-INTX",
-            target_position_share_pct=15,
-            max_position_share_pct=25,
+            target_position_pct_of_exposure_budget=15,
+            max_position_pct_of_exposure_budget=25,
             target_bias="long",
             rationale="test",
         )
@@ -130,9 +132,111 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertNotIn("risk_limits", rt_context)
         self.assertNotIn("position_risk_state", rt_context)
         self.assertNotIn("forecast_snapshot", rt_context)
-        self.assertEqual(rt_context["current_position_share_pct"], 4.0)
+        self.assertEqual(rt_context["current_position_share_pct_of_exposure_budget"], 4.0)
         self.assertLessEqual(len(inputs["risk_trader"].payload["news_events"]), 5)
         self.assertEqual(inputs["risk_trader"].payload["news_events"][0]["title"], "Macro headline")
+
+    def test_build_runtime_inputs_compacts_and_ranks_news_for_pm_and_rt(self) -> None:
+        gateway = AgentGatewayService(
+            pm_runner=DeterministicAgentRunner(),
+            risk_runner=DeterministicAgentRunner(),
+            macro_runner=DeterministicAgentRunner(),
+            chief_runner=DeterministicAgentRunner(),
+            session_controller=DeterministicSessionController(),
+        )
+        market = DataIngestService(FakeMarketDataProvider()).collect(trace_id="trace-1", coins=["BTC"])
+        forecasts = QuantIntelligenceService(FakeQuantProvider()).predict_market(market)
+        policies = PolicyRiskService(build_test_settings(Path("/tmp") / "state" / "test.db")).evaluate(
+            market=market,
+            forecasts=forecasts,
+            news_events=[],
+        )
+        strategy_service = StrategyIntentService()
+        strategy = strategy_service.ensure_strategy(trace_id="trace-1", reason="dispatch_once", policies=policies)
+        now = datetime.now(UTC)
+        events = [
+            NewsDigestEvent(
+                news_id=f"news-{idx}",
+                source="test",
+                title=f"medium-{idx}",
+                url="https://example.com",
+                severity="medium",
+                published_at=now - timedelta(hours=idx),
+            )
+            for idx in range(8)
+        ]
+        events.extend(
+            [
+                NewsDigestEvent(
+                    news_id="news-high-old",
+                    source="test",
+                    title="high-old",
+                    url="https://example.com",
+                    severity="high",
+                    published_at=now - timedelta(days=1),
+                ),
+                NewsDigestEvent(
+                    news_id="news-critical-new",
+                    source="test",
+                    title="critical-new",
+                    url="https://example.com",
+                    severity="critical",
+                    published_at=now,
+                ),
+            ]
+        )
+        inputs = gateway.build_runtime_inputs(
+            trace_id="trace-1",
+            market=market,
+            policies=policies,
+            forecasts=forecasts,
+            strategy=strategy,
+            execution_contexts=[],
+            news_events=events,
+        )
+        pm_news = inputs["pm"].payload["news_events"]
+        rt_news = inputs["risk_trader"].payload["news_events"]
+        self.assertLessEqual(len(pm_news), 8)
+        self.assertLessEqual(len(rt_news), 5)
+        self.assertEqual(pm_news[0]["title"], "critical-new")
+        self.assertEqual(rt_news[0]["title"], "critical-new")
+        self.assertIn("high-old", [item["title"] for item in pm_news])
+
+    def test_pull_pm_and_rt_runtime_inputs_include_latest_risk_brake_event(self) -> None:
+        harness = build_test_harness()
+        try:
+            harness.container.state_memory.save_asset(
+                asset_type="risk_brake_event",
+                actor_role="system",
+                payload={
+                    "event_id": "risk-brake-1",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "scope": "portfolio",
+                    "state": "reduce",
+                    "coins": ["BTC"],
+                    "lock_mode": "reduce_only",
+                    "portfolio_risk_state": {"state": "reduce"},
+                    "position_risk_state_by_coin": {"BTC": {"state": "reduce"}},
+                    "rt_dispatched": True,
+                    "pm_dispatched": True,
+                    "system_decision_id": "risk_reduce_decision-1",
+                    "execution_result_ids": ["execution_result-1"],
+                },
+            )
+
+            pm_pack = harness.container.agent_gateway.pull_pm_runtime_input()
+            rt_pack = harness.container.agent_gateway.pull_rt_runtime_input()
+
+            self.assertEqual(pm_pack.payload["latest_risk_brake_event"]["scope"], "portfolio")
+            self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["state"], "reduce")
+            self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["coins"], ["BTC"])
+            self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["lock_mode"], "reduce_only")
+            self.assertIn("rt_decision_digest", rt_pack.payload)
+            self.assertEqual(rt_pack.payload["rt_decision_digest"]["trigger_summary"]["risk_lock_mode"], "reduce_only")
+            self.assertIn("portfolio_summary", rt_pack.payload["rt_decision_digest"])
+            self.assertIn("focus_symbols", rt_pack.payload["rt_decision_digest"])
+        finally:
+            harness.cleanup()
 
     def test_validate_submission_failure_exposes_schema_and_prompt_refs(self) -> None:
         gateway = AgentGatewayService(
@@ -245,7 +349,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                                 "action": "open",
                                 "direction": "long",
                                 "reason": "test",
-                                "size_pct_of_equity": 2.0,
+                                "size_pct_of_exposure_budget": 2.0,
                                 "priority": 1,
                                 "urgency": "normal",
                                 "valid_for_minutes": 10,
@@ -300,7 +404,8 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         "direction": "long",
                         "reason": "Momentum remains constructive.",
                         "reference_take_profit_condition": "Trim if BTC tags the upper intraday range and loses momentum.",
-                        "size_pct_of_equity": 2.0,
+                        "reference_stop_loss_condition": "Cut risk if BTC loses the 1h pullback low on expanding sell pressure.",
+                        "size_pct_of_exposure_budget": 2.0,
                         "priority": 1,
                         "urgency": "normal",
                         "valid_for_minutes": 15,
@@ -311,6 +416,10 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertEqual(
             envelope.payload["decisions"][0]["reference_take_profit_condition"],
             "Trim if BTC tags the upper intraday range and loses momentum.",
+        )
+        self.assertEqual(
+            envelope.payload["decisions"][0]["reference_stop_loss_condition"],
+            "Cut risk if BTC loses the 1h pullback low on expanding sell pressure.",
         )
 
     def test_pull_pm_runtime_input_issues_single_runtime_pack_with_lease(self) -> None:
@@ -353,7 +462,8 @@ class AgentGatewayServiceTests(unittest.TestCase):
                             "direction": "long",
                             "reason": "Breakout held and liquidity improved.",
                             "reference_take_profit_condition": "Trim into strength if BTC reaches the 1h range high and stalls.",
-                            "size_pct_of_equity": 3.0,
+                            "reference_stop_loss_condition": "Reduce if BTC loses the 1h pullback low and cannot reclaim it quickly.",
+                            "size_pct_of_exposure_budget": 3.0,
                             "urgency": "high",
                         }
                     ],
@@ -375,6 +485,18 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "fills": [{"price": "68000", "size": "0.0018"}],
                 },
             )
+            harness.container.state_memory.save_asset(
+                asset_type="rt_trigger_event",
+                trace_id="trace-trigger",
+                actor_role="system",
+                payload={
+                    "trigger_id": "rt-trigger-1",
+                    "reason": "pm_strategy_update",
+                    "severity": "high",
+                    "coins": ["BTC"],
+                    "dispatched": True,
+                },
+            )
             pack = harness.container.agent_gateway.pull_rt_runtime_input(
                 trigger_type="cadence",
                 params={"cadence_source": "openclaw_cron", "cadence_label": "rt_15m"},
@@ -389,8 +511,16 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 thoughts[0]["reference_take_profit_condition"],
                 "Trim into strength if BTC reaches the 1h range high and stalls.",
             )
+            self.assertEqual(
+                thoughts[0]["reference_stop_loss_condition"],
+                "Reduce if BTC loses the 1h pullback low and cannot reclaim it quickly.",
+            )
             self.assertEqual(thoughts[0]["execution_result"]["exchange_order_id"], "order-old-1")
             self.assertEqual(thoughts[0]["execution_result"]["first_fill_price"], "68000")
+            self.assertEqual(pack.payload["latest_rt_trigger_event"]["reason"], "pm_strategy_update")
+            self.assertEqual(pack.payload["latest_rt_trigger_event"]["coins"], ["BTC"])
+            self.assertNotIn("asset_id", pack.payload["latest_rt_trigger_event"])
+            self.assertNotIn("trigger_id", pack.payload["latest_rt_trigger_event"])
         finally:
             harness.cleanup()
 
@@ -515,11 +645,35 @@ class AgentGatewayServiceTests(unittest.TestCase):
         harness = build_test_harness()
         try:
             pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
-            result = harness.container.agent_gateway.submit_retro(input_id=pack.input_id)
-            self.assertTrue(result["owner_summary"])
-            self.assertEqual(len(result["transcript"]), 8)
+            result = harness.container.agent_gateway.submit_retro(
+                input_id=pack.input_id,
+                payload={
+                    "meeting_id": "retro-test-1",
+                    "round_count": 2,
+                    "owner_summary": "Chief retro landed successfully.",
+                    "learning_completed": True,
+                    "learning_results": {
+                        "pm": {
+                            "learning_updated": True,
+                            "learning_path": "/tmp/pm.md",
+                            "learning_summary": "pm learned",
+                        }
+                    },
+                    "transcript": [
+                        {"round_index": 1, "speaker_role": "pm", "statement": "one"},
+                        {"round_index": 1, "speaker_role": "risk_trader", "statement": "two"},
+                    ],
+                },
+            )
+            self.assertEqual(result["owner_summary"], "Chief retro landed successfully.")
+            self.assertEqual(result["meeting_id"], "retro-test-1")
+            self.assertEqual(len(result["transcript"]), 2)
+            self.assertEqual(result["learning_results"][0]["agent_role"], "pm")
             lease_asset = harness.container.state_memory.get_asset(pack.input_id)
             self.assertEqual(lease_asset["payload"]["status"], "consumed")
+            retro_asset = harness.container.state_memory.latest_asset(asset_type="chief_retro")
+            self.assertIsNotNone(retro_asset)
+            self.assertEqual(retro_asset["payload"]["owner_summary"], "Chief retro landed successfully.")
         finally:
             harness.cleanup()
 
@@ -758,7 +912,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         payload={
                             "trace_id": "trace-meeting",
                             "strategy": {"strategy_id": "strategy-1", "portfolio_mode": "defensive", "targets": []},
-                            "execution_contexts": [{"coin": "BTC", "product_id": "BTC-PERP-INTX", "target": {"state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0}, "current_position_share_pct": 0.0, "market_snapshot": {"mark_price": "70000", "trading_status": "STANDARD"}, "execution_summary": {"recent_order_count": 1}}],
+                            "execution_contexts": [{"coin": "BTC", "product_id": "BTC-PERP-INTX", "target": {"state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0}, "current_position_share_pct_of_exposure_budget": 0.0, "market_snapshot": {"mark_price": "70000", "trading_status": "STANDARD"}, "execution_summary": {"recent_order_count": 1}}],
                         },
                     ),
                     "macro_event_analyst": AgentRuntimeInput(
@@ -1205,7 +1359,7 @@ class OpenClawAgentRunnerTests(unittest.TestCase):
 
             def fake_run(*args, **kwargs):
                 fallback_path.write_text(
-                    '{"decision_id":"dec-1","strategy_id":"strat-1","generated_at_utc":"2026-03-21T00:00:00Z","trigger_type":"manual","decisions":[{"symbol":"BTC","action":"wait","direction":"long","reason":"fallback","size_pct_of_equity":0.0,"priority":1,"urgency":"low","valid_for_minutes":10}]}'
+                    '{"decision_id":"dec-1","strategy_id":"strat-1","generated_at_utc":"2026-03-21T00:00:00Z","trigger_type":"manual","decisions":[{"symbol":"BTC","action":"wait","direction":"long","reason":"fallback","size_pct_of_exposure_budget":0.0,"priority":1,"urgency":"low","valid_for_minutes":10}]}'
                 )
                 return _CommandResult(returncode=-1, stdout="", stderr="", timed_out=True)
 

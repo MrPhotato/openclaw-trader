@@ -40,7 +40,7 @@ class DeterministicAgentRunner:
                     continue
                 state = str(target.get("state") or "watch")
                 direction = str(target.get("direction") or "flat")
-                current_share = float(item.get("current_position_share_pct") or 0.0)
+                current_share = float(item.get("current_position_share_pct_of_exposure_budget") or 0.0)
                 band = target.get("target_exposure_band_pct") or [0.0, 0.0]
                 band_high = float(band[1] if len(band) > 1 else band[0] if band else 0.0)
                 action = "wait"
@@ -57,7 +57,7 @@ class DeterministicAgentRunner:
                         "action": action,
                         "direction": direction,
                         "reason": f"deterministic_rt_{action}",
-                        "size_pct_of_equity": size_pct if action != "wait" else 0.0,
+                        "size_pct_of_exposure_budget": size_pct if action != "wait" else 0.0,
                         "priority": index,
                         "urgency": "normal" if action != "wait" else "low",
                         "valid_for_minutes": 10,

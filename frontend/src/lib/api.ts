@@ -1,4 +1,4 @@
-import type { AgentLatestData, ExecutionsData, MarketContextData, NewsData, OverviewData, ReplayData, StreamPayload } from "./types";
+import type { AgentLatestData, ExecutionsData, MarketContextData, NewsData, OverviewData, StreamPayload } from "./types";
 
 const apiBase = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 const disableStream = import.meta.env.VITE_DISABLE_STREAM === "true";
@@ -33,18 +33,6 @@ export function fetchMarketContext() {
 
 export function fetchAgentLatest(agentRole: string) {
   return fetchJson<AgentLatestData>(`/api/query/agents/${agentRole}/latest`);
-}
-
-export function fetchReplay(traceId?: string, module?: string) {
-  const params = new URLSearchParams();
-  if (traceId) {
-    params.set("trace_id", traceId);
-  }
-  if (module) {
-    params.set("module", module);
-  }
-  const suffix = params.toString() ? `?${params.toString()}` : "";
-  return fetchJson<ReplayData>(`/api/query/replay${suffix}`);
 }
 
 export function isStreamDisabled() {

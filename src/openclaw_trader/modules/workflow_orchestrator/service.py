@@ -20,6 +20,8 @@ from .events import (
 )
 from .handlers import WorkflowCommandExecutor
 from .models import CommandType, ExternalCadenceWakeup, ManualTriggerCommand, WorkflowCommandReceipt, WorkflowStateRecord
+from .risk_brake import RiskBrakeMonitor
+from .rt_trigger import RTTriggerMonitor
 
 
 class WorkflowOrchestratorService:
@@ -43,6 +45,8 @@ class WorkflowOrchestratorService:
         enable_daily_session_reset: bool = False,
         daily_session_reset_hour_utc: int = 0,
         daily_session_reset_minute_utc: int = 30,
+        rt_trigger_monitor: RTTriggerMonitor | None = None,
+        risk_brake_monitor: RiskBrakeMonitor | None = None,
     ) -> None:
         self.state_memory = state_memory
         self.event_bus = event_bus
@@ -58,6 +62,7 @@ class WorkflowOrchestratorService:
         self._daily_session_reset_hour_utc = daily_session_reset_hour_utc
         self._daily_session_reset_minute_utc = daily_session_reset_minute_utc
         self._daily_reset_thread: Thread | None = None
+        self._rt_trigger_monitor = rt_trigger_monitor
         self._last_daily_reset_date: str | None = None
         if enable_daily_session_reset:
             self._daily_reset_thread = Thread(
@@ -66,6 +71,11 @@ class WorkflowOrchestratorService:
                 daemon=True,
             )
             self._daily_reset_thread.start()
+        if self._rt_trigger_monitor is not None:
+            self._rt_trigger_monitor.start()
+        self._risk_brake_monitor = risk_brake_monitor
+        if self._risk_brake_monitor is not None:
+            self._risk_brake_monitor.start()
 
     def submit_command(self, command: ManualTriggerCommand) -> WorkflowCommandReceipt:
         blocked_reason = self._blocked_reason(command)
@@ -268,6 +278,10 @@ class WorkflowOrchestratorService:
 
     def close(self) -> None:
         self._scheduler_stop.set()
+        if self._rt_trigger_monitor is not None:
+            self._rt_trigger_monitor.stop()
+        if self._risk_brake_monitor is not None:
+            self._risk_brake_monitor.stop()
         if self._daily_reset_thread is not None:
             self._daily_reset_thread.join(timeout=1.0)
         self._background_executor.shutdown(wait=False, cancel_futures=False)

@@ -162,7 +162,7 @@ def build_benchmark_settings(
             supported_coins=list(COINS),
             live_enabled=False,
             max_leverage=5.0,
-            max_total_exposure_pct_of_equity=100.0,
+            max_total_exposure_pct_of_exposure_budget=100.0,
             max_order_share_pct_of_exposure_budget=66.0,
             max_position_share_pct_of_exposure_budget=100.0,
         ),

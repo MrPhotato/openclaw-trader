@@ -8,12 +8,13 @@
       "symbol": "BTCUSDT",
       "action": "open",
       "direction": "long",
-      "size_pct_of_equity": 35.0,
+      "size_pct_of_exposure_budget": 35.0,
       "priority": 1,
       "urgency": "high",
       "valid_for_minutes": 10,
       "reason": "Current exposure is below target band and market conditions remain executable.",
-      "reference_take_profit_condition": "If BTC reclaims the 1h range high and then stalls near the upper band, consider trimming 2% to 4% of exposure budget into strength."
+      "reference_take_profit_condition": "If BTC reclaims the 1h range high and then stalls near the upper band, consider trimming 2% to 4% of exposure budget into strength.",
+      "reference_stop_loss_condition": "If BTC loses the 1h pullback low on expanding volume, reduce risk and reassess the long thesis."
     },
     {
       "symbol": "ETHUSDT",

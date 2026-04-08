@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, fetchReplay, isStreamDisabled, openEventStream } from "./lib/api";
+import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, isStreamDisabled, openEventStream } from "./lib/api";
 import { useMissionControlStore } from "./lib/store";
 import type { AgentLatestData, AssetRecord, EventEnvelope, OverviewData, ViewKey } from "./lib/types";
 
@@ -26,18 +26,23 @@ const moduleLabels: Record<string, string> = {
   quant_intelligence: "量化洞察",
 };
 
+const DISPLAY_PRINCIPAL_USD = 1000;
+const DISPLAY_LEVERAGE = 5;
+const DISPLAY_NOMINAL_USD = DISPLAY_PRINCIPAL_USD * DISPLAY_LEVERAGE;
+type BalanceGranularity = "15m" | "1h" | "1d";
+type BalancePoint = { label: string; equity: number; createdAtMs: number };
+
 export default function App() {
-  const [balanceGranularity, setBalanceGranularity] = useState<"15m" | "1h" | "1d">("1h");
+  const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
+  const chartViewportRef = useRef<HTMLDivElement | null>(null);
   const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
   const connectionState = useMissionControlStore((state) => state.connectionState);
   const liveEvents = useMissionControlStore((state) => state.liveEvents);
   const streamOverview = useMissionControlStore((state) => state.streamOverview);
-  const replayFilters = useMissionControlStore((state) => state.replayFilters);
   const setView = useMissionControlStore((state) => state.setView);
   const setConnectionState = useMissionControlStore((state) => state.setConnectionState);
   const setStreamPayload = useMissionControlStore((state) => state.setStreamPayload);
-  const setReplayFilters = useMissionControlStore((state) => state.setReplayFilters);
 
   const overviewQuery = useQuery({
     queryKey: ["overview"],
@@ -47,20 +52,14 @@ export default function App() {
   const newsQuery = useQuery({
     queryKey: ["news"],
     queryFn: fetchNews,
-    enabled: activeView === "overview" || activeView === "news",
+    enabled: activeView === "overview" || activeView === "signals",
     refetchInterval: 30000,
   });
   const executionsQuery = useQuery({
     queryKey: ["executions"],
     queryFn: fetchExecutions,
-    enabled: activeView === "overview" || activeView === "strategy",
+    enabled: activeView === "overview" || activeView === "desk",
     refetchInterval: 15000,
-  });
-  const replayQuery = useQuery({
-    queryKey: ["replay", replayFilters.traceId, replayFilters.module],
-    queryFn: () => fetchReplay(replayFilters.traceId || undefined, replayFilters.module || undefined),
-    enabled: activeView === "replay",
-    refetchInterval: activeView === "replay" ? 15000 : false,
   });
   const agentQueries = useQueries({
     queries: agentRoles.map((agent) => ({
@@ -82,23 +81,47 @@ export default function App() {
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
   const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceGranularity);
   const balanceTicks = buildBalanceTicks(balanceSeries);
+  const balanceChartWidth = computeBalanceChartWidth(balanceSeries.length, balanceGranularity);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
+
+  useEffect(() => {
+    const node = chartViewportRef.current;
+    if (!node) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      if (balanceSeries.length <= 1) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+      node.scrollLeft += delta;
+    };
+
+    node.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      node.removeEventListener("wheel", handleWheel);
+    };
+  }, [balanceSeries.length]);
 
   return (
     <div className="min-h-screen bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 lg:px-8">
         <header className="glass-panel rounded-[28px] px-6 py-5 shadow-glow">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-3">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2">
               <div className="flex items-center gap-3 text-xs uppercase tracking-[0.35em] text-ember">
-                <span className="rounded-full border border-white/10 px-3 py-1 text-neon">OpenClaw Trader</span>
-                <span className="h-px w-24 animate-pulseLine bg-gradient-to-r from-neon via-white/30 to-transparent" />
-                <span className="text-slate-400">中文看板</span>
+                <span className="rounded-full border border-white/10 px-3 py-1 text-neon">OpenClaw</span>
+                <span className="h-px w-16 animate-pulseLine bg-gradient-to-r from-neon via-white/30 to-transparent" />
+                <span className="text-slate-400">公开看板</span>
               </div>
               <div>
-                <h1 className="text-3xl font-semibold leading-none sm:text-5xl">交易看板</h1>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300 sm:text-base">
-                  OpenClaw Trader 是一个把策略、执行、仓位与事件收拢到同一页面的加密交易观察看板。
+                <h1 className="text-3xl font-semibold leading-none sm:text-5xl">交易指挥台</h1>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300 sm:text-base">
+                  <span className="text-slate-200">openclaw-trader 是 OpenClaw 加密工作流背后的交易运行时，当前公开展示本金 $1000。</span>
                   <a
                     href="https://github.com/MrPhotato/openclaw-trader"
                     target="_blank"
@@ -108,16 +131,11 @@ export default function App() {
                     GitHub
                   </a>
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
-                  <span className="rounded-full border border-neon/30 bg-neon/10 px-3 py-1">OpenClaw 原生会话</span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Agent-First Runtime</span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Trace 驱动</span>
-                </div>
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <MetricBadge
-                label={streamDisabled ? "更新方式" : "实时流"}
+                label={streamDisabled ? "更新方式" : "链路"}
                 value={connectionStateLabel(connectionState, streamDisabled)}
                 tone={streamBadgeTone(connectionState, streamDisabled)}
               />
@@ -127,19 +145,23 @@ export default function App() {
                 tone="text-slate-100"
               />
               <MetricBadge
-                label="最新策略"
+                label="策略"
                 value={strategyBadgeValue(latestStrategy)}
                 tone="text-ember"
+              />
+              <MetricBadge
+                label="席位"
+                value={`${countActiveAgents(overview?.agent_sessions ?? [])}/4`}
+                tone="text-slate-100"
               />
             </div>
           </div>
           <nav className="mt-5 flex flex-wrap gap-2">
             {[
               ["overview", "总览"],
-              ["strategy", "策略与执行"],
-              ["news", "新闻与宏观"],
-              ["agents", "Agent 看板"],
-              ["replay", "回放"],
+              ["desk", "策略"],
+              ["signals", "事件"],
+              ["agents", "席位"],
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -161,81 +183,89 @@ export default function App() {
           <section className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]" data-testid="overview-view">
             <div className="space-y-6">
               <Panel title="账户余额轨迹">
-                <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                <div className="mb-4 grid gap-3 sm:grid-cols-2">
                   <SummaryPill
-                    label="总权益"
+                    label="账户余额（本金$1000）"
                     value={usdCompactText(latestPortfolio["total_equity_usd"])}
                   />
                   <SummaryPill
-                    label="可用资金"
-                    value={usdCompactText(latestPortfolio["available_equity_usd"])}
-                  />
-                  <SummaryPill
-                    label="当前敞口"
-                    value={usdCompactText(latestPortfolio["total_exposure_usd"])}
+                    label="当前杠杆"
+                    value={configuredLeverageLabel()}
                   />
                 </div>
-                <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                  {buildCoinExposurePills(latestPortfolio).map((item) => (
-                    <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} />
+                <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {buildNominalExposurePills(latestPortfolio).map((item) => (
+                    <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} share={item.share} />
                   ))}
                 </div>
-                <ChartShell>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={balanceSeries}>
-                      <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fill: "#9fb0c7", fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                        interval="preserveStartEnd"
-                        minTickGap={28}
-                      />
-                      <YAxis
-                        tick={{ fill: "#9fb0c7", fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                        domain={["dataMin", "dataMax"]}
-                        ticks={balanceTicks}
-                        width={72}
-                      />
-                      <Tooltip
-                        cursor={{ stroke: "rgba(113,246,209,0.35)" }}
-                        formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
-                        labelFormatter={(label) => `时间：${label}`}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="equity"
-                        stroke="#71f6d1"
-                        strokeWidth={3}
-                        dot={false}
-                        connectNulls
-                        activeDot={{ r: 4 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartShell>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {([
-                    ["15m", "15 分钟"],
-                    ["1h", "1 小时"],
-                    ["1d", "日线"],
-                  ] as const).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setBalanceGranularity(key)}
-                      className={`rounded-full px-3 py-1.5 text-xs transition ${
-                        balanceGranularity === key
-                          ? "bg-neon/90 text-ink"
-                          : "border border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/10"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div
+                  ref={chartViewportRef}
+                  data-testid="balance-chart-viewport"
+                  className="overflow-x-auto overflow-y-hidden rounded-[24px]"
+                  style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
+                >
+                  <ChartShell>
+                    <div style={{ width: `${balanceChartWidth}px`, minWidth: "100%" }}>
+                      <LineChart width={balanceChartWidth} height={260} data={balanceSeries}>
+                        <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          interval="preserveStartEnd"
+                          minTickGap={28}
+                        />
+                        <YAxis
+                          tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          domain={["dataMin", "dataMax"]}
+                          ticks={balanceTicks}
+                          width={72}
+                        />
+                        <Tooltip
+                          cursor={{ stroke: "rgba(113,246,209,0.35)" }}
+                          formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
+                          labelFormatter={(label) => `时间：${label}`}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="equity"
+                          stroke="#71f6d1"
+                          strokeWidth={3}
+                          dot={false}
+                          connectNulls
+                          activeDot={{ r: 4 }}
+                        />
+                      </LineChart>
+                    </div>
+                  </ChartShell>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ["15m", "15 分钟"],
+                      ["1h", "1 小时"],
+                      ["1d", "日线"],
+                    ] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setBalanceGranularity(key)}
+                        className={`rounded-full px-3 py-1.5 text-xs transition ${
+                          balanceGranularity === key
+                            ? "bg-neon/90 text-ink"
+                            : "border border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/10"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-xs text-slate-500" data-testid="balance-viewport-caption">
+                    {balanceScrollCaption(balanceSeries.length, balanceGranularity)}
+                  </div>
                 </div>
                 <div className="mt-3 text-sm text-slate-400">
                   {balanceNarrative(latestPortfolio, balanceGranularity, balanceSeries)}
@@ -252,13 +282,13 @@ export default function App() {
           </section>
         )}
 
-        {activeView === "strategy" && (
-          <section className="grid gap-6 lg:grid-cols-[1.05fr_1fr]" data-testid="strategy-view">
+        {activeView === "desk" && (
+          <section className="grid gap-6 lg:grid-cols-[1.05fr_1fr]" data-testid="desk-view">
             <Panel title="PM 最新策略">
               <div className="space-y-4">
                 <Headline label="策略版本" value={strategyIdentity(latestStrategy)} />
                 <Headline label="组合模式" value={portfolioModeLabel(latestStrategy["portfolio_mode"])} />
-                <Headline label="核心判断" value={String(latestStrategy["portfolio_thesis"] ?? "PM 还没有正式提交策略。")} />
+                <Headline label="策略重点" value={strategyFocusText(latestStrategy)} />
                 <Headline label="失效条件" value={String(latestStrategy["portfolio_invalidation"] ?? "暂无明确失效条件。")} />
                 <div className="grid gap-3">
                   {readTargets(latestStrategy).map((target) => (
@@ -301,8 +331,8 @@ export default function App() {
           </section>
         )}
 
-        {activeView === "news" && (
-          <section className="grid gap-6 lg:grid-cols-[1fr_1.1fr]" data-testid="news-view">
+        {activeView === "signals" && (
+          <section className="grid gap-6 lg:grid-cols-[1fr_1.1fr]" data-testid="signals-view">
             <Panel title="宏观影响分布">
               <ChartShell>
                 <ResponsiveContainer width="100%" height={240}>
@@ -352,43 +382,6 @@ export default function App() {
             ))}
           </section>
         )}
-
-        {activeView === "replay" && (
-          <section className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr]" data-testid="replay-view">
-            <Panel title="回放筛选">
-              <div className="space-y-4">
-                <label className="block text-sm text-slate-300">
-                  Trace 编号
-                  <input
-                    value={replayFilters.traceId}
-                    onChange={(event) => setReplayFilters({ traceId: event.target.value })}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-50 outline-none transition focus:border-neon"
-                    placeholder="trace_..."
-                  />
-                </label>
-                <label className="block text-sm text-slate-300">
-                  模块
-                  <input
-                    value={replayFilters.module}
-                    onChange={(event) => setReplayFilters({ module: event.target.value })}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-slate-50 outline-none transition focus:border-neon"
-                    placeholder="例如 agent_gateway"
-                  />
-                </label>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                  渲染模式：{String(replayQuery.data?.render_hints?.mode ?? "timeline")}
-                </div>
-              </div>
-            </Panel>
-            <Panel title="回放时间线">
-              <div className="space-y-3">
-                {(replayQuery.data?.events ?? []).slice(0, 25).map((event) => (
-                  <EventRow key={event.event_id} event={event} />
-                ))}
-              </div>
-            </Panel>
-          </section>
-        )}
       </div>
     </div>
   );
@@ -433,11 +426,12 @@ function SummaryPill(props: { label: string; value: string }) {
   );
 }
 
-function CoinExposurePill(props: { coin: string; exposure: string }) {
+function CoinExposurePill(props: { coin: string; exposure: string; share: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
       <div className="text-[10px] tracking-[0.2em] text-slate-500">{props.coin}</div>
       <div className="mt-1 text-base font-medium text-slate-200">{props.exposure}</div>
+      <div className="mt-1 text-xs text-slate-400">{props.share}</div>
     </div>
   );
 }
@@ -568,13 +562,13 @@ function readTargets(strategy: Record<string, unknown>) {
 
 function assetPreview(asset: AssetRecord) {
   if (typeof asset.payload.summary === "string") {
-    return asset.payload.summary;
+    return compactText(asset.payload.summary, 120);
   }
   if (typeof asset.payload.owner_summary === "string") {
-    return asset.payload.owner_summary;
+    return compactText(asset.payload.owner_summary, 120);
   }
   if (typeof asset.payload.portfolio_thesis === "string") {
-    return `策略判断：${asset.payload.portfolio_thesis}`;
+    return `策略判断：${compactText(asset.payload.portfolio_thesis, 88)}`;
   }
   if (Array.isArray(asset.payload.decisions)) {
     return summarizeDecisionList(asset.payload.decisions);
@@ -585,7 +579,7 @@ function assetPreview(asset: AssetRecord) {
   if (typeof asset.payload.category === "string" && typeof asset.payload.summary === "string") {
     return `${newsCategoryLabel(asset.payload.category)}：${asset.payload.summary}`;
   }
-  return "已生成结构化记录，详细字段请进入回放页查看。";
+  return "已生成结构化记录，详细链路会在系统归档中继续保留。";
 }
 
 function impactTone(impact: string) {
@@ -670,10 +664,13 @@ function strategyBadgeValue(strategy: Record<string, unknown>) {
   if (revision) {
     return `第 ${revision} 版`;
   }
+  if (typeof strategy["strategy_id"] === "string" && strategy["strategy_id"].length > 0) {
+    return "已就绪";
+  }
   return "待生成";
 }
 
-function balanceWindowLabel(granularity: "15m" | "1h" | "1d") {
+function balanceWindowLabel(granularity: BalanceGranularity) {
   if (granularity === "15m") {
     return "15 分钟";
   }
@@ -683,7 +680,7 @@ function balanceWindowLabel(granularity: "15m" | "1h" | "1d") {
   return "日线";
 }
 
-function balanceGranularityMs(granularity: "15m" | "1h" | "1d") {
+function balanceGranularityMs(granularity: BalanceGranularity) {
   if (granularity === "15m") {
     return 15 * 60 * 1000;
   }
@@ -693,7 +690,7 @@ function balanceGranularityMs(granularity: "15m" | "1h" | "1d") {
   return 24 * 60 * 60 * 1000;
 }
 
-function balanceBucketCount(granularity: "15m" | "1h" | "1d") {
+function balanceBucketCount(granularity: BalanceGranularity) {
   if (granularity === "15m") {
     return 48;
   }
@@ -711,7 +708,7 @@ function strategyIdentity(strategy: Record<string, unknown>) {
 
 function balanceNarrative(
   latestPortfolio: Record<string, unknown>,
-  granularity: "15m" | "1h" | "1d",
+  granularity: BalanceGranularity,
   points: Array<{ equity: number }>,
 ) {
   if (points.length === 0) {
@@ -720,11 +717,11 @@ function balanceNarrative(
   const first = points[0];
   const last = points[points.length - 1];
   const delta = last.equity - first.equity;
-  const available = usdCompactText(latestPortfolio["available_equity_usd"]);
+  const exposure = nominalMarginPctLabel(latestPortfolio["total_exposure_usd"]);
   const direction = delta > 0 ? "上升" : delta < 0 ? "回落" : "基本持平";
-  return `${balanceWindowLabel(granularity)}视角下，横轴已经按固定粒度重排。账户总权益目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
+  return `${balanceWindowLabel(granularity)}视角下，横轴已经按固定粒度重排。账户余额目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
     Math.abs(delta),
-  )}。当前可用资金 ${available}。`;
+  )}。当前总敞口约占名义保证金 ${exposure}。`;
 }
 
 function strategyRevision(strategy: Record<string, unknown>) {
@@ -753,6 +750,14 @@ function portfolioModeLabel(value: unknown) {
     return "空闲";
   }
   return mode;
+}
+
+function strategyFocusText(strategy: Record<string, unknown>) {
+  const thesis = typeof strategy["portfolio_thesis"] === "string" ? strategy["portfolio_thesis"] : "";
+  if (!thesis) {
+    return "PM 还没有正式提交策略。";
+  }
+  return compactText(thesis, 96);
 }
 
 function directionLabel(value: unknown) {
@@ -792,7 +797,7 @@ function formatBandValue(value: unknown) {
   return number === null ? "0%" : `${trimNumber(number)}%`;
 }
 
-function buildCoinExposurePills(latestPortfolio: Record<string, unknown>) {
+function buildNominalExposurePills(latestPortfolio: Record<string, unknown>) {
   const positions = Array.isArray(latestPortfolio["positions"]) ? latestPortfolio["positions"] : [];
   const positionMap = new Map(
     positions
@@ -801,10 +806,18 @@ function buildCoinExposurePills(latestPortfolio: Record<string, unknown>) {
       .map((position) => [String(position.coin ?? "").toUpperCase(), position]),
   );
 
-  return ["BTC", "ETH", "SOL"].map((coin) => ({
-    coin,
-    exposure: positionNotionalLabel(positionMap.get(coin)),
-  }));
+  return [
+    ...["BTC", "ETH", "SOL"].map((coin) => ({
+      coin,
+      exposure: positionNotionalLabel(positionMap.get(coin)),
+      share: nominalMarginPctLabel(positionNotionalValue(positionMap.get(coin))),
+    })),
+    {
+      coin: "总敞口",
+      exposure: usdCompactText(latestPortfolio["total_exposure_usd"]),
+      share: nominalMarginPctLabel(latestPortfolio["total_exposure_usd"]),
+    },
+  ];
 }
 
 function positionNotionalLabel(position?: Record<string, unknown>) {
@@ -818,11 +831,28 @@ function positionNotionalLabel(position?: Record<string, unknown>) {
   return usdCompactText(notional);
 }
 
+function positionNotionalValue(position?: Record<string, unknown>) {
+  if (!position) {
+    return 0;
+  }
+  return toNumber(position.notional_usd) ?? toNumber(position.current_notional_usd) ?? 0;
+}
+
+function configuredLeverageLabel() {
+  return `${DISPLAY_LEVERAGE}x（名义$${DISPLAY_NOMINAL_USD}）`;
+}
+
+function nominalMarginPctLabel(value: unknown) {
+  const notional = toNumber(value) ?? 0;
+  const pct = DISPLAY_NOMINAL_USD > 0 ? (notional / DISPLAY_NOMINAL_USD) * 100 : 0;
+  return `名义占用 ${pct.toLocaleString("zh-CN", { minimumFractionDigits: pct === 0 ? 0 : 2, maximumFractionDigits: 2 })}%`;
+}
+
 function buildBalanceHistory(
   history: Array<{ created_at: string; total_equity_usd?: string | number | null }>,
   latestPortfolio: Record<string, unknown>,
-  granularity: "15m" | "1h" | "1d",
-) {
+  granularity: BalanceGranularity,
+): BalancePoint[] {
   const intervalMs = balanceGranularityMs(granularity);
   const bucketCount = balanceBucketCount(granularity);
   const rawPoints = history
@@ -861,7 +891,7 @@ function buildBalanceHistory(
 
   let pointIndex = 0;
   let lastEquity: number | null = null;
-  const series: Array<{ label: string; equity: number; createdAtMs: number }> = [];
+  const series: BalancePoint[] = [];
 
   for (let bucketMs = startBucketMs; bucketMs <= endBucketMs; bucketMs += intervalMs) {
     const bucketEndMs = bucketMs + intervalMs - 1;
@@ -893,6 +923,19 @@ function buildBalanceHistory(
           createdAtMs: endBucketMs,
         },
       ];
+}
+
+function computeBalanceChartWidth(length: number, granularity: BalanceGranularity) {
+  const minWidth = 760;
+  const pointWidth = granularity === "15m" ? 36 : granularity === "1h" ? 44 : 72;
+  return Math.max(minWidth, length * pointWidth);
+}
+
+function balanceScrollCaption(length: number, granularity: BalanceGranularity) {
+  if (length <= 1) {
+    return "等待更多历史快照";
+  }
+  return `已同步 ${length} 个 ${balanceWindowLabel(granularity)}点。桌面滚轮浏览，移动端左右滑动，整张图会真实横向滚动。`;
 }
 
 function buildBalanceTicks(points: Array<{ equity: number }>) {
@@ -1228,6 +1271,14 @@ function trimNumber(value: number) {
   });
 }
 
+function compactText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -1244,4 +1295,10 @@ function asRecord(value: unknown) {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+function countActiveAgents(sessions: Array<Record<string, unknown>>) {
+  return sessions.reduce((count, session) => {
+    return String(session.status ?? "offline") === "active" ? count + 1 : count;
+  }, 0);
 }

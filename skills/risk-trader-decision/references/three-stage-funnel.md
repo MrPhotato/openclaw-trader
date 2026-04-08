@@ -1,7 +1,19 @@
 # Three-Stage Funnel
 
+# Default read order
+Before the funnel, read `rt_decision_digest` first.
+
+Only drill into raw sections when the digest leaves ambiguity:
+- `execution_contexts`
+- `market.market_context`
+- `recent_execution_thoughts`
+- `news_events`
+
 ## 1. Task eligibility
 Read first:
+- `rt_decision_digest.trigger_summary`
+- `rt_decision_digest.portfolio_summary`
+- `rt_decision_digest.strategy_summary`
 - current target and target gap
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
@@ -14,6 +26,7 @@ Answer:
 
 ## 2. Market timing
 Read second:
+- `rt_decision_digest.focus_symbols`
 - `QI` `1h/4h/12h`
 - compressed price series
 - key levels
@@ -27,6 +40,7 @@ Answer:
 
 ## 3. Execution landing
 Read last:
+- `rt_decision_digest.recent_memory`
 - best bid/ask
 - spread
 - depth

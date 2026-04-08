@@ -39,7 +39,7 @@ class ExecutionGatewayServiceTests(unittest.TestCase):
             coin="BTC",
             action="open",
             side="long",
-            size_pct_of_equity=20.0,
+            size_pct_of_exposure_budget=20.0,
             leverage="2",
             reason="budget-test",
         )

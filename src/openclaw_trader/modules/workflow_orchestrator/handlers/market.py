@@ -285,7 +285,7 @@ class MarketWorkflowHandler(WorkflowEventRecorder):
                     coin=item.symbol,
                     action=item.action,
                     side=item.direction or ("flat" if item.action == "wait" else "long"),
-                    size_pct_of_equity=item.size_pct_of_equity,
+                    size_pct_of_exposure_budget=item.size_pct_of_exposure_budget,
                     urgency=item.urgency,
                     valid_for_minutes=item.valid_for_minutes,
                     reason=item.reason,
