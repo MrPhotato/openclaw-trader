@@ -6,6 +6,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from ...shared.infra.bus import EventBus
 from ...shared.protocols import EventFactory
 from ...shared.utils import new_id, notional_to_pct_of_exposure_budget
@@ -36,6 +38,7 @@ from .models import (
     DirectAgentReminder,
     ExecutionSubmission,
     NewsSubmission,
+    RetroSubmission,
     RetroLearningAck,
     RetroMeetingResult,
     RetroMeetingTurn,
@@ -305,7 +308,7 @@ class AgentGatewayService:
                     coin=item.symbol,
                     action=item.action,
                     side=item.direction or ("flat" if item.action in {"wait", "hold"} else "long"),
-                    size_pct_of_equity=item.size_pct_of_equity,
+                    size_pct_of_exposure_budget=item.size_pct_of_exposure_budget,
                     urgency=item.urgency,
                     valid_for_minutes=item.valid_for_minutes,
                     reason=item.reason,
@@ -469,18 +472,60 @@ class AgentGatewayService:
             "high_impact_count": len([item for item in canonical_news["events"] if item["impact_level"] == "high"]),
         }
 
-    def submit_retro(self, *, input_id: str) -> dict[str, Any]:
+    def submit_retro(self, *, input_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         lease = self._validate_runtime_lease(input_id=input_id, agent_role="crypto_chief")
-        runtime_inputs = {
-            role: AgentRuntimeInput.model_validate(payload)
-            for role, payload in dict(lease.hidden_payload.get("runtime_inputs") or {}).items()
+        try:
+            submission = RetroSubmission.model_validate(payload or {})
+        except ValidationError as exc:
+            owner_summary_missing = any(
+                tuple(error.get("loc") or ()) == ("owner_summary",) and str(error.get("type") or "") == "missing"
+                for error in exc.errors()
+            )
+            raise SubmissionValidationError(
+                schema_ref=self._CHIEF_RETRO_SPEC_REF,
+                prompt_ref=self._CHIEF_RETRO_PROMPT_REF,
+                errors=["owner_summary_required"] if owner_summary_missing else ["invalid_retro_submit_payload"],
+                error_kind="retro_submit_owner_summary_required" if owner_summary_missing else "retro_submit_invalid_payload",
+            ) from exc
+        owner_summary = str(submission.owner_summary or "").strip()
+        if not owner_summary:
+            raise SubmissionValidationError(
+                schema_ref=self._CHIEF_RETRO_SPEC_REF,
+                prompt_ref=self._CHIEF_RETRO_PROMPT_REF,
+                errors=["owner_summary_required"],
+                error_kind="retro_submit_owner_summary_required",
+            )
+        reset_command = str(submission.reset_command or "/new").strip() or "/new"
+        transcript = list(submission.transcript or [])
+        learning_results = self._normalize_retro_learning_results(submission.learning_results)
+        learning_completed = bool(submission.learning_completed)
+        round_count = submission.round_count
+        if round_count is None:
+            round_indexes = [int(item.get("round_index") or 0) for item in transcript if isinstance(item, dict)]
+            round_count = max(round_indexes) if round_indexes else None
+        meeting_id = str(submission.meeting_id or "").strip() or new_id("retro")
+        retro_payload = {
+            "meeting_id": meeting_id,
+            "round_count": round_count,
+            "transcript": transcript,
+            "learning_results": learning_results,
+            "owner_summary": owner_summary,
+            "reset_command": reset_command,
+            "learning_completed": learning_completed,
         }
-        reply_payload = self.run_chief_retro(trace_id=lease.pack.trace_id, runtime_inputs=runtime_inputs)
-        owner_summary = str(reply_payload.get("owner_summary") or "").strip()
-        reset_command = str(reply_payload.get("reset_command") or "/new")
-        transcript = list(reply_payload.get("transcript") or [])
-        learning_results = list(reply_payload.get("learning_results") or [])
-        learning_completed = bool(reply_payload.get("learning_completed"))
+        retro_asset = self.state_memory.save_asset(
+            asset_type="chief_retro",
+            payload=retro_payload,
+            trace_id=lease.pack.trace_id,
+            actor_role="crypto_chief",
+            group_key=meeting_id,
+            source_ref=input_id,
+            metadata={
+                "input_id": input_id,
+                "round_count": round_count,
+                "learning_completed": learning_completed,
+            },
+        )
         if owner_summary:
             self._record_events(
                 self.notification_service.notify_owner_summary(
@@ -494,30 +539,34 @@ class AgentGatewayService:
                     trace_id=lease.pack.trace_id,
                     event_type="chief.retro.completed",
                     source_module="agent_gateway",
-                    entity_type="chief_summary",
-                    entity_id=new_id("retro"),
+                    entity_type="chief_retro",
+                    entity_id=str(retro_asset["asset_id"]),
                     payload={
-                        "owner_summary": owner_summary,
-                        "reset_command": reset_command,
-                        "learning_completed": learning_completed,
-                        "round_count": reply_payload.get("round_count"),
-                        "transcript": transcript,
-                        "learning_results": learning_results,
+                        "retro": retro_payload,
+                        "retro_id": retro_asset["asset_id"],
                         "input_id": input_id,
                     },
                 )
             ]
         )
+        self.state_memory.save_agent_session(
+            agent_role="crypto_chief",
+            session_id=self.session_id_for_role("crypto_chief"),
+            last_task_kind="retro",
+            last_submission_kind="retro",
+        )
         self._consume_runtime_lease(lease=lease, submission_kind="retro")
         return {
             "trace_id": lease.pack.trace_id,
             "input_id": input_id,
+            "retro_id": retro_asset["asset_id"],
+            "meeting_id": meeting_id,
             "owner_summary": owner_summary,
             "reset_command": reset_command,
             "learning_completed": learning_completed,
             "transcript": transcript,
             "learning_results": learning_results,
-            "round_count": reply_payload.get("round_count"),
+            "round_count": round_count,
         }
 
     def _issue_runtime_pack(
@@ -567,8 +616,15 @@ class AgentGatewayService:
         else:
             payload = dict(runtime_input.payload)
             payload["trigger_context"] = trigger_context
+            latest_risk_brake_event = self._latest_risk_brake_event()
+            if latest_risk_brake_event is not None and agent_role in {"pm", "risk_trader"}:
+                payload["latest_risk_brake_event"] = latest_risk_brake_event
             if agent_role == "risk_trader":
                 payload["recent_execution_thoughts"] = self.state_memory.get_recent_execution_thoughts(limit=5)
+                latest_trigger_event = self._latest_rt_trigger_event()
+                if latest_trigger_event is not None:
+                    payload["latest_rt_trigger_event"] = latest_trigger_event
+                payload["rt_decision_digest"] = self._build_rt_decision_digest(payload)
             hidden_payload = {
                 "market": context["market"].model_dump(mode="json"),
                 "policies": {coin: decision.model_dump(mode="json") for coin, decision in context["policies"].items()},
@@ -656,9 +712,16 @@ class AgentGatewayService:
         )
         news = self.news_events.get_latest_news_batch(force_sync=force_sync_news)
         forecasts = self.quant_intelligence.get_latest_forecasts(market)
-        policies = self.policy_risk.evaluate(market=market, forecasts=forecasts, news_events=news)
         latest_strategy_asset = self.state_memory.get_latest_strategy()
         latest_strategy = latest_strategy_asset["payload"] if latest_strategy_asset and "payload" in latest_strategy_asset else latest_strategy_asset
+        prior_risk_state = self.state_memory.get_asset("risk_brake_state")
+        policies = self.policy_risk.evaluate(
+            market=market,
+            forecasts=forecasts,
+            news_events=news,
+            prior_risk_state=dict((prior_risk_state or {}).get("payload") or {}),
+            latest_strategy=latest_strategy or {},
+        )
         macro_memory = self.state_memory.get_macro_memory()
         return {
             "market": market,
@@ -769,6 +832,248 @@ class AgentGatewayService:
         except Exception:
             return None
 
+    def _latest_rt_trigger_event(self, *, max_age_minutes: int = 30) -> dict[str, Any] | None:
+        asset = self.state_memory.latest_asset(asset_type="rt_trigger_event", actor_role="system")
+        if asset is None:
+            return None
+        payload = dict(asset.get("payload") or {})
+        raw_timestamp = payload.get("detected_at_utc") or asset.get("created_at")
+        try:
+            detected_at = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+        except Exception:
+            detected_at = None
+        if detected_at is not None:
+            if detected_at.tzinfo is None:
+                detected_at = detected_at.replace(tzinfo=UTC)
+            if datetime.now(UTC) - detected_at.astimezone(UTC) > timedelta(minutes=max_age_minutes):
+                return None
+        fields = (
+            "detected_at_utc",
+            "reason",
+            "severity",
+            "coins",
+            "cooldown_key",
+            "bypass_cooldown",
+            "metrics",
+            "source_asset_ids",
+            "dispatched",
+            "skipped_reason",
+            "cron_running",
+        )
+        return {
+            "created_at": asset.get("created_at"),
+            **{key: payload.get(key) for key in fields if key in payload},
+        }
+
+    def _latest_risk_brake_event(self, *, max_age_minutes: int = 120) -> dict[str, Any] | None:
+        asset = self.state_memory.latest_asset(asset_type="risk_brake_event", actor_role="system")
+        if asset is None:
+            return None
+        payload = dict(asset.get("payload") or {})
+        raw_timestamp = payload.get("detected_at_utc") or asset.get("created_at")
+        try:
+            detected_at = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+        except Exception:
+            detected_at = None
+        if detected_at is not None:
+            if detected_at.tzinfo is None:
+                detected_at = detected_at.replace(tzinfo=UTC)
+            if datetime.now(UTC) - detected_at.astimezone(UTC) > timedelta(minutes=max_age_minutes):
+                return None
+        fields = (
+            "detected_at_utc",
+            "scope",
+            "state",
+            "coins",
+            "lock_mode",
+            "portfolio_risk_state",
+            "position_risk_state_by_coin",
+            "rt_dispatched",
+            "rt_skip_reason",
+            "pm_dispatched",
+            "pm_skip_reason",
+            "system_decision_id",
+            "execution_result_ids",
+        )
+        response = {
+            "created_at": asset.get("created_at"),
+            **{key: payload.get(key) for key in fields if key in payload},
+        }
+        if not response.get("lock_mode"):
+            state_name = str(response.get("state") or "").strip().lower()
+            if state_name == "reduce":
+                response["lock_mode"] = "reduce_only"
+            elif state_name == "exit":
+                response["lock_mode"] = "flat_only"
+        return response
+
+    def _build_rt_decision_digest(self, payload: dict[str, Any]) -> dict[str, Any]:
+        market = dict(payload.get("market") or {})
+        portfolio = dict(market.get("portfolio") or {})
+        strategy = dict(payload.get("strategy") or {})
+        trigger_context = dict(payload.get("trigger_context") or {})
+        latest_trigger_event = dict(payload.get("latest_rt_trigger_event") or {})
+        latest_risk_brake_event = dict(payload.get("latest_risk_brake_event") or {})
+        market_context = dict(market.get("market_context") or {})
+        execution_contexts = list(payload.get("execution_contexts") or [])
+        recent_thoughts = list(payload.get("recent_execution_thoughts") or [])
+        news_events = list(payload.get("news_events") or [])
+
+        lock_mode = self._rt_lock_mode_from_payload(payload)
+        positions = list(portfolio.get("positions") or [])
+        position_count = len(positions)
+        focus_symbols: list[dict[str, Any]] = []
+        for item in execution_contexts[:3]:
+            if not isinstance(item, dict):
+                continue
+            coin = str(item.get("coin") or "").upper()
+            target = dict(item.get("target") or {})
+            account_snapshot = dict(item.get("account_snapshot") or {})
+            market_snapshot = dict(item.get("market_snapshot") or {})
+            context_snapshot = dict(market_context.get(coin) or {})
+            focus_symbols.append(
+                {
+                    "coin": coin,
+                    "target_state": target.get("state"),
+                    "target_direction": target.get("direction"),
+                    "target_exposure_band_pct": list(target.get("target_exposure_band_pct") or []),
+                    "rt_discretion_band_pct": target.get("rt_discretion_band_pct"),
+                    "current_side": account_snapshot.get("current_side"),
+                    "current_notional_usd": account_snapshot.get("current_notional_usd"),
+                    "current_position_share_pct_of_exposure_budget": item.get(
+                        "current_position_share_pct_of_exposure_budget"
+                    ),
+                    "mark_price": market_snapshot.get("mark_price"),
+                    "day_price_change_pct": market_snapshot.get("day_price_change_pct"),
+                    "breakout_retest_state": context_snapshot.get("breakout_retest_state"),
+                    "volatility_state": context_snapshot.get("volatility_state"),
+                    "shape_summary": self._truncate_retro_text(
+                        str(context_snapshot.get("shape_summary") or ""),
+                        140,
+                    ),
+                    "execution_summary": dict(item.get("execution_summary") or {}),
+                }
+            )
+
+        compact_thoughts: list[dict[str, Any]] = []
+        for item in recent_thoughts[:3]:
+            if not isinstance(item, dict):
+                continue
+            result = dict(item.get("execution_result") or {})
+            compact_thoughts.append(
+                {
+                    "generated_at_utc": item.get("generated_at_utc"),
+                    "symbol": item.get("symbol"),
+                    "action": item.get("action"),
+                    "direction": item.get("direction"),
+                    "size_pct_of_exposure_budget": item.get("size_pct_of_exposure_budget"),
+                    "reason": self._truncate_retro_text(str(item.get("reason") or ""), 120),
+                    "reference_take_profit_condition": self._truncate_retro_text(
+                        str(item.get("reference_take_profit_condition") or ""),
+                        120,
+                    ),
+                    "reference_stop_loss_condition": self._truncate_retro_text(
+                        str(item.get("reference_stop_loss_condition") or ""),
+                        120,
+                    ),
+                    "execution_result": {
+                        "status": result.get("status"),
+                        "notional_usd": result.get("notional_usd"),
+                        "executed_at_utc": result.get("executed_at_utc"),
+                        "fills_count": result.get("fills_count"),
+                    },
+                }
+            )
+
+        compact_news = [
+            {
+                "title": self._truncate_retro_text(str(item.get("title") or ""), 120),
+                "summary": self._truncate_retro_text(str(item.get("summary") or ""), 140),
+                "severity": item.get("severity"),
+                "published_at": item.get("published_at"),
+            }
+            for item in news_events[:3]
+            if isinstance(item, dict)
+        ]
+
+        return {
+            "instruction": "Read this digest first. Drill into execution_contexts, market.market_context, or recent_execution_thoughts only if the digest leaves ambiguity.",
+            "read_order": [
+                "trigger_summary",
+                "portfolio_summary",
+                "strategy_summary",
+                "focus_symbols",
+                "recent_memory",
+            ],
+            "trigger_summary": {
+                "trigger_type": trigger_context.get("trigger_type"),
+                "trigger_reason": latest_trigger_event.get("reason"),
+                "trigger_severity": latest_trigger_event.get("severity"),
+                "risk_brake_state": latest_risk_brake_event.get("state"),
+                "risk_brake_scope": latest_risk_brake_event.get("scope"),
+                "risk_lock_mode": lock_mode,
+                "coins": list(latest_trigger_event.get("coins") or latest_risk_brake_event.get("coins") or []),
+            },
+            "portfolio_summary": {
+                "captured_at": portfolio.get("captured_at"),
+                "total_equity_usd": portfolio.get("total_equity_usd"),
+                "available_equity_usd": portfolio.get("available_equity_usd"),
+                "total_exposure_usd": portfolio.get("total_exposure_usd"),
+                "position_count": position_count,
+                "open_positions": [
+                    {
+                        "coin": item.get("coin"),
+                        "side": item.get("side"),
+                        "notional_usd": item.get("notional_usd"),
+                        "position_share_pct_of_exposure_budget": item.get(
+                            "position_share_pct_of_exposure_budget"
+                        ),
+                        "unrealized_pnl_usd": item.get("unrealized_pnl_usd"),
+                    }
+                    for item in positions[:3]
+                    if isinstance(item, dict)
+                ],
+            },
+            "strategy_summary": {
+                "strategy_version": strategy.get("strategy_version"),
+                "revision_number": strategy.get("revision_number"),
+                "portfolio_mode": strategy.get("portfolio_mode"),
+                "target_gross_exposure_band_pct": list(strategy.get("target_gross_exposure_band_pct") or []),
+                "change_summary": self._truncate_retro_text(str(strategy.get("change_summary") or ""), 180),
+                "portfolio_invalidation": self._truncate_retro_text(
+                    str(strategy.get("portfolio_invalidation") or ""),
+                    160,
+                ),
+            },
+            "focus_symbols": focus_symbols,
+            "recent_memory": {
+                "recent_execution_thoughts": compact_thoughts,
+                "headline_risk": compact_news,
+            },
+        }
+
+    @staticmethod
+    def _rt_lock_mode_from_payload(payload: dict[str, Any]) -> str | None:
+        precedence = {"normal": 0, "reduce_only": 1, "flat_only": 2}
+        strongest: str | None = None
+        latest_risk_brake_event = dict(payload.get("latest_risk_brake_event") or {})
+        event_lock_mode = str(latest_risk_brake_event.get("lock_mode") or "").strip() or None
+        if event_lock_mode in precedence:
+            strongest = event_lock_mode
+        for item in dict(payload.get("risk_limits") or {}).values():
+            if not isinstance(item, dict):
+                continue
+            for candidate in (
+                dict(item.get("portfolio_risk_state") or {}).get("lock_mode"),
+                dict(item.get("position_risk_state") or {}).get("lock_mode"),
+            ):
+                mode = str(candidate or "").strip() or None
+                if mode not in precedence:
+                    continue
+                if strongest is None or precedence[mode] > precedence.get(strongest, -1):
+                    strongest = mode
+        return strongest
+
     @staticmethod
     def _build_direct_reminders_from_news(canonical_news: dict[str, Any]) -> list[DirectAgentReminder]:
         reminders: list[DirectAgentReminder] = []
@@ -822,7 +1127,7 @@ class AgentGatewayService:
             "market": pm_market_payload,
             "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
             "forecasts": self._forecast_payload(forecasts),
-            "news_events": [item.model_dump(mode="json") for item in news_events],
+            "news_events": self._compact_news_events(news_events, limit=8),
             "previous_strategy": strategy_payload or {},
             "macro_memory": list(macro_memory or []),
         }
@@ -902,12 +1207,15 @@ class AgentGatewayService:
                     "coin": coin,
                     "product_id": snapshot.product_id,
                     "target": target,
-                    "current_position_share_pct": round(current_share, 4),
+                    "current_position_share_pct_of_exposure_budget": round(current_share, 4),
                     "market_snapshot": snapshot.model_dump(mode="json"),
                     "account_snapshot": account.model_dump(mode="json"),
                     "risk_limits": policies[coin].risk_limits.model_dump(mode="json"),
                     "position_risk_state": policies[coin].position_risk_state.model_dump(mode="json"),
-                    "forecast_snapshot": self._forecast_payload({coin: forecasts[coin]}).get(coin, {}),
+                    "portfolio_risk_state": policies[coin].portfolio_risk_state.model_dump(mode="json"),
+                    "forecast_snapshot": self._forecast_payload(
+                        {coin: forecasts[coin]} if coin in forecasts else {}
+                    ).get(coin, {}),
                     "product_metadata": market.product_metadata.get(coin).model_dump(mode="json")
                     if coin in market.product_metadata
                     else {},
@@ -1239,9 +1547,15 @@ class AgentGatewayService:
                 "tradable": bool(dict(item.get("trade_availability") or {}).get("tradable", False)),
                 "reasons": list(dict(item.get("trade_availability") or {}).get("reasons") or []),
                 "max_leverage": dict(item.get("risk_limits") or {}).get("max_leverage"),
-                "max_total_exposure_pct_of_equity": dict(item.get("risk_limits") or {}).get("max_total_exposure_pct_of_equity"),
-                "max_symbol_position_pct_of_equity": dict(item.get("risk_limits") or {}).get("max_symbol_position_pct_of_equity"),
-                "max_order_pct_of_equity": dict(item.get("risk_limits") or {}).get("max_order_pct_of_equity"),
+                "max_total_exposure_pct_of_exposure_budget": dict(item.get("risk_limits") or {}).get(
+                    "max_total_exposure_pct_of_exposure_budget"
+                ),
+                "max_symbol_position_pct_of_exposure_budget": dict(item.get("risk_limits") or {}).get(
+                    "max_symbol_position_pct_of_exposure_budget"
+                ),
+                "max_order_pct_of_exposure_budget": dict(item.get("risk_limits") or {}).get(
+                    "max_order_pct_of_exposure_budget"
+                ),
                 "position_risk_state": str(dict(item.get("position_risk_state") or {}).get("state") or ""),
                 "cooldown_active": bool(dict(item.get("cooldown") or {}).get("active", False)),
                 "breaker_active": bool(dict(item.get("breaker") or {}).get("active", False)),
@@ -1333,7 +1647,7 @@ class AgentGatewayService:
                     "direction": str(target.get("direction") or ""),
                     "target_exposure_band_pct": list(target.get("target_exposure_band_pct") or []),
                     "rt_discretion_band_pct": target.get("rt_discretion_band_pct"),
-                    "current_position_share_pct": item.get("current_position_share_pct"),
+                    "current_position_share_pct_of_exposure_budget": item.get("current_position_share_pct_of_exposure_budget"),
                     "mark_price": str(market_snapshot.get("mark_price") or ""),
                     "trading_status": str(market_snapshot.get("trading_status") or ""),
                     "execution_summary": execution_summary,
@@ -1665,6 +1979,24 @@ class AgentGatewayService:
         return normalized
 
     @staticmethod
+    def _normalize_retro_learning_results(payload: Any) -> list[dict[str, Any]]:
+        if payload is None:
+            return []
+        if isinstance(payload, list):
+            return [dict(item) for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            values = list(payload.values())
+            if values and all(isinstance(item, dict) for item in values):
+                normalized: list[dict[str, Any]] = []
+                for role, item in payload.items():
+                    record = dict(item)
+                    record.setdefault("agent_role", str(role))
+                    normalized.append(record)
+                return normalized
+            return [dict(payload)]
+        return []
+
+    @staticmethod
     def _validate_retro_turn_reply(payload: dict[str, Any], *, speaker_role: str) -> RetroTurnReply | None:
         normalized = dict(payload or {})
         normalized["speaker_role"] = str(normalized.get("speaker_role") or speaker_role).strip() or speaker_role
@@ -1853,7 +2185,7 @@ class AgentGatewayService:
                     coin=item.symbol,
                     action=item.action,
                     side=item.direction or ("flat" if item.action in {"wait", "hold"} else "long"),
-                    size_pct_of_equity=item.size_pct_of_equity,
+                    size_pct_of_exposure_budget=item.size_pct_of_exposure_budget,
                     urgency=item.urgency,
                     valid_for_minutes=item.valid_for_minutes,
                     reason=item.reason,
@@ -2018,9 +2350,17 @@ class AgentGatewayService:
         compacted: list[dict[str, Any]] = []
         for item in contexts:
             payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item or {})
-            current_position_share_pct = payload.get("current_position_share_pct")
-            if current_position_share_pct is None:
-                current_position_share_pct = dict(payload.get("account_snapshot") or {}).get("current_position_share_pct")
+            current_position_share_pct_of_exposure_budget = payload.get("current_position_share_pct_of_exposure_budget")
+            if current_position_share_pct_of_exposure_budget is None:
+                current_position_share_pct_of_exposure_budget = payload.get("current_position_share_pct")
+            if current_position_share_pct_of_exposure_budget is None:
+                current_position_share_pct_of_exposure_budget = dict(payload.get("account_snapshot") or {}).get(
+                    "current_position_share_pct_of_exposure_budget"
+                )
+            if current_position_share_pct_of_exposure_budget is None:
+                current_position_share_pct_of_exposure_budget = dict(payload.get("account_snapshot") or {}).get(
+                    "current_position_share_pct"
+                )
             if agent_role == "risk_trader":
                 compacted.append(
                     {
@@ -2029,7 +2369,7 @@ class AgentGatewayService:
                         "coin": payload.get("coin"),
                         "product_id": payload.get("product_id"),
                         "target": cls._compact_strategy_target(payload.get("target")),
-                        "current_position_share_pct": current_position_share_pct,
+                        "current_position_share_pct_of_exposure_budget": current_position_share_pct_of_exposure_budget,
                         "market_snapshot": cls._compact_execution_market_snapshot(payload.get("market_snapshot")),
                         "account_snapshot": cls._compact_execution_account_snapshot(payload.get("account_snapshot")),
                         "product_metadata": cls._compact_execution_product_metadata(payload.get("product_metadata")),
@@ -2122,8 +2462,18 @@ class AgentGatewayService:
 
     @staticmethod
     def _compact_news_events(events: list[NewsDigestEvent], *, limit: int) -> list[dict[str, Any]]:
+        severity_rank = {"critical": 3, "high": 2, "medium": 1, "low": 0}
+
+        def _sort_key(item: NewsDigestEvent) -> tuple[int, datetime]:
+            severity = str(getattr(item, "severity", "") or "").lower()
+            published_at = getattr(item, "published_at", None) or datetime.min.replace(tzinfo=UTC)
+            if published_at.tzinfo is None:
+                published_at = published_at.replace(tzinfo=UTC)
+            return (severity_rank.get(severity, -1), published_at.astimezone(UTC))
+
         compacted: list[dict[str, Any]] = []
-        for item in list(events or [])[:limit]:
+        ranked_events = sorted(list(events or []), key=_sort_key, reverse=True)
+        for item in ranked_events[:limit]:
             payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item or {})
             compacted.append(
                 {
@@ -2251,7 +2601,7 @@ class AgentGatewayService:
             "leverage",
             "entry_price",
             "unrealized_pnl_usd",
-            "position_share_pct_of_equity",
+            "position_share_pct_of_exposure_budget",
             "opened_at",
         }
         compacted = {key: value for key, value in payload.items() if key in keep_keys}
