@@ -68,9 +68,24 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
             supported_coins=[str(coin).upper() for coin in list(perps_payload.get("coins") or ["BTC", "ETH", "SOL"])],
             live_enabled=bool(perps_payload.get("live_enabled", True)),
             max_leverage=float(perps_payload.get("max_leverage", 5.0)),
-            max_total_exposure_pct_of_equity=float(perps_payload.get("max_total_exposure_pct_of_equity", 100.0)),
-            max_order_share_pct_of_exposure_budget=float(perps_payload.get("max_order_share_pct_of_exposure_budget", 33.0)),
-            max_position_share_pct_of_exposure_budget=float(perps_payload.get("max_position_share_pct_of_exposure_budget", 66.0)),
+            max_total_exposure_pct_of_exposure_budget=float(
+                perps_payload.get(
+                    "max_total_exposure_pct_of_exposure_budget",
+                    perps_payload.get("max_total_exposure_pct_of_equity", 100.0),
+                )
+            ),
+            max_order_pct_of_exposure_budget=float(
+                perps_payload.get(
+                    "max_order_pct_of_exposure_budget",
+                    perps_payload.get("max_order_share_pct_of_exposure_budget", 33.0),
+                )
+            ),
+            max_position_pct_of_exposure_budget=float(
+                perps_payload.get(
+                    "max_position_pct_of_exposure_budget",
+                    perps_payload.get("max_position_share_pct_of_exposure_budget", 66.0),
+                )
+            ),
             mode=str(perps_payload.get("mode", "live")),
             poll_seconds=int(perps_payload.get("poll_seconds", 60)),
             primary_coin=str(perps_payload.get("coin", "BTC")).upper(),
@@ -92,6 +107,47 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
             thinking=str(dispatch_payload.get("thinking", "minimal")),
             timeout_seconds=int(dispatch_payload.get("timeout_seconds", 180)),
             process_timeout_grace_seconds=int(dispatch_payload.get("process_timeout_grace_seconds", 15)),
+            rt_event_trigger_enabled=bool(dispatch_payload.get("rt_event_trigger_enabled", False)),
+            rt_event_trigger_job_id=str(
+                dispatch_payload.get(
+                    "rt_event_trigger_job_id",
+                    "ccbf7286-dba4-4d57-bebe-932340374492",
+                )
+            ),
+            rt_event_trigger_scan_interval_seconds=int(dispatch_payload.get("rt_event_trigger_scan_interval_seconds", 30)),
+            rt_event_trigger_global_cooldown_seconds=int(dispatch_payload.get("rt_event_trigger_global_cooldown_seconds", 300)),
+            rt_event_trigger_key_cooldown_seconds=int(dispatch_payload.get("rt_event_trigger_key_cooldown_seconds", 900)),
+            rt_event_trigger_max_runs_per_hour=int(dispatch_payload.get("rt_event_trigger_max_runs_per_hour", 4)),
+            rt_event_trigger_position_heartbeat_minutes=int(dispatch_payload.get("rt_event_trigger_position_heartbeat_minutes", 60)),
+            rt_event_trigger_flat_heartbeat_minutes=int(dispatch_payload.get("rt_event_trigger_flat_heartbeat_minutes", 120)),
+            rt_event_trigger_exposure_drift_pct_of_exposure_budget=float(
+                dispatch_payload.get("rt_event_trigger_exposure_drift_pct_of_exposure_budget", 2.0)
+            ),
+            rt_event_trigger_execution_followup_delay_seconds=int(
+                dispatch_payload.get("rt_event_trigger_execution_followup_delay_seconds", 180)
+            ),
+            rt_event_trigger_cron_subprocess_timeout_seconds=int(
+                dispatch_payload.get("rt_event_trigger_cron_subprocess_timeout_seconds", 15)
+            ),
+            rt_event_trigger_openclaw_bin=str(dispatch_payload.get("rt_event_trigger_openclaw_bin", "openclaw")),
+            risk_brake_enabled=bool(dispatch_payload.get("risk_brake_enabled", False)),
+            risk_brake_scan_interval_seconds=int(dispatch_payload.get("risk_brake_scan_interval_seconds", 30)),
+            risk_brake_rt_job_id=str(
+                dispatch_payload.get(
+                    "risk_brake_rt_job_id",
+                    "ccbf7286-dba4-4d57-bebe-932340374492",
+                )
+            ),
+            risk_brake_pm_job_id=str(
+                dispatch_payload.get(
+                    "risk_brake_pm_job_id",
+                    "d4153cc9-1cbf-431d-b45a-d822054672c5",
+                )
+            ),
+            risk_brake_cron_subprocess_timeout_seconds=int(
+                dispatch_payload.get("risk_brake_cron_subprocess_timeout_seconds", 15)
+            ),
+            risk_brake_openclaw_bin=str(dispatch_payload.get("risk_brake_openclaw_bin", "openclaw")),
         ),
         strategy=StrategySettings.model_validate(strategy_payload),
         workflow=WorkflowSettings(

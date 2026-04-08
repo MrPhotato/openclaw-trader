@@ -11,6 +11,7 @@ Important fields to always think about:
 - `target_gross_exposure_band_pct`
 - `portfolio_thesis`
 - `portfolio_invalidation`
+- `regime-switch triggers`
 - `change_summary`
 - `targets[]`
 - `target_exposure_band_pct`
@@ -24,7 +25,12 @@ Rules:
 - If you need to think or explain, do it before the formal submit step, not inside the submission itself.
 - If judgment is unchanged, still emit a fresh strategy submission.
 - Do not add execution tactics such as order type, order count, or entry path.
+- Even though there is no dedicated schema field for it, you must still think through the `regime-switch triggers`: the specific conditions that would justify flipping directional bias from long to short, short to long, or from active risk to flat/only_reduce.
+- Encode the most important `regime-switch triggers` into `portfolio_thesis`, `portfolio_invalidation`, `change_summary`, or `scheduled_rechecks.reason` as appropriate. Do not invent a new submit field.
 - Treat all exposure percentages as `% of exposure budget`, where exposure budget = `total_equity_usd * max_leverage`.
+- Under this house convention, normalized gross exposure and normalized per-symbol exposure should not exceed `100%`.
+- If you describe current exposure as greater than `100%`, you are almost certainly using the wrong denominator (`raw notional / equity`) instead of the house denominator (`equity * max_leverage`).
+- When describing current gross exposure or current position share in prose, prefer the normalized values already present in the runtime pack. Do not recompute them from raw `total_exposure_usd / total_equity_usd`.
 - Do not emit `strategy_id`, `strategy_day_utc`, `generated_at_utc`, `trigger_type`, or any source-ref fields. The system will add those later.
 - Do not add `speaker_role` to a normal strategy submit.
 

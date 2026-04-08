@@ -172,7 +172,7 @@ class NotificationService:
                     continue
                 coin = item.get("coin") or item.get("symbol") or "UNKNOWN"
                 bias = item.get("bias") or item.get("direction") or "neutral"
-                share = item.get("target_position_share_pct")
+                share = item.get("target_position_pct_of_exposure_budget", item.get("target_position_share_pct"))
                 if share is None:
                     band = item.get("target_exposure_band_pct") or []
                     share = band[1] if len(band) > 1 else band[0] if band else 0

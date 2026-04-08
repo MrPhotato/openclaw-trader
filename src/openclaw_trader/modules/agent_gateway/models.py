@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class AgentRuntimeInput(BaseModel):
@@ -101,6 +101,18 @@ class RetroMeetingResult(BaseModel):
     learning_completed: bool = False
 
 
+class RetroSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner_summary: str
+    reset_command: str = "/new"
+    learning_completed: bool = False
+    learning_results: Any = Field(default_factory=list)
+    transcript: list[dict[str, Any]] = Field(default_factory=list)
+    round_count: int | None = None
+    meeting_id: str | None = None
+
+
 class StrategySubmissionTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -138,7 +150,14 @@ class ExecutionSubmissionDecision(BaseModel):
     direction: Literal["long", "short", "flat"] | None = None
     reason: str
     reference_take_profit_condition: str | None = None
-    size_pct_of_equity: float | None = None
+    reference_stop_loss_condition: str | None = None
+    size_pct_of_exposure_budget: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "size_pct_of_exposure_budget",
+            "size_pct_of_equity",
+        ),
+    )
     priority: int
     urgency: Literal["low", "normal", "high"]
     valid_for_minutes: int

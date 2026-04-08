@@ -28,7 +28,7 @@ class StrategyIntentServiceTests(unittest.TestCase):
             forecasts=forecasts,
         )
         self.assertEqual(len(contexts), 1)
-        self.assertEqual(contexts[0].target_position_share_pct, 0.0)
+        self.assertEqual(contexts[0].target_position_pct_of_exposure_budget, 0.0)
         self.assertEqual(set(contexts[0].forecast_snapshot), {"4h", "12h"})
 
 

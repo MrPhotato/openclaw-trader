@@ -245,7 +245,8 @@ class StateMemoryService:
                         "direction": item.get("direction"),
                         "reason": item.get("reason"),
                         "reference_take_profit_condition": item.get("reference_take_profit_condition"),
-                        "size_pct_of_equity": item.get("size_pct_of_equity"),
+                        "reference_stop_loss_condition": item.get("reference_stop_loss_condition"),
+                        "size_pct_of_exposure_budget": item.get("size_pct_of_exposure_budget", item.get("size_pct_of_equity")),
                         "urgency": item.get("urgency"),
                         "execution_result": self._compact_execution_result_for_thought(
                             results_by_key.get((decision_id, symbol))
@@ -363,6 +364,27 @@ class StateMemoryService:
         recent_execution_results = self.recent_assets(asset_type="execution_result", limit=10)
         current_macro_events = self.recent_assets(asset_type="macro_event", limit=10)
         recent_notifications = self.recent_assets(asset_type="notification_result", limit=10)
+        recent_events = self.query_events(limit=25)
+        freshness_candidates = [
+            latest_strategy["created_at"] if latest_strategy else None,
+            latest_portfolio["created_at"] if latest_portfolio else None,
+            latest_execution_batch["created_at"] if latest_execution_batch else None,
+            recent_execution_results[0]["created_at"] if recent_execution_results else None,
+            current_macro_events[0]["created_at"] if current_macro_events else None,
+            recent_notifications[0]["created_at"] if recent_notifications else None,
+            recent_events[0]["occurred_at"] if recent_events else None,
+        ]
+        latest_data_at = max((value for value in freshness_candidates if value), default=None)
+        data_age_seconds: float | None = None
+        if latest_data_at:
+            try:
+                data_age_seconds = max(
+                    0.0,
+                    (datetime.now(UTC) - datetime.fromisoformat(latest_data_at)).total_seconds(),
+                )
+            except ValueError:
+                data_age_seconds = None
+        is_stale = bool(data_age_seconds is not None and data_age_seconds > 30 * 60)
         portfolio_history = [
             {
                 "created_at": item["created_at"],
@@ -375,7 +397,10 @@ class StateMemoryService:
                 "strategy_present": latest_strategy is not None,
                 "execution_present": latest_execution_batch is not None,
                 "macro_event_count": len(current_macro_events),
-                "updated_at": datetime.now(UTC).isoformat(),
+                "updated_at": latest_data_at,
+                "built_at": datetime.now(UTC).isoformat(),
+                "data_age_seconds": data_age_seconds,
+                "is_stale": is_stale,
             },
             latest_strategy=latest_strategy,
             latest_portfolio=latest_portfolio,
@@ -385,7 +410,7 @@ class StateMemoryService:
             current_macro_events=current_macro_events,
             agent_sessions=self.list_agent_sessions(),
             recent_notifications=recent_notifications,
-            recent_events=self.query_events(limit=25),
+            recent_events=recent_events,
         )
 
     @staticmethod

@@ -17,8 +17,8 @@ class StrategyIntentService:
                 coin=coin,
                 product_id=f"{coin}-PERP-INTX",
                 bias="neutral",
-                target_position_share_pct=0.0,
-                max_position_share_pct=decision.risk_limits.max_symbol_position_pct_of_equity,
+                target_position_pct_of_exposure_budget=0.0,
+                max_position_pct_of_exposure_budget=decision.risk_limits.max_symbol_position_pct_of_exposure_budget,
                 rationale="pm_not_run_first_batch",
             )
             for coin, decision in sorted(policies.items())
@@ -69,13 +69,13 @@ class StrategyIntentService:
                     coin=target.coin,
                     product_id=target.product_id,
                     target_bias=target.bias,
-                    target_position_share_pct=target.target_position_share_pct,
-                    max_position_share_pct=target.max_position_share_pct,
+                    target_position_pct_of_exposure_budget=target.target_position_pct_of_exposure_budget,
+                    max_position_pct_of_exposure_budget=target.max_position_pct_of_exposure_budget,
                     rationale=target.rationale,
                     market_snapshot=snapshot.model_dump(mode="json"),
                     account_snapshot={
                         **account.model_dump(mode="json"),
-                        "current_position_share_pct": round(current_share, 4),
+                        "current_position_share_pct_of_exposure_budget": round(current_share, 4),
                     },
                     risk_limits=policies[target.coin].risk_limits.model_dump(mode="json"),
                     position_risk_state=policies[target.coin].position_risk_state.model_dump(mode="json"),

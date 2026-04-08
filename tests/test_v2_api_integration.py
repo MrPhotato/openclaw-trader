@@ -126,7 +126,7 @@ class ApiIntegrationTests(unittest.TestCase):
                                     "action": "wait",
                                     "direction": "long",
                                     "reason": "bridge_wait",
-                                    "size_pct_of_equity": 0.0,
+                                    "size_pct_of_exposure_budget": 0.0,
                                     "priority": 1,
                                     "urgency": "low",
                                     "valid_for_minutes": 10,
@@ -163,11 +163,33 @@ class ApiIntegrationTests(unittest.TestCase):
                 self.assertEqual(chief_pack.status_code, 200)
                 submit_retro = client.post(
                     "/api/agent/submit/retro",
-                    json={"input_id": chief_pack.json()["input_id"], "payload": {}},
+                    json={
+                        "input_id": chief_pack.json()["input_id"],
+                        "owner_summary": "Chief retro submitted from API integration test.",
+                        "round_count": 2,
+                        "learning_completed": True,
+                    },
                 )
                 self.assertEqual(submit_retro.status_code, 200)
-                self.assertTrue(submit_retro.json()["owner_summary"])
-                self.assertEqual(len(submit_retro.json()["transcript"]), 8)
+                self.assertEqual(
+                    submit_retro.json()["owner_summary"],
+                    "Chief retro submitted from API integration test.",
+                )
+                self.assertEqual(submit_retro.json()["round_count"], 2)
+
+                chief_pack_missing_summary = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
+                self.assertEqual(chief_pack_missing_summary.status_code, 200)
+                retro_missing_owner_summary = client.post(
+                    "/api/agent/submit/retro",
+                    json={
+                        "input_id": chief_pack_missing_summary.json()["input_id"],
+                    },
+                )
+                self.assertEqual(retro_missing_owner_summary.status_code, 422)
+                self.assertEqual(
+                    retro_missing_owner_summary.json()["detail"]["reason"],
+                    "retro_submit_owner_summary_required",
+                )
         finally:
             harness.cleanup()
 
@@ -234,6 +256,21 @@ class ApiIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(submit_news.status_code, 200)
                 self.assertEqual(submit_news.json()["high_impact_count"], 1)
+        finally:
+            harness.cleanup()
+
+    def test_agent_submit_endpoints_reject_invalid_json_with_400(self) -> None:
+        harness = build_test_harness()
+        try:
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/agent/submit/retro",
+                    data='{"input_id":"oops\\qad"}',
+                    headers={"Content-Type": "application/json"},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["detail"]["reason"], "invalid_json")
         finally:
             harness.cleanup()
 

@@ -20,6 +20,8 @@ Use this skill for `PM` work only.
 - Decide the target portfolio state.
 - Submit exactly one pure JSON `strategy` object with the current `input_id`.
 - If judgment is unchanged, still submit a fresh strategy judgment.
+- Treat `input_id` as an opaque lease token. Copy it exactly from the runtime pack; never guess, derive, or rewrite it.
+- Besides invalidation, always think through the `regime-switch triggers`: the concrete conditions that would justify flipping directional bias from long to short, short to long, or from active risk to flat/only_reduce.
 
 ## Workflow
 1. Read [runtime-inputs.md](references/runtime-inputs.md) to see the live pull bridge, real field layout, and a working curl example.
@@ -27,6 +29,9 @@ Use this skill for `PM` work only.
 3. Emit formal JSON using [formal-output.md](references/formal-output.md), and carry the current `input_id` back to the submit bridge.
 
 ## Guardrails
+- Do not use `web_fetch` or any browser-style fetch against `127.0.0.1` / localhost. Pull the PM runtime pack with shell `curl` only.
+- Pull exactly once by default. If submit returns `unknown_input_id`, pull exactly one fresh runtime pack, replace the old `input_id`, and try once more. Do not keep retrying guessed ids.
+- Prefer saving the runtime pack to a file and reading fields from that file instead of relying on truncated terminal output.
 - Do not define execution mechanics or order tactics.
 - For formal submission, emit exactly one JSON object and nothing else.
 - Do not wrap formal JSON in markdown fences.

@@ -102,6 +102,8 @@
 - 每个 Agent 第一次发言时收到一次性的 compact retro pack、当前 transcript、当前轮次和本轮发言要求；第二次发言时只收到新发言 delta 和薄会议状态
 - 会议 transcript 只作为临时运行态保留，不写入 `memory_assets`
 - 会后 learning 指令由 `Crypto Chief` 通过各自 session 发出，但 AG 不等待 learning 文件结果，也不在 retro 流程内执行 session reset
+- `POST /api/agent/submit/retro` 是正式 retro 结果提交，不重新驱动会议；最小必须字段为 `input_id + owner_summary`
+- retro 正式提交成功后，AG 必须记录 `chief.retro.completed` 事件并持久化 `chief_retro` 资产
 
 ## 9. 待后续讨论
 

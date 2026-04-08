@@ -34,6 +34,16 @@ Chief should run retrospectives against a shared daily pack centered on:
 ## Use Now
 - Pull once, work from that pack, and submit against the same `input_id`.
 - The final `POST /api/agent/submit/retro` body must use the exact same top-level `input_id` value from the pull response.
+- The submit body must include:
+  - `input_id`
+  - `owner_summary`
+- Optional fields:
+  - `reset_command`
+  - `learning_results`
+  - `transcript`
+  - `round_count`
+  - `meeting_id`
+- Do not hand-escape a long JSON body inline. Write a JSON file first, then `POST` that file.
 - In the owner-summary phase, the pack provides `learning_targets[]` with:
   - canonical `learning_path`
   - exact `session_key` for each agent's main session

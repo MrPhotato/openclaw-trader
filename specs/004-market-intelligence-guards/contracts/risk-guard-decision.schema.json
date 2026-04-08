@@ -24,15 +24,15 @@
       "type": "object",
       "required": [
         "max_leverage",
-        "max_total_exposure_pct_of_equity",
-        "max_symbol_position_pct_of_equity",
-        "max_order_pct_of_equity"
+        "max_total_exposure_pct_of_exposure_budget",
+        "max_symbol_position_pct_of_exposure_budget",
+        "max_order_pct_of_exposure_budget"
       ],
       "properties": {
         "max_leverage": {"type": "number"},
-        "max_total_exposure_pct_of_equity": {"type": "number"},
-        "max_symbol_position_pct_of_equity": {"type": "number"},
-        "max_order_pct_of_equity": {"type": "number"}
+        "max_total_exposure_pct_of_exposure_budget": {"type": "number"},
+        "max_symbol_position_pct_of_exposure_budget": {"type": "number"},
+        "max_order_pct_of_exposure_budget": {"type": "number"}
       },
       "additionalProperties": true
     },

@@ -107,7 +107,7 @@ class CoinbaseIntxMarketDataProvider:
                     leverage=str(payload.get("leverage") or "0"),
                     entry_price=str(payload.get("entry_price") or "0"),
                     unrealized_pnl_usd=str(payload.get("unrealized_pnl_usd") or "0"),
-                    position_share_pct_of_equity=round(share_pct, 4),
+                    position_share_pct_of_exposure_budget=round(share_pct, 4),
                     opened_at=payload.get("opened_at"),
                     raw=dict(payload.get("raw") or {}),
                 )

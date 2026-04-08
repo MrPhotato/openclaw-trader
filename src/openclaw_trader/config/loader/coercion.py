@@ -85,9 +85,27 @@ def coerce_system_settings(source: object | None) -> SystemSettings:
             supported_coins=[str(coin).upper() for coin in list(getattr(perps, "coins", ["BTC", "ETH", "SOL"]))],
             live_enabled=bool(getattr(perps, "live_enabled", True)),
             max_leverage=float(getattr(perps, "max_leverage", 5.0)),
-            max_total_exposure_pct_of_equity=float(getattr(perps, "max_total_exposure_pct_of_equity", 100.0)),
-            max_order_share_pct_of_exposure_budget=float(getattr(perps, "max_order_share_pct_of_exposure_budget", 33.0)),
-            max_position_share_pct_of_exposure_budget=float(getattr(perps, "max_position_share_pct_of_exposure_budget", 66.0)),
+            max_total_exposure_pct_of_exposure_budget=float(
+                getattr(
+                    perps,
+                    "max_total_exposure_pct_of_exposure_budget",
+                    getattr(perps, "max_total_exposure_pct_of_equity", 100.0),
+                )
+            ),
+            max_order_pct_of_exposure_budget=float(
+                getattr(
+                    perps,
+                    "max_order_pct_of_exposure_budget",
+                    getattr(perps, "max_order_share_pct_of_exposure_budget", 33.0),
+                )
+            ),
+            max_position_pct_of_exposure_budget=float(
+                getattr(
+                    perps,
+                    "max_position_pct_of_exposure_budget",
+                    getattr(perps, "max_position_share_pct_of_exposure_budget", 66.0),
+                )
+            ),
             mode=str(getattr(perps, "mode", "live")),
             poll_seconds=int(getattr(perps, "poll_seconds", 60)),
             primary_coin=str(getattr(perps, "coin", "BTC")).upper(),

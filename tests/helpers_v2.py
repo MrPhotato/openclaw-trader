@@ -88,7 +88,7 @@ class FakeMarketDataProvider:
                     leverage="2",
                     entry_price="95",
                     unrealized_pnl_usd="10",
-                    position_share_pct_of_equity=4.0,
+                    position_share_pct_of_exposure_budget=4.0,
                 )
             ],
         )
@@ -277,9 +277,9 @@ def build_test_settings(sqlite_path: Path) -> SystemSettings:
             supported_coins=["BTC", "ETH", "SOL"],
             live_enabled=True,
             max_leverage=5.0,
-            max_total_exposure_pct_of_equity=100.0,
-            max_order_share_pct_of_exposure_budget=33.0,
-            max_position_share_pct_of_exposure_budget=66.0,
+            max_total_exposure_pct_of_exposure_budget=100.0,
+            max_order_pct_of_exposure_budget=33.0,
+            max_position_pct_of_exposure_budget=66.0,
         ),
         workflow=WorkflowSettings(
             owner_channel="owner-channel",
