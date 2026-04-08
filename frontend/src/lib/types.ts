@@ -1,4 +1,4 @@
-export type ViewKey = "overview" | "strategy" | "news" | "agents" | "replay";
+export type ViewKey = "overview" | "desk" | "signals" | "agents";
 
 export type AssetRecord = {
   asset_id: string;
@@ -54,13 +54,6 @@ export type AgentLatestData = {
   session?: Record<string, unknown> | null;
   latest_asset?: AssetRecord | null;
   recent_assets: AssetRecord[];
-};
-
-export type ReplayData = {
-  trace_id?: string | null;
-  events: EventEnvelope[];
-  states: Array<Record<string, unknown>>;
-  render_hints: Record<string, unknown>;
 };
 
 export type StreamPayload = {
