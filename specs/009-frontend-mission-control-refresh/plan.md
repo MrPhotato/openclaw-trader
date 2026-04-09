@@ -11,7 +11,7 @@
 ## 2. 技术背景（Technical Context）
 
 - **现有系统事实**：前端使用 `React + Vite + TypeScript + Tailwind + React Query + Zustand + Recharts`，主要展示逻辑集中在单一 `frontend/src/app.tsx` 中。
-- **目标边界**：重构为 `overview | desk | signals | agents` 四视图，移除 replay 主导航，强化公开展示语气、状态反馈和信息层级。
+- **目标边界**：重构为 `overview | pm | rt | mea | chief` 五视图，移除 replay 主导航。首页只看系统态，四个席位页各自承接岗位介绍、正式产物摘要与公开阅读语气。
 - **主要依赖**：`/api/query/overview`、`/api/query/news/current`、`/api/query/executions/recent`、`/api/query/agents/{role}/latest`、`/api/stream/events`。
 - **未知项 / 待确认项**：无阻塞性未知项；展示不足的字段先通过前端派生 view-model 解决，不反推后端接口调整。
 
@@ -29,17 +29,17 @@
 
 ## 5. 第 1 阶段：设计与契约
 
-- 视图契约收口为 `overview | desk | signals | agents`，`Replay` 退出前端状态与一级导航。
+- 视图契约收口为 `overview | pm | rt | mea | chief`，`Replay` 退出前端状态与一级导航。
 - 展示层拆成页面级 sections 和共享 UI 组件，至少覆盖：`HeroStatus`、`SystemPulse`、`RiskPanel`、`StrategyPanel`、`ExecutionFeed`、`EventWall`、`AgentBoard`。
 - 引入前端派生 helper / view-model 层，负责把原始 API 数据转换为公开展示语气、事件优先级、摘要文案和状态提示。
-- API 契约不变，所有缺失信息通过组合已有 payload、降级文案和空态处理吸收。
+- 只读 API 允许小幅扩展 `/api/query/agents/{role}/latest` 的聚合内容，以承接 RT 战术摘要、Chief 复盘摘要和各席位更可读的最新状态；不触碰 agent pull / submit 热路径。
 
 ## 6. 第 2 阶段：任务分解与迁移路径
 
-- 第一步锁定四视图 IA 和 store 契约，确保 replay 从公开入口退出。
-- 第二步拆分 `app.tsx` 中的布局、展示组件和推导逻辑，降低后续视觉迭代成本。
-- 第三步优先重做 `Overview` 与 `Desk`，因为它们决定首屏观感和主叙事。
-- 第四步重做 `Signals` 与 `Agents`，补齐 high-impact 事件墙、提醒记录、agent 工作状态。
+- 第一步锁定五视图 IA 和 store 契约，确保 replay 从公开入口退出。
+- 第二步把首页收口为系统态，把旧的策略 / 事件 / 席位页拆成 PM / RT / MEA / Chief 四个席位页。
+- 第三步补齐 RT 战术地图的公开读面，优先使用正式 `rt_tactical_map`，否则退化到只读摘要。
+- 第四步把执行展示从“系统日志感”改成“外部可读叙述”，隐藏订单号等不适合公开展示的低价值标识。
 - 第五步统一 loading / empty / stale / error 状态、移动端可读性和测试。
 
 ## 7. 产物清单

@@ -12,8 +12,12 @@ const overviewPayload = {
     asset_type: "strategy",
     payload: {
       strategy_id: "strategy_live",
+      revision_number: 3,
       portfolio_mode: "normal",
-      portfolio_thesis: "Momentum with capped risk.",
+      portfolio_thesis: "Momentum with capped risk and tighter execution discipline.",
+      change_summary: "Raise BTC conviction and keep gross exposure capped.",
+      portfolio_invalidation: "If BTC loses structure and macro risk spikes, cut risk and re-check.",
+      scheduled_rechecks: [{ recheck_at_utc: "2026-03-20T10:00:00Z", reason: "US session open" }],
       targets: [{ symbol: "BTC", state: "active", direction: "long", target_exposure_band_pct: [1, 3], rt_discretion_band_pct: 1 }],
     },
     metadata: {},
@@ -58,7 +62,10 @@ const overviewPayload = {
   latest_execution_batch: null,
   recent_execution_results: [],
   current_macro_events: [],
-  agent_sessions: [],
+  agent_sessions: [
+    { agent_role: "pm", status: "active" },
+    { agent_role: "risk_trader", status: "active" },
+  ],
   recent_notifications: [],
   recent_events: [
     {
@@ -79,12 +86,39 @@ const newsPayload = {
     {
       asset_id: "macro-1",
       asset_type: "macro_event",
-      payload: { category: "macro", summary: "Fed headline", impact_level: "high" },
+      payload: { category: "macro", summary: "Fed headline turns risk sentiment colder.", impact_level: "high", source_refs: ["ref-1"] },
       metadata: {},
       created_at: "2026-03-20T08:05:00Z",
     },
+    {
+      asset_id: "macro-2",
+      asset_type: "macro_event",
+      payload: { category: "policy", summary: "SEC wording shifts the market toward defense.", impact_level: "high", source_refs: ["ref-2"] },
+      metadata: {},
+      created_at: "2026-03-20T08:08:00Z",
+    },
+    {
+      asset_id: "macro-3",
+      asset_type: "macro_event",
+      payload: { category: "exchange", summary: "Exchange liquidity thins into Asia lunch.", impact_level: "medium", source_refs: ["ref-3"] },
+      metadata: {},
+      created_at: "2026-03-20T08:10:00Z",
+    },
+    {
+      asset_id: "macro-4",
+      asset_type: "macro_event",
+      payload: { category: "macro", summary: "Dollar bid resumes and squeezes crypto beta.", impact_level: "high", source_refs: ["ref-4"] },
+      metadata: {},
+      created_at: "2026-03-20T08:12:00Z",
+    },
   ],
-  macro_daily_memory: null,
+  macro_daily_memory: {
+    asset_id: "memory-1",
+    asset_type: "macro_daily_memory",
+    payload: { summary: "The market is trading around macro risk and headline sensitivity." },
+    metadata: {},
+    created_at: "2026-03-20T08:10:00Z",
+  },
 };
 
 const executionPayload = {
@@ -111,13 +145,176 @@ const executionPayload = {
       metadata: {},
       created_at: "2026-03-22T11:16:15.951502+00:00",
     },
+    {
+      asset_id: "execution-2",
+      asset_type: "execution_result",
+      payload: {
+        coin: "ETH",
+        action: "add",
+        side: "long",
+        success: true,
+        notional_usd: "418.40",
+        exchange_order_id: "order-2",
+        fills: [
+          {
+            price: "3520.4",
+            size: "0.1189",
+            trade_time: "2026-03-22T11:18:15.650828Z",
+          },
+        ],
+      },
+      metadata: {},
+      created_at: "2026-03-22T11:18:15.951502+00:00",
+    },
+    {
+      asset_id: "execution-3",
+      asset_type: "execution_result",
+      payload: {
+        coin: "BTC",
+        action: "hold",
+        side: "long",
+        success: true,
+        notional_usd: "0",
+        exchange_order_id: "order-3",
+        fills: [],
+      },
+      metadata: {},
+      created_at: "2026-03-22T11:19:15.951502+00:00",
+    },
+    {
+      asset_id: "execution-4",
+      asset_type: "execution_result",
+      payload: {
+        coin: "SOL",
+        action: "reduce",
+        side: "long",
+        success: true,
+        notional_usd: "185.20",
+        exchange_order_id: "order-4",
+        fills: [
+          {
+            price: "162.5",
+            size: "1.14",
+            trade_time: "2026-03-22T11:21:15.650828Z",
+          },
+        ],
+      },
+      metadata: {},
+      created_at: "2026-03-22T11:21:15.951502+00:00",
+    },
   ],
 };
 
-const agentPayload = {
-  session: { status: "active" },
-  latest_asset: null,
-  recent_assets: [],
+const agentPayloads: Record<string, object> = {
+  pm: {
+    session: { status: "active", last_active_at: "2026-03-20T08:00:00Z" },
+    latest_asset: overviewPayload.latest_strategy,
+    latest_strategy: overviewPayload.latest_strategy,
+    recent_assets: [overviewPayload.latest_strategy],
+  },
+  risk_trader: {
+    session: { status: "active", last_active_at: "2026-03-20T08:20:00Z" },
+    latest_asset: {
+      asset_id: "batch-1",
+      asset_type: "execution_batch",
+      payload: {
+        generated_at_utc: "2026-03-20T08:20:00Z",
+        decisions: [
+          {
+            symbol: "BTC",
+            action: "reduce",
+            direction: "long",
+            reason: "Momentum is cooling under headline pressure.",
+          },
+        ],
+      },
+      metadata: {},
+      created_at: "2026-03-20T08:20:00Z",
+    },
+    latest_execution_batch: null,
+    recent_assets: [],
+    recent_execution_thoughts: [
+      {
+        generated_at_utc: "2026-03-20T08:20:00Z",
+        symbol: "BTC",
+        action: "reduce",
+        direction: "long",
+        urgency: "high",
+        reason: "Momentum is cooling under headline pressure.",
+        reference_take_profit_condition: "Trim into reclaim failure.",
+        reference_stop_loss_condition: "If the move squeezes back through intraday highs, cut less aggressively.",
+        execution_result: {
+          success: true,
+          notional_usd: "219.7",
+        },
+      },
+    ],
+    tactical_brief: {
+      portfolio_posture: "常规推进",
+      desk_focus: "本轮执行重点落在 BTC。",
+      risk_bias: "风险状态正常，可按策略节奏推进",
+      next_review_hint: "下一轮由 RT cadence 或风险事件唤醒。",
+      trigger: {
+        reason: "headline_risk",
+        severity: "high",
+        lock_mode: "reduce_only",
+        coins: ["BTC"],
+      },
+      coins: [
+        {
+          coin: "BTC",
+          working_posture: "优先减仓兑现",
+          base_case: "Momentum is cooling under headline pressure.",
+          preferred_add_condition: "Wait for structure to repair before adding back.",
+          preferred_reduce_condition: "Trim if intraday reclaim fails.",
+          reference_take_profit_condition: "Trim into reclaim failure.",
+          reference_stop_loss_condition: "If intraday highs reclaim, stop reducing.",
+          no_trade_zone: "Current risk lock is reduce_only.",
+          force_pm_recheck_condition: "If macro risk worsens, force PM re-check.",
+          next_focus: "Watch BTC response around US session.",
+        },
+      ],
+    },
+  },
+  macro_event_analyst: {
+    session: { status: "active", last_active_at: "2026-03-20T08:05:00Z" },
+    latest_asset: newsPayload.macro_daily_memory,
+    latest_macro_daily_memory: newsPayload.macro_daily_memory,
+    recent_macro_events: newsPayload.macro_events,
+    recent_assets: newsPayload.macro_events,
+  },
+  crypto_chief: {
+    session: { status: "active", last_active_at: "2026-03-20T09:00:00Z" },
+    latest_asset: {
+      asset_id: "retro-1",
+      asset_type: "chief_retro",
+      payload: {
+        owner_summary: "PM, RT and MEA all updated cleanly after the latest cycle.",
+        round_count: 2,
+        learning_completed: true,
+        learning_results: [
+          { agent_role: "pm", learning_summary: "PM should tighten the invalidation wording." },
+        ],
+      },
+      metadata: {},
+      created_at: "2026-03-20T09:00:00Z",
+    },
+    latest_chief_retro: {
+      asset_id: "retro-1",
+      asset_type: "chief_retro",
+      payload: {
+        owner_summary: "PM, RT and MEA all updated cleanly after the latest cycle.",
+        round_count: 2,
+        learning_completed: true,
+        learning_results: [
+          { agent_role: "pm", learning_summary: "PM should tighten the invalidation wording." },
+        ],
+      },
+      metadata: {},
+      created_at: "2026-03-20T09:00:00Z",
+    },
+    recent_assets: [],
+  },
 };
 
 class MockWebSocket {
@@ -159,8 +356,17 @@ describe("App", () => {
         if (url.includes("/api/query/executions/recent")) {
           return Promise.resolve(new Response(JSON.stringify(executionPayload)));
         }
-        if (url.includes("/api/query/agents/")) {
-          return Promise.resolve(new Response(JSON.stringify(agentPayload)));
+        if (url.includes("/api/query/agents/pm/latest")) {
+          return Promise.resolve(new Response(JSON.stringify(agentPayloads.pm)));
+        }
+        if (url.includes("/api/query/agents/risk_trader/latest")) {
+          return Promise.resolve(new Response(JSON.stringify(agentPayloads.risk_trader)));
+        }
+        if (url.includes("/api/query/agents/macro_event_analyst/latest")) {
+          return Promise.resolve(new Response(JSON.stringify(agentPayloads.macro_event_analyst)));
+        }
+        if (url.includes("/api/query/agents/crypto_chief/latest")) {
+          return Promise.resolve(new Response(JSON.stringify(agentPayloads.crypto_chief)));
         }
         return Promise.resolve(new Response(JSON.stringify({})));
       }),
@@ -173,7 +379,7 @@ describe("App", () => {
     MockWebSocket.instances = [];
   });
 
-  test("renders dashboard and switches between four views", async () => {
+  test("renders overview and switches between overview plus four agent pages", async () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
@@ -181,34 +387,53 @@ describe("App", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("交易指挥台")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Openclaw Trader AI交易/ })).toBeInTheDocument());
     expect(screen.getByTestId("overview-view")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("账户余额（本金$1000）")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("5x（名义$5000）")).toBeInTheDocument());
     expect(screen.queryByText("当前敞口")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("$161.3").length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getAllByText("名义占用 3.23%").length).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("总敞口")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("观察线")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("减仓线")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("退出线")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("只有主图与时间轴会横向滚动"));
+    await waitFor(() => expect(screen.getByTestId("balance-risk-legend")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "展开更多成交回执" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "展开更多高优先事件" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("成交金额：219.7 美元")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("计划金额：736.6 美元")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("买入 ETH")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("持有 BTC")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Fed headline turns risk sentiment colder.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("SEC wording shifts the market toward defense.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Exchange liquidity thins into Asia lunch.")).toBeInTheDocument());
+    expect(screen.queryByText("卖出 SOL")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dollar bid resumes and squeezes crypto beta.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/order-1/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开更多成交回执" }));
+    await waitFor(() => expect(screen.getByText("卖出 SOL")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("已回传 1 笔成交回执。").length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getAllByText("交易方向：卖出").length).toBeGreaterThanOrEqual(2));
+    fireEvent.click(screen.getByRole("button", { name: "展开更多高优先事件" }));
+    await waitFor(() => expect(screen.getByText("Dollar bid resumes and squeezes crypto beta.")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "策略" }));
-    await waitFor(() => expect(screen.getByTestId("desk-view")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("策略重点")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "PM" }));
+    await waitFor(() => expect(screen.getByTestId("pm-view")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Portfolio Manager")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("当前正式策略")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "事件" }));
-    await waitFor(() => expect(screen.getByTestId("signals-view")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "RT" }));
+    await waitFor(() => expect(screen.getByTestId("rt-view")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Risk Trader")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("RT 战术地图")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("Momentum is cooling under headline pressure.").length).toBeGreaterThanOrEqual(1));
 
-    fireEvent.click(screen.getByRole("button", { name: "席位" }));
-    await waitFor(() => expect(screen.getByTestId("agents-view")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "MEA" }));
+    await waitFor(() => expect(screen.getByTestId("mea-view")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Macro & Event Analyst")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("事件墙")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Chief" }));
+    await waitFor(() => expect(screen.getByTestId("chief-view")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("Crypto Chief").length).toBeGreaterThanOrEqual(1));
+    await waitFor(() => expect(screen.getByText("Owner Summary")).toBeInTheDocument());
   });
 
   test("switches balance granularity without crashing", async () => {

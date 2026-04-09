@@ -17,3 +17,10 @@
 
 - [x] T005 补齐前端测试，覆盖四视图切换、状态提示、事件流覆盖和 agent 页展示差异。
 - [x] T006 运行 `npm test` 与 `npm run build`，确认不破坏 `frontend/dist`、Vite 代理和 FastAPI 静态托管路径。
+
+## 第四波：席位页再次重构
+
+- [x] T007 将公开前端一级信息架构收口为 `总览 + PM + RT + MEA + Chief`，首页只保留系统态，其余页面按 agent 重新组织。
+- [x] T008 为 RT 页补齐战术地图公开摘要，并通过 `/api/query/agents/risk_trader/latest` 的只读聚合提供必要数据。
+- [x] T009 将执行展示改成可读叙述，移除把订单号作为公开展示重点的旧呈现方式。
+- [x] T010 更新前后端测试并再次验证 `npm test`、`npm run build` 与 `pytest` 通过。

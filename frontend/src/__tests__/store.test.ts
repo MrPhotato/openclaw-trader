@@ -10,8 +10,8 @@ describe("mission control store", () => {
       liveEvents: [],
       streamOverview: undefined,
     });
-    useMissionControlStore.getState().setView("desk");
+    useMissionControlStore.getState().setView("rt");
 
-    expect(useMissionControlStore.getState().activeView).toBe("desk");
+    expect(useMissionControlStore.getState().activeView).toBe("rt");
   });
 });
