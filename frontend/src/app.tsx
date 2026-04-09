@@ -108,9 +108,9 @@ export default function App() {
   }, [balanceSeries.length]);
 
   return (
-    <div className="min-h-screen bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 lg:px-8">
-        <header className="glass-panel rounded-[28px] px-6 py-5 shadow-glow">
+    <div className="min-h-screen overflow-x-hidden bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
+      <div className="mx-auto flex min-h-screen max-w-7xl min-w-0 flex-col gap-4 px-3 py-3 sm:gap-6 sm:px-6 sm:py-4 lg:px-8">
+        <header className="glass-panel min-w-0 rounded-[24px] px-4 py-4 shadow-glow sm:rounded-[28px] sm:px-6 sm:py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-3 text-xs uppercase tracking-[0.35em] text-ember">
@@ -119,8 +119,8 @@ export default function App() {
                 <span className="text-slate-400">公开看板</span>
               </div>
               <div>
-                <h1 className="text-3xl font-semibold leading-none sm:text-5xl">交易指挥台</h1>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300 sm:text-base">
+                <h1 className="text-2xl font-semibold leading-none sm:text-5xl">交易指挥台</h1>
+                <p className="mt-2 max-w-xl text-xs leading-5 text-slate-300 sm:text-base sm:leading-6">
                   <span className="text-slate-200">openclaw-trader 是 OpenClaw 加密工作流背后的交易运行时，当前公开展示本金 $1000。</span>
                   <a
                     href="https://github.com/MrPhotato/openclaw-trader"
@@ -182,8 +182,8 @@ export default function App() {
         </header>
 
         {activeView === "overview" && (
-          <section className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]" data-testid="overview-view">
-            <div className="space-y-6">
+          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.35fr_0.95fr]" data-testid="overview-view">
+            <div className="min-w-0 space-y-4 sm:space-y-6">
               <Panel title="账户余额轨迹">
                 <div className="mb-4 grid gap-3 sm:grid-cols-2">
                   <SummaryPill
@@ -203,7 +203,7 @@ export default function App() {
                 <div
                   ref={chartViewportRef}
                   data-testid="balance-chart-viewport"
-                  className="overflow-x-auto overflow-y-hidden rounded-[24px]"
+                  className="w-full max-w-full overflow-x-auto overflow-y-hidden rounded-[20px] sm:rounded-[24px]"
                   style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
                 >
                   <ChartShell>
@@ -244,7 +244,7 @@ export default function App() {
                     </div>
                   </ChartShell>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                   <div className="flex flex-wrap gap-2">
                     {([
                       ["15m", "15 分钟"],
@@ -265,7 +265,7 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                  <div className="text-xs text-slate-500" data-testid="balance-viewport-caption">
+                  <div className="text-[11px] leading-5 text-slate-500 sm:text-xs" data-testid="balance-viewport-caption">
                     {balanceScrollCaption(balanceSeries.length, balanceGranularity)}
                   </div>
                 </div>
@@ -274,18 +274,20 @@ export default function App() {
                 </div>
               </Panel>
             </div>
-            <Panel title="下单动态">
+            <div className="min-w-0">
+              <Panel title="下单动态">
               <div className="space-y-3">
                 {(executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 12).map((record) => (
                   <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />
                 ))}
               </div>
-            </Panel>
+              </Panel>
+            </div>
           </section>
         )}
 
         {activeView === "desk" && (
-          <section className="grid gap-6 lg:grid-cols-[1.05fr_1fr]" data-testid="desk-view">
+          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.05fr_1fr]" data-testid="desk-view">
             <Panel title="PM 最新策略">
               <div className="space-y-4">
                 <Headline label="策略版本" value={strategyIdentity(latestStrategy)} />
@@ -305,7 +307,7 @@ export default function App() {
                 </div>
               </div>
             </Panel>
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-4 sm:space-y-6">
               <Panel title="最近执行">
                 <div className="space-y-3">
                   {(executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 10).map((record) => (
@@ -334,7 +336,7 @@ export default function App() {
         )}
 
         {activeView === "signals" && (
-          <section className="grid gap-6 lg:grid-cols-[1fr_1.1fr]" data-testid="signals-view">
+          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1fr_1.1fr]" data-testid="signals-view">
             <Panel title="宏观影响分布">
               <ChartShell>
                 <ResponsiveContainer width="100%" height={240}>
@@ -374,7 +376,7 @@ export default function App() {
         )}
 
         {activeView === "agents" && (
-          <section className="grid gap-6 lg:grid-cols-2" data-testid="agents-view">
+          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-2" data-testid="agents-view">
             {agentRoles.map((agent, index) => (
               <AgentPanel
                 key={agent.key}
@@ -391,9 +393,9 @@ export default function App() {
 
 function Panel(props: { title: string; children: ReactNode }) {
   return (
-    <article className="glass-panel rounded-[28px] p-5 shadow-glow">
-      <div className="mb-5">
-        <h2 className="text-2xl font-semibold">{props.title}</h2>
+    <article className="glass-panel min-w-0 overflow-hidden rounded-[24px] p-4 shadow-glow sm:rounded-[28px] sm:p-5">
+      <div className="mb-4 sm:mb-5">
+        <h2 className="text-xl font-semibold sm:text-2xl">{props.title}</h2>
       </div>
       {props.children}
     </article>
@@ -439,7 +441,7 @@ function CoinExposurePill(props: { coin: string; exposure: string; share: string
 }
 
 function ChartShell(props: { children: ReactNode }) {
-  return <div className="rounded-[24px] border border-white/10 bg-white/5 p-3">{props.children}</div>;
+  return <div className="min-w-0 rounded-[20px] border border-white/10 bg-white/5 p-2 sm:rounded-[24px] sm:p-3">{props.children}</div>;
 }
 
 function TradeBlotterCard(props: { asset: AssetRecord; latestPortfolio: Record<string, unknown> }) {
@@ -928,8 +930,8 @@ function buildBalanceHistory(
 }
 
 function computeBalanceChartWidth(length: number, granularity: BalanceGranularity) {
-  const minWidth = 760;
-  const pointWidth = granularity === "15m" ? 36 : granularity === "1h" ? 44 : 72;
+  const minWidth = 520;
+  const pointWidth = granularity === "15m" ? 22 : granularity === "1h" ? 28 : 48;
   return Math.max(minWidth, length * pointWidth);
 }
 
