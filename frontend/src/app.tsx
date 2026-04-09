@@ -360,15 +360,25 @@ export default function App() {
                   expanded={executionFeedExpanded}
                   onToggle={() => setExecutionFeedExpanded((value) => !value)}
                   summary={overviewExecutionSummary(executionRecords)}
-                  count={executionRecords.length}
+                  previewCount={Math.min(executionRecords.length, 3)}
+                  hiddenCount={Math.max(executionRecords.length - 3, 0)}
                   emptyMessage="最近还没有新的正式执行结果。"
-                  expandLabel="展开最新成交回执"
-                  collapseLabel="收起最新成交回执"
+                  expandLabel="展开更多成交回执"
+                  collapseLabel="收起更多成交回执"
                   dataTestId="overview-execution-disclosure"
+                  previewContent={
+                    <div className="space-y-3">
+                      {renderAssetCollection(
+                        executionRecords.slice(0, 3),
+                        (record) => <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />,
+                        "最近还没有新的正式执行结果。",
+                      )}
+                    </div>
+                  }
                 >
                   <div className="space-y-3">
                     {renderAssetCollection(
-                      executionRecords,
+                      executionRecords.slice(3),
                       (record) => <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />,
                       "最近还没有新的正式执行结果。",
                     )}
@@ -380,15 +390,25 @@ export default function App() {
                   expanded={eventFeedExpanded}
                   onToggle={() => setEventFeedExpanded((value) => !value)}
                   summary={overviewEventSummary(macroEventRecords)}
-                  count={macroEventRecords.length}
+                  previewCount={Math.min(macroEventRecords.length, 3)}
+                  hiddenCount={Math.max(macroEventRecords.length - 3, 0)}
                   emptyMessage="高影响事件会在这里排到最上面，当前还没有新的正式事件。"
-                  expandLabel="展开高优先事件"
-                  collapseLabel="收起高优先事件"
+                  expandLabel="展开更多高优先事件"
+                  collapseLabel="收起更多高优先事件"
                   dataTestId="overview-event-disclosure"
+                  previewContent={
+                    <div className="space-y-3">
+                      {renderAssetCollection(
+                        macroEventRecords.slice(0, 3),
+                        (record) => <MacroEventCard key={record.asset_id} asset={record} />,
+                        "高影响事件会在这里排到最上面，当前还没有新的正式事件。",
+                      )}
+                    </div>
+                  }
                 >
                   <div className="space-y-3">
                     {renderAssetCollection(
-                      macroEventRecords,
+                      macroEventRecords.slice(3),
                       (record) => <MacroEventCard key={record.asset_id} asset={record} />,
                       "高影响事件会在这里排到最上面，当前还没有新的正式事件。",
                     )}
@@ -710,14 +730,16 @@ function OverviewDisclosure(props: {
   expanded: boolean;
   onToggle: () => void;
   summary: string;
-  count: number;
+  previewCount: number;
+  hiddenCount: number;
   emptyMessage: string;
   expandLabel: string;
   collapseLabel: string;
   dataTestId: string;
+  previewContent: ReactNode;
   children: ReactNode;
 }) {
-  if (props.count === 0) {
+  if (props.previewCount === 0 && props.hiddenCount === 0) {
     return <EmptyState message={props.emptyMessage} />;
   }
 
@@ -725,19 +747,25 @@ function OverviewDisclosure(props: {
     <div className="space-y-3" data-testid={props.dataTestId}>
       <div className="flex items-start justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
         <div className="min-w-0">
-          <div className="text-[11px] tracking-[0.2em] text-slate-500">最近 {props.count} 条</div>
+          <div className="text-[11px] tracking-[0.2em] text-slate-500">
+            最近 {props.previewCount} 条
+            {props.hiddenCount > 0 ? ` · 还有 ${props.hiddenCount} 条` : ""}
+          </div>
           <div className="mt-1 text-sm leading-6 text-slate-300">{props.summary}</div>
         </div>
-        <button
-          type="button"
-          onClick={props.onToggle}
-          aria-label={props.expanded ? props.collapseLabel : props.expandLabel}
-          className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-white/20 hover:bg-white/10"
-        >
-          {props.expanded ? "收起" : "展开"}
-        </button>
+        {props.hiddenCount > 0 ? (
+          <button
+            type="button"
+            onClick={props.onToggle}
+            aria-label={props.expanded ? props.collapseLabel : props.expandLabel}
+            className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-white/20 hover:bg-white/10"
+          >
+            {props.expanded ? "收起" : "展开更多"}
+          </button>
+        ) : null}
       </div>
-      {props.expanded ? props.children : null}
+      {props.previewContent}
+      {props.hiddenCount > 0 && props.expanded ? props.children : null}
     </div>
   );
 }

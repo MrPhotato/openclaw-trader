@@ -90,6 +90,27 @@ const newsPayload = {
       metadata: {},
       created_at: "2026-03-20T08:05:00Z",
     },
+    {
+      asset_id: "macro-2",
+      asset_type: "macro_event",
+      payload: { category: "policy", summary: "SEC wording shifts the market toward defense.", impact_level: "high", source_refs: ["ref-2"] },
+      metadata: {},
+      created_at: "2026-03-20T08:08:00Z",
+    },
+    {
+      asset_id: "macro-3",
+      asset_type: "macro_event",
+      payload: { category: "exchange", summary: "Exchange liquidity thins into Asia lunch.", impact_level: "medium", source_refs: ["ref-3"] },
+      metadata: {},
+      created_at: "2026-03-20T08:10:00Z",
+    },
+    {
+      asset_id: "macro-4",
+      asset_type: "macro_event",
+      payload: { category: "macro", summary: "Dollar bid resumes and squeezes crypto beta.", impact_level: "high", source_refs: ["ref-4"] },
+      metadata: {},
+      created_at: "2026-03-20T08:12:00Z",
+    },
   ],
   macro_daily_memory: {
     asset_id: "memory-1",
@@ -123,6 +144,63 @@ const executionPayload = {
       },
       metadata: {},
       created_at: "2026-03-22T11:16:15.951502+00:00",
+    },
+    {
+      asset_id: "execution-2",
+      asset_type: "execution_result",
+      payload: {
+        coin: "ETH",
+        action: "add",
+        side: "long",
+        success: true,
+        notional_usd: "418.40",
+        exchange_order_id: "order-2",
+        fills: [
+          {
+            price: "3520.4",
+            size: "0.1189",
+            trade_time: "2026-03-22T11:18:15.650828Z",
+          },
+        ],
+      },
+      metadata: {},
+      created_at: "2026-03-22T11:18:15.951502+00:00",
+    },
+    {
+      asset_id: "execution-3",
+      asset_type: "execution_result",
+      payload: {
+        coin: "BTC",
+        action: "hold",
+        side: "long",
+        success: true,
+        notional_usd: "0",
+        exchange_order_id: "order-3",
+        fills: [],
+      },
+      metadata: {},
+      created_at: "2026-03-22T11:19:15.951502+00:00",
+    },
+    {
+      asset_id: "execution-4",
+      asset_type: "execution_result",
+      payload: {
+        coin: "SOL",
+        action: "reduce",
+        side: "long",
+        success: true,
+        notional_usd: "185.20",
+        exchange_order_id: "order-4",
+        fills: [
+          {
+            price: "162.5",
+            size: "1.14",
+            trade_time: "2026-03-22T11:21:15.650828Z",
+          },
+        ],
+      },
+      metadata: {},
+      created_at: "2026-03-22T11:21:15.951502+00:00",
     },
   ],
 };
@@ -318,14 +396,23 @@ describe("App", () => {
     await waitFor(() => expect(screen.getAllByText("名义占用 3.23%").length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getByText("观察线")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId("balance-risk-legend")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: "展开最新成交回执" })).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: "展开高优先事件" })).toBeInTheDocument());
-    expect(screen.queryByText("交易方向：卖出")).not.toBeInTheDocument();
-    expect(screen.queryByText(/order-1/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "展开最新成交回执" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "展开更多成交回执" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "展开更多高优先事件" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("已回传 1 笔成交回执。")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("买入 ETH")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("持有 BTC")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Fed headline turns risk sentiment colder.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("SEC wording shifts the market toward defense.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Exchange liquidity thins into Asia lunch.")).toBeInTheDocument());
+    expect(screen.queryByText("卖出 SOL")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dollar bid resumes and squeezes crypto beta.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/order-1/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开更多成交回执" }));
+    await waitFor(() => expect(screen.getByText("卖出 SOL")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("已回传 1 笔成交回执。").length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getAllByText("交易方向：卖出").length).toBeGreaterThanOrEqual(2));
+    fireEvent.click(screen.getByRole("button", { name: "展开更多高优先事件" }));
+    await waitFor(() => expect(screen.getByText("Dollar bid resumes and squeezes crypto beta.")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "PM" }));
     await waitFor(() => expect(screen.getByTestId("pm-view")).toBeInTheDocument());
