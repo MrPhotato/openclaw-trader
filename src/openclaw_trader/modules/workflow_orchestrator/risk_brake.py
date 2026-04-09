@@ -17,6 +17,7 @@ from ..trade_gateway.execution.service import ExecutionGatewayService
 from ..trade_gateway.market_data.models import DataIngestBundle
 from ..trade_gateway.market_data.service import DataIngestService
 from .events import EVENT_RISK_BRAKE_TRIGGERED, MODULE_NAME
+from .pm_trigger import record_pm_trigger_event
 from .rt_trigger import DEFAULT_RT_JOB_ID, CronRunResult, OpenClawCronRunner
 
 
@@ -87,6 +88,7 @@ class RiskBrakeMonitor:
             news_events=[],
             prior_risk_state=state,
             latest_strategy=strategy_payload,
+            current_time=current,
         )
         event_payload = self._handle_risk_event(
             state=state,
@@ -169,6 +171,10 @@ class RiskBrakeMonitor:
                 trace_id=trace_id,
                 now=now,
                 reason=plan["reason_label"],
+                strategy_key=current_strategy_key,
+                scope=plan["scope"],
+                state_name=plan["state"],
+                coins=sorted(plan["actions"].keys()),
             )
             payload.update(dispatch_summary)
         self.state_memory.save_asset(
@@ -442,7 +448,17 @@ class RiskBrakeMonitor:
             "execution_result_ids": result_asset_ids,
         }
 
-    def _dispatch_rt_and_pm(self, *, trace_id: str, now: datetime, reason: str) -> dict[str, Any]:
+    def _dispatch_rt_and_pm(
+        self,
+        *,
+        trace_id: str,
+        now: datetime,
+        reason: str,
+        strategy_key: str,
+        scope: str,
+        state_name: str,
+        coins: list[str],
+    ) -> dict[str, Any]:
         rt_running = self.cron_runner.is_running(job_id=self.config.rt_job_id)
         pm_running = self.cron_runner.is_running(job_id=self.config.pm_job_id)
         rt_result: CronRunResult | None = None
@@ -467,11 +483,36 @@ class RiskBrakeMonitor:
             pm_dispatched = bool(pm_result.ok)
             if not pm_dispatched:
                 pm_skip_reason = "cron_run_failed"
+        pm_event = record_pm_trigger_event(
+            state_memory=self.state_memory,
+            event_bus=self.event_bus,
+            trace_id=trace_id,
+            payload={
+                "event_id": new_id("pm_trigger"),
+                "detected_at_utc": now.isoformat(),
+                "trigger_type": "risk_brake",
+                "reason": reason,
+                "severity": "high",
+                "claimable": bool(pm_dispatched or pm_running),
+                "strategy_key": strategy_key,
+                "scope": scope,
+                "state": state_name,
+                "coins": list(coins),
+                "lock_mode": "flat_only" if state_name == "exit" else "reduce_only",
+                "dispatched": pm_dispatched,
+                "skipped_reason": pm_skip_reason,
+                "cron_running": pm_running,
+                "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),
+                "pm_cron_stderr": _truncate(pm_result.stderr if pm_result else "", 800),
+            },
+            metadata={"trigger_type": "risk_brake", "reason": reason},
+        )
         return {
             "rt_dispatched": rt_dispatched,
             "rt_skip_reason": rt_skip_reason,
             "rt_cron_stdout": _truncate(rt_result.stdout if rt_result else "", 800),
             "rt_cron_stderr": _truncate(rt_result.stderr if rt_result else "", 800),
+            "pm_trigger_event_id": pm_event["event_id"],
             "pm_dispatched": pm_dispatched,
             "pm_skip_reason": pm_skip_reason,
             "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),

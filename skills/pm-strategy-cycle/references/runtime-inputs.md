@@ -12,9 +12,11 @@ Working example:
 ```bash
 curl -s -X POST http://127.0.0.1:8788/api/agent/pull/pm \
   -H "Content-Type: application/json" \
-  -d '{"trigger_type":"manual","params":{}}' \
+  -d '{"params":{}}' \
   > /tmp/pm_runtime_pack.json
 ```
+
+Use this default form in live cadence or event wakeups so the bridge can preserve the real PM trigger reason. Only force `"trigger_type":"manual"` for explicit ad-hoc manual testing.
 
 This call is not instant. In the live stack it can take roughly `20-30s` because the bridge compiles market, news, forecast, and risk facts before returning.
 
@@ -38,7 +40,7 @@ The response shape is:
   "task_kind": "strategy",
   "input_id": "input_...",
   "trace_id": "trace_...",
-  "trigger_type": "manual",
+  "trigger_type": "daily_main",
   "expires_at_utc": "2026-03-22T...",
   "payload": {
     "trace_id": "trace_...",

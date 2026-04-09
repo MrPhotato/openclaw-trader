@@ -24,6 +24,7 @@ from ..modules.trade_gateway.execution.adapters import CoinbaseIntxBroker
 from ..modules.trade_gateway.market_data import DataIngestService
 from ..modules.trade_gateway.market_data.adapters import CoinbaseIntxMarketDataProvider
 from ..modules.workflow_orchestrator import WorkflowOrchestratorService
+from ..modules.workflow_orchestrator.pm_recheck import PMRecheckConfig, PMRecheckMonitor
 from ..modules.workflow_orchestrator.trigger_bridge import WorkflowTriggerBridge
 from ..modules.workflow_orchestrator.handlers import WorkflowCommandExecutor
 from ..modules.workflow_orchestrator.risk_brake import RiskBrakeConfig, RiskBrakeMonitor
@@ -200,6 +201,21 @@ def build_container() -> ServiceContainer:
                 openclaw_bin=str(settings.orchestrator.rt_event_trigger_openclaw_bin),
             ),
         )
+    pm_recheck_monitor = None
+    if bool(settings.orchestrator.pm_scheduled_recheck_enabled):
+        pm_recheck_monitor = PMRecheckMonitor(
+            state_memory=state_memory,
+            event_bus=event_bus,
+            config=PMRecheckConfig(
+                enabled=True,
+                pm_job_id=str(settings.orchestrator.pm_scheduled_recheck_job_id),
+                scan_interval_seconds=int(settings.orchestrator.pm_scheduled_recheck_scan_interval_seconds),
+                cron_subprocess_timeout_seconds=int(
+                    settings.orchestrator.pm_scheduled_recheck_cron_subprocess_timeout_seconds
+                ),
+                openclaw_bin=str(settings.orchestrator.pm_scheduled_recheck_openclaw_bin),
+            ),
+        )
     risk_brake_monitor = None
     if bool(settings.orchestrator.risk_brake_enabled):
         risk_brake_monitor = RiskBrakeMonitor(
@@ -225,6 +241,7 @@ def build_container() -> ServiceContainer:
         executor=executor,
         enable_daily_session_reset=True,
         rt_trigger_monitor=rt_trigger_monitor,
+        pm_recheck_monitor=pm_recheck_monitor,
         risk_brake_monitor=risk_brake_monitor,
     )
     return ServiceContainer(

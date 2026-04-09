@@ -357,6 +357,11 @@ class OrchestratorSettings(BaseModel):
     rt_event_trigger_execution_followup_delay_seconds: int = 180
     rt_event_trigger_cron_subprocess_timeout_seconds: int = 15
     rt_event_trigger_openclaw_bin: str = "openclaw"
+    pm_scheduled_recheck_enabled: bool = False
+    pm_scheduled_recheck_job_id: str = "d4153cc9-1cbf-431d-b45a-d822054672c5"
+    pm_scheduled_recheck_scan_interval_seconds: int = 30
+    pm_scheduled_recheck_cron_subprocess_timeout_seconds: int = 15
+    pm_scheduled_recheck_openclaw_bin: str = "openclaw"
     risk_brake_enabled: bool = False
     risk_brake_scan_interval_seconds: int = 30
     risk_brake_rt_job_id: str = "ccbf7286-dba4-4d57-bebe-932340374492"

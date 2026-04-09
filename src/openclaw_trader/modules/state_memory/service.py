@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ...shared.protocols import EventEnvelope, EventFactory
 from ...shared.utils import new_id
@@ -198,6 +198,83 @@ class StateMemoryService:
             if recheck_at is None or recheck_at >= now:
                 pending.append(dict(item))
         return pending
+
+    def get_due_scheduled_rechecks(self, *, now: datetime | None = None) -> list[dict]:
+        latest_strategy = self.get_latest_strategy()
+        if latest_strategy is None:
+            return []
+        payload = latest_strategy.get("payload") or {}
+        strategy_id = str(payload.get("strategy_id") or "").strip() or None
+        revision_number = payload.get("revision_number")
+        current = now or datetime.now(UTC)
+        due: list[dict] = []
+        for item in list(payload.get("scheduled_rechecks") or []):
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("recheck_at_utc")
+            try:
+                recheck_at = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if recheck_at.tzinfo is None:
+                recheck_at = recheck_at.replace(tzinfo=UTC)
+            if recheck_at.astimezone(UTC) > current.astimezone(UTC):
+                continue
+            enriched = dict(item)
+            if strategy_id:
+                enriched["strategy_id"] = strategy_id
+            if revision_number is not None:
+                enriched["revision_number"] = revision_number
+            due.append(enriched)
+        return due
+
+    def claim_pending_pm_trigger_event(
+        self,
+        *,
+        claim_ref: str,
+        max_age_minutes: int = 30,
+    ) -> dict | None:
+        current = datetime.now(UTC)
+        candidates: list[tuple[datetime, dict]] = []
+        for asset in self.recent_assets(asset_type="pm_trigger_event", actor_role="system", limit=20):
+            payload = dict(asset.get("payload") or {})
+            if payload.get("claimed_at_utc"):
+                continue
+            if not bool(payload.get("claimable", payload.get("dispatched"))):
+                continue
+            detected_at = _parse_utc_datetime(payload.get("detected_at_utc") or asset.get("created_at"))
+            if detected_at is None:
+                continue
+            if current - detected_at > timedelta(minutes=max_age_minutes):
+                continue
+            candidates.append((detected_at, asset))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        _, asset = candidates[0]
+        payload = dict(asset.get("payload") or {})
+        payload["claimed_at_utc"] = current.isoformat()
+        payload["claimed_ref"] = claim_ref
+        metadata = dict(asset.get("metadata") or {})
+        metadata["claim_status"] = "claimed"
+        metadata["claimed_ref"] = claim_ref
+        self.save_asset(
+            asset_type="pm_trigger_event",
+            asset_id=str(asset.get("asset_id") or ""),
+            payload=payload,
+            trace_id=asset.get("trace_id"),
+            actor_role=asset.get("actor_role"),
+            group_key=asset.get("group_key"),
+            source_ref=asset.get("source_ref"),
+            metadata=metadata,
+        )
+        return {
+            "created_at": asset.get("created_at"),
+            "asset_id": asset.get("asset_id"),
+            **payload,
+        }
 
     def get_macro_memory(self, *, limit: int = 5) -> list[dict]:
         macro_daily = self.recent_assets(asset_type="macro_daily_memory", limit=limit)
@@ -474,3 +551,13 @@ class StateMemoryService:
             "first_fill_price": first_fill.get("price"),
             "first_fill_size": first_fill.get("size"),
         }
+
+
+def _parse_utc_datetime(raw: object) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)

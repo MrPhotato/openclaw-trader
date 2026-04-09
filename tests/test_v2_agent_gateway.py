@@ -238,6 +238,65 @@ class AgentGatewayServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_pull_pm_runtime_input_uses_latest_pm_trigger_event_for_trigger_type(self) -> None:
+        harness = build_test_harness()
+        try:
+            harness.container.state_memory.save_asset(
+                asset_type="pm_trigger_event",
+                actor_role="system",
+                payload={
+                    "event_id": "pm-trigger-1",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "trigger_type": "scheduled_recheck",
+                    "reason": "scheduled_recheck",
+                    "severity": "normal",
+                    "claimable": True,
+                    "strategy_id": "strategy-1",
+                    "revision_number": 42,
+                    "recheck_at_utc": "2026-04-10T03:00:00Z",
+                    "scope": "portfolio",
+                    "recheck_reason": "Asia session recheck",
+                    "scheduled_recheck_key": "strategy-1|2026-04-10T03:00:00Z|portfolio|Asia session recheck",
+                    "dispatched": True,
+                },
+            )
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
+            self.assertEqual(pack.trigger_type, "scheduled_recheck")
+            self.assertEqual(pack.payload["latest_pm_trigger_event"]["reason"], "scheduled_recheck")
+            self.assertEqual(pack.payload["trigger_context"]["trigger_type"], "scheduled_recheck")
+            claimed_asset = harness.container.state_memory.latest_asset(asset_type="pm_trigger_event", actor_role="system")
+            self.assertIsNotNone(claimed_asset)
+            self.assertEqual(claimed_asset["payload"]["claimed_ref"], pack.trace_id)
+
+            second = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
+            self.assertEqual(second.trigger_type, "daily_main")
+            self.assertNotIn("latest_pm_trigger_event", second.payload)
+        finally:
+            harness.cleanup()
+
+    def test_pull_pm_runtime_input_ignores_unclaimable_pm_trigger_event(self) -> None:
+        harness = build_test_harness()
+        try:
+            harness.container.state_memory.save_asset(
+                asset_type="pm_trigger_event",
+                actor_role="system",
+                payload={
+                    "event_id": "pm-trigger-skipped",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "trigger_type": "risk_brake",
+                    "reason": "portfolio_peak_reduce",
+                    "severity": "high",
+                    "claimable": False,
+                    "dispatched": False,
+                    "skipped_reason": "cron_run_failed",
+                },
+            )
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
+            self.assertEqual(pack.trigger_type, "daily_main")
+            self.assertNotIn("latest_pm_trigger_event", pack.payload)
+        finally:
+            harness.cleanup()
+
     def test_validate_submission_failure_exposes_schema_and_prompt_refs(self) -> None:
         gateway = AgentGatewayService(
             pm_runner=DeterministicAgentRunner(),

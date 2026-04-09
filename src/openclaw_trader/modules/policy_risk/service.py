@@ -66,6 +66,7 @@ class PolicyRiskService:
         news_events: list[NewsDigestEvent],
         prior_risk_state: dict[str, Any] | None = None,
         latest_strategy: dict[str, Any] | None = None,
+        current_time: datetime | None = None,
     ) -> dict[str, GuardDecision]:
         decisions: dict[str, GuardDecision] = {}
         portfolio = market.portfolio
@@ -99,6 +100,7 @@ class PolicyRiskService:
         risk_state = self._normalize_risk_state(
             prior_state=prior_risk_state,
             current_strategy_key=current_strategy_key,
+            current_time=current_time,
         )
         portfolio_risk_state = self._portfolio_risk_state(
             total_equity=total_equity,
@@ -411,8 +413,11 @@ class PolicyRiskService:
         *,
         prior_state: dict[str, Any] | None,
         current_strategy_key: str,
+        current_time: datetime | None,
     ) -> dict[str, Any]:
-        now = datetime.now(UTC)
+        now = current_time.astimezone(UTC) if current_time is not None and current_time.tzinfo else (
+            current_time.replace(tzinfo=UTC) if current_time is not None else datetime.now(UTC)
+        )
         state = dict(prior_state or {})
         portfolio_day_utc = str(state.get("portfolio_day_utc") or now.date().isoformat())
         if portfolio_day_utc != now.date().isoformat():

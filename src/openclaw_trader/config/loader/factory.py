@@ -130,6 +130,22 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
                 dispatch_payload.get("rt_event_trigger_cron_subprocess_timeout_seconds", 15)
             ),
             rt_event_trigger_openclaw_bin=str(dispatch_payload.get("rt_event_trigger_openclaw_bin", "openclaw")),
+            pm_scheduled_recheck_enabled=bool(dispatch_payload.get("pm_scheduled_recheck_enabled", False)),
+            pm_scheduled_recheck_job_id=str(
+                dispatch_payload.get(
+                    "pm_scheduled_recheck_job_id",
+                    "d4153cc9-1cbf-431d-b45a-d822054672c5",
+                )
+            ),
+            pm_scheduled_recheck_scan_interval_seconds=int(
+                dispatch_payload.get("pm_scheduled_recheck_scan_interval_seconds", 30)
+            ),
+            pm_scheduled_recheck_cron_subprocess_timeout_seconds=int(
+                dispatch_payload.get("pm_scheduled_recheck_cron_subprocess_timeout_seconds", 15)
+            ),
+            pm_scheduled_recheck_openclaw_bin=str(
+                dispatch_payload.get("pm_scheduled_recheck_openclaw_bin", "openclaw")
+            ),
             risk_brake_enabled=bool(dispatch_payload.get("risk_brake_enabled", False)),
             risk_brake_scan_interval_seconds=int(dispatch_payload.get("risk_brake_scan_interval_seconds", 30)),
             risk_brake_rt_job_id=str(

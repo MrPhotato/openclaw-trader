@@ -579,8 +579,24 @@ class AgentGatewayService:
     ) -> AgentRuntimePack:
         self._require_runtime_bridge_dependencies()
         trace_id = new_id("trace")
-        trigger_context = self._build_trigger_context(agent_role=agent_role, trigger_type=trigger_type, params=params)
-        context = self._collect_bridge_context(agent_role=agent_role, trace_id=trace_id, trigger_type=trigger_type)
+        latest_pm_trigger_event = (
+            self.state_memory.claim_pending_pm_trigger_event(claim_ref=trace_id)
+            if agent_role == "pm"
+            else None
+        )
+        resolved_trigger_type = trigger_type
+        if latest_pm_trigger_event is not None:
+            resolved_trigger_type = str(latest_pm_trigger_event.get("trigger_type") or trigger_type).strip() or trigger_type
+        trigger_context = self._build_trigger_context(
+            agent_role=agent_role,
+            trigger_type=resolved_trigger_type,
+            params=params,
+        )
+        context = self._collect_bridge_context(
+            agent_role=agent_role,
+            trace_id=trace_id,
+            trigger_type=resolved_trigger_type,
+        )
         runtime_inputs = self.build_runtime_inputs(
             trace_id=trace_id,
             market=context["market"],
@@ -616,6 +632,8 @@ class AgentGatewayService:
         else:
             payload = dict(runtime_input.payload)
             payload["trigger_context"] = trigger_context
+            if latest_pm_trigger_event is not None and agent_role == "pm":
+                payload["latest_pm_trigger_event"] = latest_pm_trigger_event
             latest_risk_brake_event = self._latest_risk_brake_event()
             if latest_risk_brake_event is not None and agent_role in {"pm", "risk_trader"}:
                 payload["latest_risk_brake_event"] = latest_risk_brake_event
@@ -638,7 +656,7 @@ class AgentGatewayService:
             trace_id=trace_id,
             agent_role=agent_role,
             task_kind=task_kind,
-            trigger_type=trigger_type,
+            trigger_type=resolved_trigger_type,
             expires_at_utc=expires_at,
             payload=payload,
         )
@@ -661,7 +679,7 @@ class AgentGatewayService:
             group_key=agent_role,
             metadata={
                 "status": lease.status,
-                "trigger_type": trigger_type,
+                "trigger_type": resolved_trigger_type,
                 "expires_at_utc": expires_at.isoformat(),
             },
         )

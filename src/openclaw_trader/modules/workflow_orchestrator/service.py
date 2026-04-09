@@ -20,6 +20,7 @@ from .events import (
 )
 from .handlers import WorkflowCommandExecutor
 from .models import CommandType, ExternalCadenceWakeup, ManualTriggerCommand, WorkflowCommandReceipt, WorkflowStateRecord
+from .pm_recheck import PMRecheckMonitor
 from .risk_brake import RiskBrakeMonitor
 from .rt_trigger import RTTriggerMonitor
 
@@ -46,6 +47,7 @@ class WorkflowOrchestratorService:
         daily_session_reset_hour_utc: int = 0,
         daily_session_reset_minute_utc: int = 30,
         rt_trigger_monitor: RTTriggerMonitor | None = None,
+        pm_recheck_monitor: PMRecheckMonitor | None = None,
         risk_brake_monitor: RiskBrakeMonitor | None = None,
     ) -> None:
         self.state_memory = state_memory
@@ -73,6 +75,9 @@ class WorkflowOrchestratorService:
             self._daily_reset_thread.start()
         if self._rt_trigger_monitor is not None:
             self._rt_trigger_monitor.start()
+        self._pm_recheck_monitor = pm_recheck_monitor
+        if self._pm_recheck_monitor is not None:
+            self._pm_recheck_monitor.start()
         self._risk_brake_monitor = risk_brake_monitor
         if self._risk_brake_monitor is not None:
             self._risk_brake_monitor.start()
@@ -280,6 +285,8 @@ class WorkflowOrchestratorService:
         self._scheduler_stop.set()
         if self._rt_trigger_monitor is not None:
             self._rt_trigger_monitor.stop()
+        if self._pm_recheck_monitor is not None:
+            self._pm_recheck_monitor.stop()
         if self._risk_brake_monitor is not None:
             self._risk_brake_monitor.stop()
         if self._daily_reset_thread is not None:
