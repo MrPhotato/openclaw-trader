@@ -159,7 +159,7 @@ def build_container() -> ServiceContainer:
     )
     notification_service = NotificationService(OpenClawNotificationProvider(), state_memory)
     agent_gateway.notification_service = notification_service
-    replay_frontend = ReplayFrontendService(state_memory)
+    replay_frontend = ReplayFrontendService(state_memory, settings)
     executor = WorkflowCommandExecutor(
         state_memory=state_memory,
         event_bus=event_bus,

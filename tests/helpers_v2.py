@@ -346,7 +346,7 @@ def build_test_harness(*, news_severity: str = "low", side_12h: str = "long", si
     fake_notifier = FakeNotificationProvider()
     notification_service = NotificationService(fake_notifier, state_memory)
     agent_gateway.notification_service = notification_service
-    replay_frontend = ReplayFrontendService(state_memory)
+    replay_frontend = ReplayFrontendService(state_memory, settings)
     executor = WorkflowCommandExecutor(
         state_memory=state_memory,
         event_bus=event_bus,
