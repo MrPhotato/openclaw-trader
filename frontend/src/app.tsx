@@ -7,12 +7,48 @@ import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, isStreamDi
 import { useMissionControlStore } from "./lib/store";
 import type { AgentLatestData, AssetRecord, EventEnvelope, OverviewData, ViewKey } from "./lib/types";
 
-const agentRoles = [
-  { key: "pm", label: "PM", accent: "text-emerald-200" },
-  { key: "risk_trader", label: "RT", accent: "text-orange-200" },
-  { key: "macro_event_analyst", label: "MEA", accent: "text-sky-200" },
-  { key: "crypto_chief", label: "Chief", accent: "text-amber-200" },
+const agentPages = [
+  {
+    view: "pm",
+    role: "pm",
+    label: "PM",
+    name: "Portfolio Manager",
+    accent: "text-emerald-200",
+    intro: "负责给出组合方向、风险预算和再检查节奏。这里展示的是正式策略，不是内部草稿。",
+  },
+  {
+    view: "rt",
+    role: "risk_trader",
+    label: "RT",
+    name: "Risk Trader",
+    accent: "text-orange-200",
+    intro: "负责把 PM 的组合框架转成可执行决策。重点看战术地图、风险锁和最新成交回执。",
+  },
+  {
+    view: "mea",
+    role: "macro_event_analyst",
+    label: "MEA",
+    name: "Macro & Event Analyst",
+    accent: "text-sky-200",
+    intro: "负责跟踪宏观与事件冲击，筛出真正会改变交易判断的新闻，而不是堆信息流。",
+  },
+  {
+    view: "chief",
+    role: "crypto_chief",
+    label: "Chief",
+    name: "Crypto Chief",
+    accent: "text-amber-200",
+    intro: "负责复盘、owner summary 和四个席位的会后学习。这里看的是当天这套系统学到了什么。",
+  },
 ] as const;
+
+const navItems: Array<{ key: ViewKey; label: string }> = [
+  { key: "overview", label: "总览" },
+  { key: "pm", label: "PM" },
+  { key: "rt", label: "RT" },
+  { key: "mea", label: "MEA" },
+  { key: "chief", label: "Chief" },
+];
 
 const moduleLabels: Record<string, string> = {
   agent_gateway: "Agent Gateway",
@@ -53,20 +89,17 @@ export default function App() {
   const newsQuery = useQuery({
     queryKey: ["news"],
     queryFn: fetchNews,
-    enabled: activeView === "overview" || activeView === "signals",
     refetchInterval: 30000,
   });
   const executionsQuery = useQuery({
     queryKey: ["executions"],
     queryFn: fetchExecutions,
-    enabled: activeView === "overview" || activeView === "desk",
     refetchInterval: 15000,
   });
   const agentQueries = useQueries({
-    queries: agentRoles.map((agent) => ({
-      queryKey: ["agent", agent.key],
-      queryFn: () => fetchAgentLatest(agent.key),
-      enabled: activeView === "agents",
+    queries: agentPages.map((agent) => ({
+      queryKey: ["agent", agent.role],
+      queryFn: () => fetchAgentLatest(agent.role),
       refetchInterval: 30000,
     })),
   });
@@ -86,6 +119,13 @@ export default function App() {
   const balanceDomain = buildBalanceDomain(balanceSeries, balanceRiskLines);
   const balanceChartWidth = computeBalanceChartWidth(balanceSeries.length, balanceGranularity);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
+  const agentDataByRole = Object.fromEntries(
+    agentPages.map((agent, index) => [agent.role, agentQueries[index].data]),
+  ) as Record<string, AgentLatestData | undefined>;
+  const pmData = agentDataByRole.pm;
+  const rtData = agentDataByRole.risk_trader;
+  const meaData = agentDataByRole.macro_event_analyst;
+  const chiefData = agentDataByRole.crypto_chief;
 
   useEffect(() => {
     const node = chartViewportRef.current;
@@ -122,9 +162,9 @@ export default function App() {
                 <span className="text-slate-400">公开看板</span>
               </div>
               <div>
-                <h1 className="text-2xl font-semibold leading-none sm:text-5xl">交易指挥台</h1>
+                <h1 className="text-2xl font-semibold leading-none sm:text-5xl">Openclaw Trader AI交易实时展示</h1>
                 <p className="mt-2 max-w-xl text-xs leading-5 text-slate-300 sm:text-base sm:leading-6">
-                  <span className="text-slate-200">openclaw-trader 是 OpenClaw 加密工作流背后的交易运行时，当前公开展示本金 $1000。</span>
+                  <span className="text-slate-200">openclaw-trader 是一套基于 OpenClaw 的 4 Agent Crypto永续合约交易集群实验，本金 $1000。</span>
                   <a
                     href="https://github.com/MrPhotato/openclaw-trader"
                     target="_blank"
@@ -162,16 +202,11 @@ export default function App() {
             </div>
           </div>
           <nav className="mt-5 flex flex-wrap gap-2">
-            {[
-              ["overview", "总览"],
-              ["desk", "策略"],
-              ["signals", "事件"],
-              ["agents", "席位"],
-            ].map(([key, label]) => (
+            {navItems.map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
-                onClick={() => setView(key as ViewKey)}
+                onClick={() => setView(key)}
                 className={`rounded-full px-4 py-2 text-sm transition ${
                   activeView === key
                     ? "bg-ember text-ink shadow-lg shadow-ember/30"
@@ -185,7 +220,7 @@ export default function App() {
         </header>
 
         {activeView === "overview" && (
-          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.35fr_0.95fr]" data-testid="overview-view">
+          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.25fr_0.95fr]" data-testid="overview-view">
             <div className="min-w-0 space-y-4 sm:space-y-6">
               <Panel title="账户余额轨迹">
                 <div className="mb-4 grid gap-3 sm:grid-cols-2">
@@ -216,13 +251,7 @@ export default function App() {
                         <LineChart width={balanceChartWidth} height={260} data={balanceSeries} margin={{ top: 12, right: 8, bottom: 0, left: 0 }}>
                           <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
                           {balanceRiskLines.map((line) => (
-                            <ReferenceLine
-                              key={line.key}
-                              y={line.value}
-                              stroke={line.color}
-                              strokeWidth={1}
-                              ifOverflow="extendDomain"
-                            />
+                            <ReferenceLine key={line.key} y={line.value} stroke={line.color} strokeWidth={1} ifOverflow="extendDomain" />
                           ))}
                           <XAxis
                             dataKey="label"
@@ -249,15 +278,7 @@ export default function App() {
                             labelStyle={{ color: "#cbd5e1", fontSize: 12 }}
                             wrapperStyle={{ zIndex: 20, outline: "none" }}
                           />
-                          <Line
-                            type="monotone"
-                            dataKey="equity"
-                            stroke="#71f6d1"
-                            strokeWidth={3}
-                            dot={false}
-                            connectNulls
-                            activeDot={{ r: 4 }}
-                          />
+                          <Line type="monotone" dataKey="equity" stroke="#71f6d1" strokeWidth={3} dot={false} connectNulls activeDot={{ r: 4 }} />
                         </LineChart>
                       </div>
                     </div>
@@ -266,10 +287,7 @@ export default function App() {
                 {balanceRiskLines.length ? (
                   <div className="mt-3 flex flex-wrap gap-2" data-testid="balance-risk-legend">
                     {balanceRiskLines.map((line) => (
-                      <div
-                        key={line.key}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300"
-                      >
+                      <div key={line.key} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
                         <span className="h-px w-4" style={{ backgroundColor: line.color }} />
                         <span className="text-slate-200">{line.label}</span>
                         <span className="text-slate-400">{usdCompactText(line.value)}</span>
@@ -306,117 +324,214 @@ export default function App() {
                   {balanceNarrative(latestPortfolio, balanceGranularity, balanceSeries)}
                 </div>
               </Panel>
-            </div>
-            <div className="min-w-0">
-              <Panel title="下单动态">
-              <div className="space-y-3">
-                {(executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 12).map((record) => (
-                  <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />
-                ))}
-              </div>
-              </Panel>
-            </div>
-          </section>
-        )}
 
-        {activeView === "desk" && (
-          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.05fr_1fr]" data-testid="desk-view">
-            <Panel title="PM 最新策略">
-              <div className="space-y-4">
-                <Headline label="策略版本" value={strategyIdentity(latestStrategy)} />
-                <Headline label="组合模式" value={portfolioModeLabel(latestStrategy["portfolio_mode"])} />
-                <Headline label="策略重点" value={strategyFocusText(latestStrategy)} />
-                <Headline label="失效条件" value={String(latestStrategy["portfolio_invalidation"] ?? "暂无明确失效条件。")} />
-                <div className="grid gap-3">
-                  {readTargets(latestStrategy).map((target) => (
-                    <div key={target.label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{target.label}</span>
-                        <span className="text-xs text-slate-400">{target.direction}</span>
-                      </div>
-                      <div className="mt-2 text-sm text-slate-300">{target.detail}</div>
-                    </div>
+              <Panel title="系统脉搏">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MetricCard
+                    label="当前风险状态"
+                    value={riskStateLabel(overview?.risk_overlay)}
+                    detail={riskStateNarrative(overview?.risk_overlay, latestPortfolio)}
+                  />
+                  <MetricCard
+                    label="最新策略方向"
+                    value={portfolioModeLabel(latestStrategy["portfolio_mode"])}
+                    detail={strategyFocusText(latestStrategy)}
+                  />
+                </div>
+                <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                  {agentPages.map((agent) => (
+                    <AgentPulseCard
+                      key={agent.role}
+                      agent={agent}
+                      data={agentDataByRole[agent.role]}
+                    />
                   ))}
                 </div>
-              </div>
-            </Panel>
+              </Panel>
+            </div>
+
             <div className="min-w-0 space-y-4 sm:space-y-6">
-              <Panel title="最近执行">
+              <Panel title="高优先事件">
                 <div className="space-y-3">
-                  {(executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 10).map((record) => (
-                    <div key={record.asset_id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{executionRecordTitle(record)}</span>
-                        <span className={executionRecordSuccess(record) ? "text-neon" : "text-red-300"}>
-                          {executionRecordStatus(record)}
-                        </span>
-                      </div>
-                      <div className="mt-2 text-sm text-slate-300">{executionRecordSummary(record)}</div>
-                      <div className="mt-1 text-xs text-slate-500">{executionRecordMeta(record)}</div>
-                    </div>
-                  ))}
+                  {renderAssetCollection(
+                    (newsQuery.data?.macro_events ?? overview?.current_macro_events ?? []).slice(0, 6),
+                    (record) => <MacroEventCard key={record.asset_id} asset={record} />,
+                    "高影响事件会在这里排到最上面，当前还没有新的正式事件。",
+                  )}
                 </div>
               </Panel>
-              <Panel title="链路内容">
+              <Panel title="最新成交回执">
                 <div className="space-y-3">
-                  {eventFeed.slice(0, 12).map((event) => (
-                    <EventRow key={event.event_id} event={event} />
-                  ))}
+                  {renderAssetCollection(
+                    (executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 8),
+                    (record) => <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />,
+                    "最近还没有新的正式执行结果。",
+                  )}
                 </div>
               </Panel>
             </div>
           </section>
         )}
 
-        {activeView === "signals" && (
-          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1fr_1.1fr]" data-testid="signals-view">
-            <Panel title="宏观影响分布">
-              <ChartShell>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={impactBreakdown}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                    <XAxis dataKey="impact" tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} />
-                    <Bar dataKey="count" radius={[8, 8, 0, 0]}>
-                      {impactBreakdown.map((item) => (
-                        <Cell key={item.impact} fill={item.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartShell>
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                {String(newsQuery.data?.macro_daily_memory?.payload?.["summary"] ?? "今天还没有形成正式的宏观日记忆。")}
-              </div>
-            </Panel>
-            <Panel title="新闻看板">
-              <div className="space-y-3">
-                {(newsQuery.data?.macro_events ?? []).slice(0, 12).map((record) => (
-                  <div key={record.asset_id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{newsCategoryLabel(record.payload["category"])}</span>
-                      <span className={impactTone(String(record.payload["impact_level"] ?? "low"))}>
-                        {impactLabel(String(record.payload["impact_level"] ?? "low"))}
-                      </span>
-                    </div>
-                    <div className="mt-2 text-sm text-slate-300">{String(record.payload["summary"] ?? "No summary")}</div>
+        {activeView === "pm" && (
+          <section className="space-y-4 sm:space-y-6" data-testid="pm-view">
+            <AgentHero agent={agentPages[0]} data={pmData} />
+            <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+              <Panel title="当前正式策略">
+                <div className="space-y-4">
+                  <Headline label="策略版本" value={strategyIdentity(latestStrategy)} />
+                  <Headline label="组合模式" value={portfolioModeLabel(latestStrategy["portfolio_mode"])} />
+                  <Headline label="策略重点" value={strategyFocusText(latestStrategy)} />
+                  <Headline label="变更摘要" value={nonEmptyText(latestStrategy["change_summary"], "当前还没有显式写出的变更摘要。")} />
+                  <Headline label="失效条件" value={nonEmptyText(latestStrategy["portfolio_invalidation"], "暂无明确失效条件。")} />
+                </div>
+              </Panel>
+              <Panel title="目标与复核">
+                <div className="grid gap-3">
+                  {renderCollection(
+                    readTargets(latestStrategy),
+                    (target) => (
+                      <div key={target.label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium">{target.label}</span>
+                          <span className="text-xs text-slate-400">{target.direction}</span>
+                        </div>
+                        <div className="mt-2 text-sm text-slate-300">{target.detail}</div>
+                      </div>
+                    ),
+                    "PM 还没有提交具体 target，系统会先维持空白。",
+                  )}
+                </div>
+                <div className="mt-4">
+                  <SectionLabel label="下一轮复核" />
+                  <div className="mt-3 space-y-2">
+                    {renderCollection(
+                      readRechecks(latestStrategy),
+                      (item) => (
+                        <div key={item.label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
+                          <div className="font-medium text-slate-200">{item.label}</div>
+                          <div className="mt-1 text-xs text-slate-400">{item.detail}</div>
+                        </div>
+                      ),
+                      "当前没有排程中的复核节点。",
+                    )}
                   </div>
-                ))}
-              </div>
-            </Panel>
+                </div>
+              </Panel>
+            </section>
           </section>
         )}
 
-        {activeView === "agents" && (
-          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-2" data-testid="agents-view">
-            {agentRoles.map((agent, index) => (
-              <AgentPanel
-                key={agent.key}
-                agent={agent}
-                data={agentQueries[index].data}
-              />
-            ))}
+        {activeView === "rt" && (
+          <section className="space-y-4 sm:space-y-6" data-testid="rt-view">
+            <AgentHero agent={agentPages[1]} data={rtData} />
+            <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+              <Panel title="RT 战术地图">
+                <RtTacticalBoard data={rtData} latestStrategy={latestStrategy} />
+              </Panel>
+              <div className="min-w-0 space-y-4 sm:space-y-6">
+                <Panel title="最新执行">
+                  <div className="space-y-3">
+                    {renderAssetCollection(
+                      (executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 6),
+                      (record) => <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />,
+                      "RT 还没有新的正式执行结果。",
+                    )}
+                  </div>
+                </Panel>
+                <Panel title="最近思路">
+                  <div className="space-y-3">
+                    {renderCollection(
+                      (rtData?.recent_execution_thoughts ?? []).slice(0, 6),
+                      (thought, index) => <ThoughtCard key={`${thought.symbol ?? "thought"}-${index}`} thought={thought} />,
+                      "RT 还没有沉淀出可展示的近期思路记录。",
+                    )}
+                  </div>
+                </Panel>
+              </div>
+            </section>
+          </section>
+        )}
+
+        {activeView === "mea" && (
+          <section className="space-y-4 sm:space-y-6" data-testid="mea-view">
+            <AgentHero agent={agentPages[2]} data={meaData} />
+            <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[0.92fr_1.08fr]">
+              <div className="min-w-0 space-y-4 sm:space-y-6">
+                <Panel title="宏观记忆">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-300">
+                    {nonEmptyText(
+                      meaData?.latest_macro_daily_memory?.payload?.summary ?? newsQuery.data?.macro_daily_memory?.payload?.summary,
+                      "今天还没有形成正式的宏观日记忆。",
+                    )}
+                  </div>
+                </Panel>
+                <Panel title="影响分布">
+                  <ChartShell>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={impactBreakdown}>
+                        <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                        <XAxis dataKey="impact" tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} />
+                        <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+                        <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                          {impactBreakdown.map((item) => (
+                            <Cell key={item.impact} fill={item.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartShell>
+                </Panel>
+              </div>
+              <Panel title="事件墙">
+                <div className="space-y-3">
+                  {renderAssetCollection(
+                    (newsQuery.data?.macro_events ?? meaData?.recent_macro_events ?? []).slice(0, 10),
+                    (record) => <MacroEventCard key={record.asset_id} asset={record} />,
+                    "MEA 还没有提交新的正式事件。",
+                  )}
+                </div>
+              </Panel>
+            </section>
+          </section>
+        )}
+
+        {activeView === "chief" && (
+          <section className="space-y-4 sm:space-y-6" data-testid="chief-view">
+            <AgentHero agent={agentPages[3]} data={chiefData} />
+            <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+              <Panel title="Owner Summary">
+                <ChiefRetroPanel data={chiefData} />
+              </Panel>
+              <div className="min-w-0 space-y-4 sm:space-y-6">
+                <Panel title="会后动作">
+                  <div className="space-y-3">
+                    {renderCollection(
+                      readChiefLearnings(chiefData),
+                      (item, index) => (
+                        <div key={`${item.title}-${index}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                          <div className="font-medium text-slate-100">{item.title}</div>
+                          <div className="mt-2 text-sm text-slate-300">{item.detail}</div>
+                        </div>
+                      ),
+                      "本轮复盘还没有写出可展示的会后动作。",
+                    )}
+                  </div>
+                </Panel>
+                <Panel title="席位状态">
+                  <div className="grid gap-3">
+                    {agentPages.map((agent) => (
+                      <AgentPulseCard
+                        key={agent.role}
+                        agent={agent}
+                        data={agentDataByRole[agent.role]}
+                      />
+                    ))}
+                  </div>
+                </Panel>
+              </div>
+            </section>
           </section>
         )}
       </div>
@@ -557,39 +672,214 @@ function Headline(props: { label: string; value: string }) {
   );
 }
 
-function AgentPanel(props: {
-  agent: { key: string; label: string; accent: string };
-  data?: AgentLatestData;
-}) {
+function SectionLabel(props: { label: string }) {
+  return <div className="text-[11px] tracking-[0.2em] text-slate-500">{props.label}</div>;
+}
+
+function EmptyState(props: { message: string }) {
+  return <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-slate-400">{props.message}</div>;
+}
+
+function AgentHero(props: { agent: (typeof agentPages)[number]; data?: AgentLatestData }) {
   const sessionStatus = String(props.data?.session?.status ?? "offline");
   const latestType = String(props.data?.latest_asset?.asset_type ?? "none");
+  const latestAt = latestAssetTimestamp(props.data);
 
   return (
-    <Panel title={props.agent.label}>
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-[11px] tracking-[0.2em] text-slate-500">会话状态</div>
-            <div className={`mt-3 text-xl font-semibold ${props.agent.accent}`}>{sessionStatusLabel(sessionStatus)}</div>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-[11px] tracking-[0.2em] text-slate-500">最近产物</div>
-            <div className="mt-3 text-xl font-semibold">{assetTypeLabel(latestType)}</div>
+    <section className="glass-panel rounded-[24px] px-4 py-5 shadow-glow sm:rounded-[28px] sm:px-5">
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+        <div className="space-y-3">
+          <div className={`text-xs uppercase tracking-[0.32em] ${props.agent.accent}`}>{props.agent.label}</div>
+          <div>
+            <h2 className="text-2xl font-semibold sm:text-4xl">{props.agent.name}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">{props.agent.intro}</p>
           </div>
         </div>
-        <div className="space-y-3">
-          {(props.data?.recent_assets ?? []).slice(0, 5).map((asset) => (
-            <div key={asset.asset_id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{assetTypeLabel(asset.asset_type)}</span>
-                <span className="text-xs text-slate-500">{formatTime(asset.created_at)}</span>
-              </div>
-              <div className="mt-2 text-sm text-slate-300">{assetPreview(asset)}</div>
-            </div>
-          ))}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <HeroMetric label="会话状态" value={sessionStatusLabel(sessionStatus)} tone={props.agent.accent} />
+          <HeroMetric label="最近产物" value={assetTypeLabel(latestType)} tone="text-slate-100" />
+          <HeroMetric label="最近活跃" value={latestAt} tone="text-slate-200" />
         </div>
       </div>
-    </Panel>
+    </section>
+  );
+}
+
+function HeroMetric(props: { label: string; value: string; tone: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3">
+      <div className="text-[10px] tracking-[0.22em] text-slate-500">{props.label}</div>
+      <div className={`mt-2 text-sm font-medium ${props.tone}`}>{props.value}</div>
+    </div>
+  );
+}
+
+function AgentPulseCard(props: { agent: (typeof agentPages)[number]; data?: AgentLatestData }) {
+  const sessionStatus = String(props.data?.session?.status ?? "offline");
+  const latestAsset = props.data?.latest_asset;
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className={`text-sm font-medium ${props.agent.accent}`}>{props.agent.label}</div>
+          <div className="mt-1 text-xs text-slate-400">{props.agent.name}</div>
+        </div>
+        <div className="text-xs text-slate-500">{sessionStatusLabel(sessionStatus)}</div>
+      </div>
+      <div className="mt-3 text-sm text-slate-200">{assetPreview(latestAsset)}</div>
+      <div className="mt-2 text-xs text-slate-500">
+        {latestAsset ? `${assetTypeLabel(latestAsset.asset_type)} · ${formatTime(latestAsset.created_at)}` : "还没有新的正式产物。"}
+      </div>
+    </div>
+  );
+}
+
+function MacroEventCard(props: { asset: AssetRecord }) {
+  const impact = String(props.asset.payload["impact_level"] ?? "low");
+  const refs = Array.isArray(props.asset.payload["source_refs"]) ? props.asset.payload["source_refs"] : [];
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">{newsCategoryLabel(props.asset.payload["category"])}</div>
+          <div className="mt-1 text-xs text-slate-500">{formatTime(props.asset.created_at)}</div>
+        </div>
+        <span className={impactTone(impact)}>{impactLabel(impact)}</span>
+      </div>
+      <div className="mt-3 text-sm leading-7 text-slate-300">{nonEmptyText(props.asset.payload["summary"], "没有可展示的事件摘要。")}</div>
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
+        {refs.length ? <span>{refs.length} 个来源已归档</span> : <span>结构化事件已入库</span>}
+      </div>
+    </div>
+  );
+}
+
+function RtTacticalBoard(props: { data?: AgentLatestData; latestStrategy: Record<string, unknown> }) {
+  const brief = asRecord(props.data?.tactical_brief);
+  const trigger = asRecord(brief?.trigger);
+  const coins = Array.isArray(brief?.coins) ? brief?.coins : [];
+  if (!brief && !(props.data?.recent_execution_thoughts?.length || readTargets(props.latestStrategy).length)) {
+    return <EmptyState message="RT 还没有形成公开可读的战术板，等第一轮执行或策略输出后会自动出现。" />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <TacticalMetric label="组合姿态" value={nonEmptyText(brief?.portfolio_posture, portfolioModeLabel(props.latestStrategy["portfolio_mode"]))} />
+        <TacticalMetric label="Desk Focus" value={nonEmptyText(brief?.desk_focus, "先看本轮执行与风控变化。")} />
+        <TacticalMetric label="风险偏向" value={nonEmptyText(brief?.risk_bias, "风险状态正常。")} />
+        <TacticalMetric label="下一轮提示" value={nonEmptyText(brief?.next_review_hint, "等待下一次 cadence。")} />
+      </div>
+      {trigger ? (
+        <div className="flex flex-wrap gap-2">
+          {[
+            trigger.reason ? `触发原因：${trigger.reason}` : null,
+            trigger.severity ? `严重级别：${trigger.severity}` : null,
+            trigger.lock_mode ? `风险锁：${trigger.lock_mode}` : null,
+            Array.isArray(trigger.coins) && trigger.coins.length ? `关注币种：${trigger.coins.join(" / ")}` : null,
+          ]
+            .filter(Boolean)
+            .map((item) => (
+              <div key={String(item)} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
+                {item}
+              </div>
+            ))}
+        </div>
+      ) : null}
+      <div className="grid gap-3 lg:grid-cols-2">
+        {renderCollection(
+          coins,
+          (coin, index) => <RtTacticalCard key={`${coin.coin ?? "coin"}-${index}`} coin={coin} />,
+          "当前还没有按币种拆开的战术摘要。",
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TacticalMetric(props: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="text-[11px] tracking-[0.2em] text-slate-500">{props.label}</div>
+      <div className="mt-2 text-sm leading-6 text-slate-100">{props.value}</div>
+    </div>
+  );
+}
+
+function RtTacticalCard(props: { coin: Record<string, unknown> }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-100">{nonEmptyText(props.coin.coin, "UNKNOWN")}</div>
+          <div className="mt-1 text-xs text-slate-500">{nonEmptyText(props.coin.working_posture, "暂无工作姿态")}</div>
+        </div>
+      </div>
+      <div className="mt-3 space-y-3 text-sm leading-7 text-slate-300">
+        <RtTacticalLine label="主判断" value={nonEmptyText(props.coin.base_case, "暂无可展示文本。")} />
+        <RtTacticalLine label="加仓参考" value={nonEmptyText(props.coin.preferred_add_condition, "暂无")} />
+        <RtTacticalLine label="减仓参考" value={nonEmptyText(props.coin.preferred_reduce_condition, "暂无")} />
+        <RtTacticalLine label="止盈参考" value={nonEmptyText(props.coin.reference_take_profit_condition, "暂无")} />
+        <RtTacticalLine label="止损参考" value={nonEmptyText(props.coin.reference_stop_loss_condition, "暂无")} />
+        <RtTacticalLine label="不交易区" value={nonEmptyText(props.coin.no_trade_zone, "暂无")} />
+        <RtTacticalLine label="复核条件" value={nonEmptyText(props.coin.force_pm_recheck_condition, "暂无")} />
+        <RtTacticalLine label="下一步" value={nonEmptyText(props.coin.next_focus, "继续观察")} />
+      </div>
+    </div>
+  );
+}
+
+function RtTacticalLine(props: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[11px] tracking-[0.18em] text-slate-500">{props.label}</div>
+      <div className="mt-1 text-sm text-slate-200">{props.value}</div>
+    </div>
+  );
+}
+
+function ThoughtCard(props: { thought: Record<string, unknown> }) {
+  const result = asRecord(props.thought.execution_result);
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-100">
+            {nonEmptyText(props.thought.symbol, "UNKNOWN")} · {actionLabel(props.thought.action)} · {directionLabel(props.thought.direction)}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">{formatTime(String(props.thought.generated_at_utc ?? ""))}</div>
+        </div>
+        <div className="text-xs text-slate-400">{urgencyLabel(props.thought.urgency)}</div>
+      </div>
+      <div className="mt-3 text-sm leading-7 text-slate-300">{nonEmptyText(props.thought.reason, "这轮没有留下额外的判断说明。")}</div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+        <div>止盈参考：{nonEmptyText(props.thought.reference_take_profit_condition, "暂无")}</div>
+        <div>止损参考：{nonEmptyText(props.thought.reference_stop_loss_condition, "暂无")}</div>
+      </div>
+      <div className="mt-3 text-xs text-slate-500">
+        {result ? executionThoughtResultText(result) : "执行结果尚未回写，当前只展示当时的判断。"}
+      </div>
+    </div>
+  );
+}
+
+function ChiefRetroPanel(props: { data?: AgentLatestData }) {
+  const retro = props.data?.latest_chief_retro ?? props.data?.latest_asset;
+  const payload = asRecord(retro?.payload);
+  if (!retro) {
+    return <EmptyState message="Chief 还没有提交今天的 owner summary。" />;
+  }
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-300">
+        {nonEmptyText(payload?.owner_summary, "这次复盘还没有对外可读的 owner summary。")}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <HeroMetric label="轮次" value={String(payload?.round_count ?? "—")} tone="text-slate-100" />
+        <HeroMetric label="学习完成" value={payload?.learning_completed ? "是" : "否"} tone="text-amber-200" />
+        <HeroMetric label="更新时间" value={formatTime(retro.created_at)} tone="text-slate-200" />
+      </div>
+    </div>
   );
 }
 
@@ -619,7 +909,10 @@ function readTargets(strategy: Record<string, unknown>) {
   });
 }
 
-function assetPreview(asset: AssetRecord) {
+function assetPreview(asset?: AssetRecord | null) {
+  if (!asset) {
+    return "还没有新的正式记录。";
+  }
   if (typeof asset.payload.summary === "string") {
     return compactText(asset.payload.summary, 120);
   }
@@ -639,6 +932,117 @@ function assetPreview(asset: AssetRecord) {
     return `${newsCategoryLabel(asset.payload.category)}：${asset.payload.summary}`;
   }
   return "已生成结构化记录，详细链路会在系统归档中继续保留。";
+}
+
+function renderCollection<T>(
+  items: T[],
+  renderItem: (item: T, index: number) => ReactNode,
+  emptyMessage: string,
+) {
+  if (items.length === 0) {
+    return <EmptyState message={emptyMessage} />;
+  }
+  return items.map((item, index) => renderItem(item, index));
+}
+
+function renderAssetCollection(
+  items: AssetRecord[],
+  renderItem: (item: AssetRecord, index: number) => ReactNode,
+  emptyMessage: string,
+) {
+  return renderCollection(items, renderItem, emptyMessage);
+}
+
+function riskStateLabel(riskOverlay: OverviewData["risk_overlay"]) {
+  const state = String(riskOverlay?.state ?? "normal").toLowerCase();
+  if (state === "exit") {
+    return "退出保护";
+  }
+  if (state === "reduce") {
+    return "减仓保护";
+  }
+  if (state === "observe") {
+    return "观察区";
+  }
+  if (state === "fallback") {
+    return "回撤线已加载";
+  }
+  return "风险正常";
+}
+
+function riskStateNarrative(riskOverlay: OverviewData["risk_overlay"], latestPortfolio: Record<string, unknown>) {
+  if (!riskOverlay) {
+    return `当前账户余额 ${usdCompactText(latestPortfolio["total_equity_usd"])}，但还没有取到正式风控覆盖层。`;
+  }
+  const current = usdCompactText(riskOverlay.current_equity_usd);
+  const peak = usdCompactText(riskOverlay.day_peak_equity_usd);
+  return `今日组合峰值 ${peak}，当前余额 ${current}。黄橙红三条线分别对应观察、减仓与退出。`;
+}
+
+function latestAssetTimestamp(data?: AgentLatestData) {
+  const latest = data?.latest_asset?.created_at ?? data?.session?.last_active_at;
+  if (typeof latest === "string" && latest.length > 0) {
+    return formatTime(latest);
+  }
+  return "尚无记录";
+}
+
+function nonEmptyText(value: unknown, fallback: string) {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+  return fallback;
+}
+
+function readRechecks(strategy: Record<string, unknown>) {
+  const raw = Array.isArray(strategy.scheduled_rechecks) ? strategy.scheduled_rechecks : [];
+  return raw.slice(0, 6).map((item, index) => {
+    const record = asRecord(item) ?? {};
+    return {
+      label: `复核 ${index + 1}`,
+      detail: `${nonEmptyText(record.reason, "等待下一轮主线复核")} · ${nonEmptyText(record.recheck_at_utc, "时间未写入")}`,
+    };
+  });
+}
+
+function urgencyLabel(value: unknown) {
+  const raw = String(value ?? "").toLowerCase();
+  if (raw === "high") {
+    return "高优先";
+  }
+  if (raw === "medium") {
+    return "中优先";
+  }
+  if (raw === "low") {
+    return "低优先";
+  }
+  return "常规";
+}
+
+function executionThoughtResultText(result: Record<string, unknown>) {
+  if (result.success === true) {
+    return `后来执行成功，成交金额 ${usdText(result.notional_usd)}。`;
+  }
+  if (typeof result.message === "string" && result.message.trim().length > 0) {
+    return compactText(result.message, 90);
+  }
+  if (result.technical_failure === true) {
+    return "后来遇到技术性失败，系统已留下回执。";
+  }
+  return "后来没有形成明确的执行回执。";
+}
+
+function readChiefLearnings(data?: AgentLatestData) {
+  const latestRetro = data?.latest_chief_retro ?? data?.latest_asset;
+  const payload = asRecord(latestRetro?.payload);
+  const learnings = Array.isArray(payload?.learning_results) ? payload?.learning_results : [];
+  return learnings.slice(0, 8).map((item) => {
+    const record = asRecord(item) ?? {};
+    return {
+      title: `${String(record.agent_role ?? "agent").toUpperCase()} 学习记录`,
+      detail: nonEmptyText(record.learning_summary, "本轮没有写出额外的学习摘要。"),
+    };
+  });
 }
 
 function impactTone(impact: string) {
@@ -1138,11 +1542,14 @@ function executionRecordSummary(asset: AssetRecord) {
 }
 
 function executionRecordMeta(asset: AssetRecord) {
-  const orderId = typeof asset.payload["exchange_order_id"] === "string" ? shortId(asset.payload["exchange_order_id"]) : null;
-  if (orderId) {
-    return `订单号 ${orderId}`;
+  const fills = Array.isArray(asset.payload["fills"]) ? asset.payload["fills"] : [];
+  if (fills.length > 0) {
+    return `已回传 ${fills.length} 笔成交回执。`;
   }
-  return "没有可展示的交易所订单号。";
+  if (asset.payload["technical_failure"] === true) {
+    return "这次执行遇到技术问题，系统已记录失败原因。";
+  }
+  return "这条执行没有额外的公开回执。";
 }
 
 function tradeTimeLabel(asset: AssetRecord) {
@@ -1259,6 +1666,8 @@ function assetTypeLabel(value: string) {
     execution_result: "执行结果",
     macro_event: "宏观事件",
     macro_daily_memory: "宏观日记忆",
+    chief_retro: "Chief 复盘",
+    rt_tactical_map: "RT 战术地图",
     owner_summary: "Owner 汇报",
     learning: "学习记录",
     portfolio_snapshot: "组合快照",
@@ -1272,13 +1681,13 @@ function summarizeEvent(event: EventEnvelope) {
   if (eventType === "strategy.submitted") {
     return {
       title: "PM 提交了新策略",
-      detail: payload["strategy_id"] ? `策略 ${shortId(String(payload["strategy_id"]))} 已写入系统。` : "新的策略版本已经正式落地。",
+      detail: "新的策略版本已经正式落地。",
     };
   }
   if (eventType === "execution.submitted") {
     return {
       title: "RT 提交了执行决策",
-      detail: payload["decision_id"] ? `执行批次 ${shortId(String(payload["decision_id"]))} 已提交。` : "新的执行批次已经送审。",
+      detail: "新的执行批次已经送审。",
     };
   }
   if (eventType === "execution.result.completed") {

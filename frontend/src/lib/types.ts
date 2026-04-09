@@ -1,4 +1,4 @@
-export type ViewKey = "overview" | "desk" | "signals" | "agents";
+export type ViewKey = "overview" | "pm" | "rt" | "mea" | "chief";
 
 export type AssetRecord = {
   asset_id: string;
@@ -62,6 +62,17 @@ export type AgentLatestData = {
   session?: Record<string, unknown> | null;
   latest_asset?: AssetRecord | null;
   recent_assets: AssetRecord[];
+  latest_strategy?: AssetRecord | null;
+  latest_execution_batch?: AssetRecord | null;
+  latest_macro_daily_memory?: AssetRecord | null;
+  latest_chief_retro?: AssetRecord | null;
+  latest_rt_trigger_event?: AssetRecord | null;
+  latest_risk_brake_event?: AssetRecord | null;
+  latest_rt_tactical_map?: AssetRecord | null;
+  recent_macro_events?: AssetRecord[];
+  recent_notifications?: AssetRecord[];
+  recent_execution_thoughts?: Array<Record<string, unknown>>;
+  tactical_brief?: Record<string, unknown> | null;
 };
 
 export type StreamPayload = {
