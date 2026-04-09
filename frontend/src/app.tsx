@@ -846,8 +846,7 @@ function RtTacticalBoard(props: { data?: AgentLatestData; latestStrategy: Record
         </div>
       ) : null}
       <div className="rounded-[26px] border border-white/10 bg-white/[0.04] p-4 sm:p-5">
-        <div className="text-[11px] tracking-[0.22em] text-neon/80">给外行看的速读版</div>
-        <div className="mt-2 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
           <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
             <div className="text-[11px] tracking-[0.2em] text-slate-500">这轮在做什么</div>
             <div className="mt-3 text-xl font-semibold leading-9 text-slate-50 sm:text-2xl">
