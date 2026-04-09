@@ -69,6 +69,18 @@ type BalanceGranularity = "15m" | "1h" | "1d";
 type BalancePoint = { label: string; equity: number; createdAtMs: number };
 type BalanceRiskLine = { key: "observe" | "reduce" | "exit"; label: string; color: string; value: number };
 
+const CHART_TOOLTIP_CONTENT_STYLE = {
+  backgroundColor: "rgba(9, 14, 27, 0.96)",
+  border: "1px solid rgba(148, 163, 184, 0.22)",
+  borderRadius: "14px",
+  boxShadow: "0 18px 40px rgba(2, 6, 23, 0.55)",
+  color: "#e2e8f0",
+};
+
+const CHART_TOOLTIP_ITEM_STYLE = { color: "#f8fafc", fontSize: 12 };
+const CHART_TOOLTIP_LABEL_STYLE = { color: "#cbd5e1", fontSize: 12 };
+const CHART_TOOLTIP_WRAPPER_STYLE = { zIndex: 20, outline: "none" as const };
+
 export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
   const [executionFeedExpanded, setExecutionFeedExpanded] = useState(false);
@@ -271,16 +283,10 @@ export default function App() {
                             cursor={{ stroke: "rgba(113,246,209,0.35)" }}
                             formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
                             labelFormatter={(label) => `时间：${label}`}
-                            contentStyle={{
-                              backgroundColor: "rgba(9, 14, 27, 0.96)",
-                              border: "1px solid rgba(148, 163, 184, 0.22)",
-                              borderRadius: "14px",
-                              boxShadow: "0 18px 40px rgba(2, 6, 23, 0.55)",
-                              color: "#e2e8f0",
-                            }}
-                            itemStyle={{ color: "#f8fafc", fontSize: 12 }}
-                            labelStyle={{ color: "#cbd5e1", fontSize: 12 }}
-                            wrapperStyle={{ zIndex: 20, outline: "none" }}
+                            contentStyle={CHART_TOOLTIP_CONTENT_STYLE}
+                            itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                            labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                            wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
                           />
                           <Line type="monotone" dataKey="equity" stroke="#71f6d1" strokeWidth={3} dot={false} connectNulls activeDot={{ r: 4 }} />
                         </LineChart>
@@ -511,7 +517,15 @@ export default function App() {
                         <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
                         <XAxis dataKey="impact" tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} />
                         <YAxis tick={{ fill: "#9fb0c7", fontSize: 12 }} axisLine={false} tickLine={false} />
-                        <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+                        <Tooltip
+                          cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                          formatter={(value: number) => [`${trimNumber(value)} 条`, "事件数量"]}
+                          labelFormatter={(label) => `影响等级：${label}`}
+                          contentStyle={CHART_TOOLTIP_CONTENT_STYLE}
+                          itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                          labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                          wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+                        />
                         <Bar dataKey="count" radius={[8, 8, 0, 0]}>
                           {impactBreakdown.map((item) => (
                             <Cell key={item.impact} fill={item.fill} />
