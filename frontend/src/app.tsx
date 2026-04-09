@@ -166,9 +166,9 @@ export default function App() {
                 <span className="text-slate-400">公开看板</span>
               </div>
               <div>
-                <h1 className="text-2xl font-semibold leading-none sm:text-5xl">Openclaw Trader AI交易实时展示</h1>
+                <h1 className="text-2xl font-semibold leading-none sm:text-5xl">Openclaw Trader AI交易</h1>
                 <p className="mt-2 max-w-xl text-xs leading-5 text-slate-300 sm:text-base sm:leading-6">
-                  <span className="text-slate-200">openclaw-trader 是一套基于 OpenClaw 的 4 Agent Crypto永续合约交易集群实验，本金 $1000。</span>
+                  <span className="text-slate-200">基于 OpenClaw 的 4 Agent Crypto永续合约交易集群实验，本金为 $1000。</span>
                   <a
                     href="https://github.com/MrPhotato/openclaw-trader"
                     target="_blank"
@@ -471,24 +471,24 @@ export default function App() {
         {activeView === "rt" && (
           <section className="space-y-4 sm:space-y-6" data-testid="rt-view">
             <AgentHero agent={agentPages[1]} data={rtData} />
-            <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.72fr)]">
               <Panel title="RT 战术地图">
                 <RtTacticalBoard data={rtData} latestStrategy={latestStrategy} />
               </Panel>
               <div className="min-w-0 space-y-4 sm:space-y-6">
-                <Panel title="最新执行">
+                <Panel title="最新执行回执">
                   <div className="space-y-3">
                     {renderAssetCollection(
-                      (executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 6),
+                      (executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 4),
                       (record) => <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />,
                       "RT 还没有新的正式执行结果。",
                     )}
                   </div>
                 </Panel>
-                <Panel title="最近思路">
+                <Panel title="判断记录">
                   <div className="space-y-3">
                     {renderCollection(
-                      (rtData?.recent_execution_thoughts ?? []).slice(0, 6),
+                      (rtData?.recent_execution_thoughts ?? []).slice(0, 4),
                       (thought, index) => <ThoughtCard key={`${thought.symbol ?? "thought"}-${index}`} thought={thought} />,
                       "RT 还没有沉淀出可展示的近期思路记录。",
                     )}
@@ -845,43 +845,33 @@ function RtTacticalBoard(props: { data?: AgentLatestData; latestStrategy: Record
           ) : null}
         </div>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <TacticalMetric label="组合姿态" value={nonEmptyText(brief?.portfolio_posture, portfolioModeLabel(props.latestStrategy["portfolio_mode"]))} />
-        <TacticalMetric label="Desk Focus" value={nonEmptyText(brief?.desk_focus, "先看本轮执行与风控变化。")} />
-        <TacticalMetric label="风险偏向" value={nonEmptyText(brief?.risk_bias, "风险状态正常。")} />
-        <TacticalMetric label="下一轮提示" value={nonEmptyText(brief?.next_review_hint, "等待下一次 cadence。")} />
+      <div className="rounded-[26px] border border-white/10 bg-white/[0.04] p-4 sm:p-5">
+        <div className="text-[11px] tracking-[0.22em] text-neon/80">给外行看的速读版</div>
+        <div className="mt-2 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+            <div className="text-[11px] tracking-[0.2em] text-slate-500">这轮在做什么</div>
+            <div className="mt-3 text-xl font-semibold leading-9 text-slate-50 sm:text-2xl">
+              {rtDeskHeadline(brief, props.latestStrategy)}
+            </div>
+            <div className="mt-3 text-sm leading-7 text-slate-300">
+              {rtNoviceGuide(brief, props.latestStrategy)}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {rtMetadataPills(brief, trigger).map((item) => (
+                <div key={item} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+            <TacticalMetric label="当前打法" value={rtPortfolioPostureLabel(brief?.portfolio_posture, props.latestStrategy["portfolio_mode"])} />
+            <TacticalMetric label="风险要求" value={nonEmptyText(brief?.risk_bias, "风险状态正常。")} />
+            <TacticalMetric label="下次复看" value={nonEmptyText(brief?.next_review_hint, "等待下一次 cadence。")} />
+          </div>
+        </div>
       </div>
-      {brief?.strategy_key || brief?.map_refresh_reason ? (
-        <div className="flex flex-wrap gap-2">
-          {brief?.strategy_key ? (
-            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
-              策略键：{String(brief.strategy_key)}
-            </div>
-          ) : null}
-          {brief?.map_refresh_reason ? (
-            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
-              地图刷新：{String(brief.map_refresh_reason)}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      {trigger ? (
-        <div className="flex flex-wrap gap-2">
-          {[
-            trigger.reason ? `触发原因：${trigger.reason}` : null,
-            trigger.severity ? `严重级别：${trigger.severity}` : null,
-            trigger.lock_mode ? `风险锁：${trigger.lock_mode}` : null,
-            Array.isArray(trigger.coins) && trigger.coins.length ? `关注币种：${trigger.coins.join(" / ")}` : null,
-          ]
-            .filter(Boolean)
-            .map((item) => (
-              <div key={String(item)} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
-                {item}
-              </div>
-            ))}
-        </div>
-      ) : null}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {renderCollection(
           coins,
           (coin, index) => <RtTacticalCard key={`${coin.coin ?? "coin"}-${index}`} coin={coin} />,
@@ -896,39 +886,54 @@ function TacticalMetric(props: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
       <div className="text-[11px] tracking-[0.2em] text-slate-500">{props.label}</div>
-      <div className="mt-2 text-sm leading-6 text-slate-100">{props.value}</div>
+      <div className="mt-2 text-sm leading-7 text-slate-100">{props.value}</div>
     </div>
   );
 }
 
 function RtTacticalCard(props: { coin: Record<string, unknown> }) {
+  const posture = rtWorkingPostureLabel(props.coin.working_posture);
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-100">{nonEmptyText(props.coin.coin, "UNKNOWN")}</div>
-          <div className="mt-1 text-xs text-slate-500">{nonEmptyText(props.coin.working_posture, "暂无工作姿态")}</div>
+          <div className="text-lg font-semibold text-slate-100">{nonEmptyText(props.coin.coin, "UNKNOWN")}</div>
+          <div className="mt-1 text-xs text-slate-500">这一栏只看这个币现在偏向怎么做。</div>
         </div>
+        <span className={`rounded-full px-3 py-1 text-xs font-medium ${rtWorkingPostureTone(props.coin.working_posture)}`}>{posture}</span>
       </div>
-      <div className="mt-3 space-y-3 text-sm leading-7 text-slate-300">
-        <RtTacticalLine label="主判断" value={nonEmptyText(props.coin.base_case, "暂无可展示文本。")} />
-        <RtTacticalLine label="加仓参考" value={nonEmptyText(props.coin.preferred_add_condition, "暂无")} />
-        <RtTacticalLine label="减仓参考" value={nonEmptyText(props.coin.preferred_reduce_condition, "暂无")} />
-        <RtTacticalLine label="止盈参考" value={nonEmptyText(props.coin.reference_take_profit_condition, "暂无")} />
-        <RtTacticalLine label="止损参考" value={nonEmptyText(props.coin.reference_stop_loss_condition, "暂无")} />
-        <RtTacticalLine label="不交易区" value={nonEmptyText(props.coin.no_trade_zone, "暂无")} />
-        <RtTacticalLine label="复核条件" value={nonEmptyText(props.coin.force_pm_recheck_condition, "暂无")} />
-        <RtTacticalLine label="下一步" value={nonEmptyText(props.coin.next_focus, "继续观察")} />
+      <div className="mt-4 space-y-4 text-sm leading-7 text-slate-300">
+        <RtDecisionBlock label="当前判断" value={compactText(nonEmptyText(props.coin.base_case, "暂无可展示文本。"), 180)} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <RtDecisionBlock label="更可能加仓" value={compactText(nonEmptyText(props.coin.preferred_add_condition, "暂无"), 120)} />
+          <RtDecisionBlock label="更可能减仓" value={compactText(nonEmptyText(props.coin.preferred_reduce_condition, "暂无"), 120)} />
+        </div>
+        <RtDecisionBlock label="什么时候叫 PM 重看" value={compactText(nonEmptyText(props.coin.force_pm_recheck_condition, "暂无"), 140)} />
+        <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+          <RtQuickReference label="止盈参考" value={compactText(nonEmptyText(props.coin.reference_take_profit_condition, "暂无"), 80)} />
+          <RtQuickReference label="止损参考" value={compactText(nonEmptyText(props.coin.reference_stop_loss_condition, "暂无"), 80)} />
+          <RtQuickReference label="禁做区" value={compactText(nonEmptyText(props.coin.no_trade_zone, "暂无"), 80)} />
+          <RtQuickReference label="下一步" value={compactText(nonEmptyText(props.coin.next_focus, "继续观察"), 80)} />
+        </div>
       </div>
     </div>
   );
 }
 
-function RtTacticalLine(props: { label: string; value: string }) {
+function RtDecisionBlock(props: { label: string; value: string }) {
   return (
-    <div>
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
       <div className="text-[11px] tracking-[0.18em] text-slate-500">{props.label}</div>
-      <div className="mt-1 text-sm text-slate-200">{props.value}</div>
+      <div className="mt-2 text-sm leading-7 text-slate-200">{props.value}</div>
+    </div>
+  );
+}
+
+function RtQuickReference(props: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+      <div className="text-[10px] tracking-[0.18em] text-slate-500">{props.label}</div>
+      <div className="mt-1 text-xs leading-5 text-slate-300">{props.value}</div>
     </div>
   );
 }
@@ -1328,6 +1333,128 @@ function portfolioModeLabel(value: unknown) {
     return "空闲";
   }
   return mode;
+}
+
+function rtPortfolioPostureLabel(value: unknown, fallbackMode: unknown) {
+  const posture = String(value ?? "").trim().toLowerCase();
+  if (!posture) {
+    return `${portfolioModeLabel(fallbackMode)}节奏`;
+  }
+  if (posture === "normal_staged_build") {
+    return "常规推进，分批建仓";
+  }
+  if (posture === "flat") {
+    return "轻仓或空仓，先不主动加风险";
+  }
+  if (posture === "staged-accumulation") {
+    return "顺着主线，分批加仓";
+  }
+  if (posture === "reduce_only") {
+    return "先减风险，不做新的进攻";
+  }
+  return posture.replace(/[_-]+/g, " ");
+}
+
+function rtWorkingPostureLabel(value: unknown) {
+  const posture = String(value ?? "").trim().toLowerCase();
+  if (posture === "staged-accumulation") {
+    return "分批加仓";
+  }
+  if (posture === "priority-reduce" || posture === "reduce-first") {
+    return "优先减仓";
+  }
+  if (posture === "flat-watch") {
+    return "继续观察";
+  }
+  if (posture === "hold-core") {
+    return "保留核心仓";
+  }
+  if (posture === "neutral-hold") {
+    return "维持现状";
+  }
+  if (posture === "watch") {
+    return "继续观察";
+  }
+  if (posture) {
+    return posture.replace(/[_-]+/g, " ");
+  }
+  return "暂无姿态";
+}
+
+function rtWorkingPostureTone(value: unknown) {
+  const posture = String(value ?? "").trim().toLowerCase();
+  if (posture.includes("reduce")) {
+    return "border border-orange-300/20 bg-orange-300/10 text-orange-100";
+  }
+  if (posture.includes("accum") || posture.includes("add") || posture.includes("build")) {
+    return "border border-emerald-300/20 bg-emerald-300/10 text-emerald-100";
+  }
+  if (posture.includes("watch") || posture.includes("flat")) {
+    return "border border-slate-300/20 bg-slate-300/10 text-slate-100";
+  }
+  return "border border-white/10 bg-white/[0.06] text-slate-100";
+}
+
+function rtDeskHeadline(brief: Record<string, unknown> | null, latestStrategy: Record<string, unknown>) {
+  const deskFocus = typeof brief?.desk_focus === "string" ? brief.desk_focus : "";
+  if (deskFocus) {
+    return compactText(deskFocus, 160);
+  }
+  const mode = portfolioModeLabel(latestStrategy["portfolio_mode"]);
+  return `RT 还没写出完整地图，先按 ${mode} 节奏观察最新执行与风险变化。`;
+}
+
+function rtNoviceGuide(brief: Record<string, unknown> | null, latestStrategy: Record<string, unknown>) {
+  const posture = rtPortfolioPostureLabel(brief?.portfolio_posture, latestStrategy["portfolio_mode"]);
+  const risk = nonEmptyText(brief?.risk_bias, "风险状态正常。");
+  return `如果你只看这一块，把它理解成“RT 这轮准备怎么打”。先看当前打法，再看下面 3 个币分别偏向加仓、减仓还是继续观察。当前整体是 ${posture}，风险要求是：${compactText(risk, 72)}。`;
+}
+
+function rtMetadataPills(brief: Record<string, unknown> | null, trigger: Record<string, unknown> | null) {
+  const items: string[] = [];
+  const strategyKey = typeof brief?.strategy_key === "string" ? brief.strategy_key : "";
+  const refreshReason = typeof brief?.map_refresh_reason === "string" ? brief.map_refresh_reason : "";
+  const triggerReason = typeof trigger?.reason === "string" ? trigger.reason : "";
+  const triggerCoins = Array.isArray(trigger?.coins) ? trigger.coins.filter(Boolean).slice(0, 3) : [];
+
+  if (strategyKey) {
+    items.push(`基于 ${rtStrategyKeyLabel(strategyKey)}`);
+  }
+  if (refreshReason) {
+    items.push(`地图刷新：${rtRefreshReasonLabel(refreshReason)}`);
+  }
+  if (triggerReason) {
+    items.push(`触发原因：${rtRefreshReasonLabel(triggerReason)}`);
+  }
+  if (typeof trigger?.lock_mode === "string" && trigger.lock_mode) {
+    items.push(`风险锁：${rtRefreshReasonLabel(trigger.lock_mode)}`);
+  }
+  if (triggerCoins.length) {
+    items.push(`关注：${triggerCoins.map((coin) => String(coin).toUpperCase()).join(" / ")}`);
+  }
+  return items;
+}
+
+function rtStrategyKeyLabel(value: string) {
+  const revision = value.match(/:r(\d+)$/);
+  if (revision) {
+    return `策略 r${revision[1]}`;
+  }
+  return compactText(value, 20);
+}
+
+function rtRefreshReasonLabel(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const labels: Record<string, string> = {
+    pm_strategy_revision: "PM 更新策略后重排",
+    execution_followup: "执行后跟进",
+    cadence: "班次巡检",
+    condition_trigger: "条件触发",
+    headline_risk: "事件冲击",
+    reduce_only: "只减仓",
+    flat_only: "只平仓",
+  };
+  return labels[normalized] ?? value.replace(/[_-]+/g, " ");
 }
 
 function strategyFocusText(strategy: Record<string, unknown>) {

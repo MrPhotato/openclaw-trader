@@ -387,7 +387,7 @@ describe("App", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("Openclaw Trader AI交易实时展示")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Openclaw Trader AI交易/ })).toBeInTheDocument());
     expect(screen.getByTestId("overview-view")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("账户余额（本金$1000）")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("5x（名义$5000）")).toBeInTheDocument());
@@ -423,6 +423,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("rt-view")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Risk Trader")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("RT 战术地图")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("给外行看的速读版")).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByText("Momentum is cooling under headline pressure.").length).toBeGreaterThanOrEqual(1));
 
     fireEvent.click(screen.getByRole("button", { name: "MEA" }));
