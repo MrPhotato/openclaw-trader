@@ -865,7 +865,7 @@ function RtTacticalBoard(props: { data?: AgentLatestData; latestStrategy: Record
           </div>
           <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
             <TacticalMetric label="当前打法" value={rtPortfolioPostureLabel(brief?.portfolio_posture, props.latestStrategy["portfolio_mode"])} />
-            <TacticalMetric label="风险要求" value={nonEmptyText(brief?.risk_bias, "风险状态正常。")} />
+            <TacticalMetric label="风险要求" value={rtRiskBiasLabel(brief?.risk_bias)} />
             <TacticalMetric label="下次复看" value={nonEmptyText(brief?.next_review_hint, "等待下一次 cadence。")} />
           </div>
         </div>
@@ -1405,8 +1405,8 @@ function rtDeskHeadline(brief: Record<string, unknown> | null, latestStrategy: R
 
 function rtNoviceGuide(brief: Record<string, unknown> | null, latestStrategy: Record<string, unknown>) {
   const posture = rtPortfolioPostureLabel(brief?.portfolio_posture, latestStrategy["portfolio_mode"]);
-  const risk = nonEmptyText(brief?.risk_bias, "风险状态正常。");
-  return `如果你只看这一块，把它理解成“RT 这轮准备怎么打”。先看当前打法，再看下面 3 个币分别偏向加仓、减仓还是继续观察。当前整体是 ${posture}，风险要求是：${compactText(risk, 72)}。`;
+  const risk = rtRiskBiasLabel(brief?.risk_bias);
+  return `当前整体以${posture}为主。下方 3 张卡分别写清 BTC、ETH、SOL 现在更偏向加仓、减仓还是继续观察；如果市场走坏，先按“${compactText(risk, 30)}”这一条执行。`;
 }
 
 function rtMetadataPills(brief: Record<string, unknown> | null, trigger: Record<string, unknown> | null) {
@@ -1454,6 +1454,24 @@ function rtRefreshReasonLabel(value: string) {
     flat_only: "只平仓",
   };
   return labels[normalized] ?? value.replace(/[_-]+/g, " ");
+}
+
+function rtRiskBiasLabel(value: unknown) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return "风险状态正常。";
+  }
+  const labels: Record<string, string> = {
+    opportunistic_with_hedges: "机会优先，但保留对冲和回撤保护",
+    normal: "风险状态正常，可按策略推进",
+    neutral: "风险状态正常，可按策略推进",
+    defensive: "偏防守，先控回撤",
+    reduce_only: "只减仓，不开新风险",
+    flat_only: "只平仓，暂不持新仓",
+    risk_on: "可以主动承担风险",
+    risk_off: "优先收缩风险",
+  };
+  return labels[normalized] ?? normalized.replace(/[_-]+/g, " ");
 }
 
 function strategyFocusText(strategy: Record<string, unknown>) {
