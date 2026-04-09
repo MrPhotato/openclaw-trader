@@ -183,7 +183,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("总敞口")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("整张图会真实横向滚动"));
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("只有主图与时间轴会横向滚动"));
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("成交金额：219.7 美元")).toBeInTheDocument());
@@ -228,7 +228,10 @@ describe("App", () => {
     const viewport = await screen.findByTestId("balance-chart-viewport");
     expect(viewport.className).toContain("overflow-x-auto");
     expect(viewport.style.touchAction).toBe("pan-x");
-    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("整张图会真实横向滚动"));
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("只有主图与时间轴会横向滚动"));
+    const fixedAxis = screen.getByTestId("balance-chart-fixed-axis");
+    expect(viewport.contains(fixedAxis)).toBe(false);
+    expect(screen.getByTestId("balance-chart-fixed-axis-footer")).toBeInTheDocument();
   });
 
   test("prefers newer polled overview over stale stream overview", async () => {

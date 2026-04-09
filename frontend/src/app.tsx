@@ -200,50 +200,47 @@ export default function App() {
                     <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} share={item.share} />
                   ))}
                 </div>
-                <div
-                  ref={chartViewportRef}
-                  data-testid="balance-chart-viewport"
-                  className="w-full max-w-full overflow-x-auto overflow-y-hidden rounded-[20px] sm:rounded-[24px]"
-                  style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
-                >
-                  <ChartShell>
-                    <div style={{ width: `${balanceChartWidth}px`, minWidth: "100%" }}>
-                      <LineChart width={balanceChartWidth} height={260} data={balanceSeries}>
-                        <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fill: "#9fb0c7", fontSize: 12 }}
-                          axisLine={false}
-                          tickLine={false}
-                          interval="preserveStartEnd"
-                          minTickGap={28}
-                        />
-                        <YAxis
-                          tick={{ fill: "#9fb0c7", fontSize: 12 }}
-                          axisLine={false}
-                          tickLine={false}
-                          domain={["dataMin", "dataMax"]}
-                          ticks={balanceTicks}
-                          width={72}
-                        />
-                        <Tooltip
-                          cursor={{ stroke: "rgba(113,246,209,0.35)" }}
-                          formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
-                          labelFormatter={(label) => `时间：${label}`}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="equity"
-                          stroke="#71f6d1"
-                          strokeWidth={3}
-                          dot={false}
-                          connectNulls
-                          activeDot={{ r: 4 }}
-                        />
-                      </LineChart>
+                <ChartShell>
+                  <div className="grid min-w-0 grid-cols-[56px,minmax(0,1fr)] gap-2 sm:grid-cols-[72px,minmax(0,1fr)] sm:gap-3">
+                    <FixedBalanceAxis ticks={balanceTicks} />
+                    <div
+                      ref={chartViewportRef}
+                      data-testid="balance-chart-viewport"
+                      className="w-full max-w-full overflow-x-auto overflow-y-hidden"
+                      style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
+                    >
+                      <div style={{ width: `${balanceChartWidth}px`, minWidth: "100%" }}>
+                        <LineChart width={balanceChartWidth} height={260} data={balanceSeries} margin={{ top: 12, right: 8, bottom: 0, left: 0 }}>
+                          <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                            axisLine={false}
+                            tickLine={false}
+                            interval="preserveStartEnd"
+                            minTickGap={28}
+                            height={32}
+                          />
+                          <YAxis hide domain={["dataMin", "dataMax"]} ticks={balanceTicks} />
+                          <Tooltip
+                            cursor={{ stroke: "rgba(113,246,209,0.35)" }}
+                            formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
+                            labelFormatter={(label) => `时间：${label}`}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="equity"
+                            stroke="#71f6d1"
+                            strokeWidth={3}
+                            dot={false}
+                            connectNulls
+                            activeDot={{ r: 4 }}
+                          />
+                        </LineChart>
+                      </div>
                     </div>
-                  </ChartShell>
-                </div>
+                  </div>
+                </ChartShell>
                 <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                   <div className="flex flex-wrap gap-2">
                     {([
@@ -442,6 +439,28 @@ function CoinExposurePill(props: { coin: string; exposure: string; share: string
 
 function ChartShell(props: { children: ReactNode }) {
   return <div className="min-w-0 rounded-[20px] border border-white/10 bg-white/5 p-2 sm:rounded-[24px] sm:p-3">{props.children}</div>;
+}
+
+function FixedBalanceAxis(props: { ticks: number[] }) {
+  const labels = props.ticks.length > 0 ? [...props.ticks].reverse() : [0];
+
+  return (
+    <div
+      data-testid="balance-chart-fixed-axis"
+      className="grid h-[260px] grid-rows-[1fr_32px] border-r border-white/10 pr-2 sm:pr-3"
+    >
+      <div
+        className={`flex min-h-0 flex-col text-right text-[10px] text-slate-500 sm:text-xs ${
+          labels.length > 1 ? "justify-between" : "justify-center"
+        }`}
+      >
+        {labels.map((value, index) => (
+          <div key={`${value}-${index}`}>{balanceAxisTickLabel(value)}</div>
+        ))}
+      </div>
+      <div data-testid="balance-chart-fixed-axis-footer" aria-hidden="true" />
+    </div>
+  );
 }
 
 function TradeBlotterCard(props: { asset: AssetRecord; latestPortfolio: Record<string, unknown> }) {
@@ -939,7 +958,7 @@ function balanceScrollCaption(length: number, granularity: BalanceGranularity) {
   if (length <= 1) {
     return "等待更多历史快照";
   }
-  return `已同步 ${length} 个 ${balanceWindowLabel(granularity)}点。桌面滚轮浏览，移动端左右滑动，整张图会真实横向滚动。`;
+  return `已同步 ${length} 个 ${balanceWindowLabel(granularity)}点。桌面滚轮浏览，移动端左右滑动，只有主图与时间轴会横向滚动。`;
 }
 
 function buildBalanceTicks(points: Array<{ equity: number }>) {
@@ -956,6 +975,10 @@ function buildBalanceTicks(points: Array<{ equity: number }>) {
   const tickCount = 6;
   const step = (max - min) / (tickCount - 1);
   return Array.from({ length: tickCount }, (_, index) => Number((min + step * index).toFixed(4)));
+}
+
+function balanceAxisTickLabel(value: number) {
+  return `$${trimNumber(value)}`;
 }
 
 function newerOverview(
