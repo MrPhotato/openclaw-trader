@@ -823,18 +823,48 @@ function RtTacticalBoard(props: { data?: AgentLatestData; latestStrategy: Record
   const brief = asRecord(props.data?.tactical_brief);
   const trigger = asRecord(brief?.trigger);
   const coins = Array.isArray(brief?.coins) ? brief?.coins : [];
+  const mapNote = typeof brief?.map_note === "string" ? brief.map_note : "";
+  const mapGeneratedAt = typeof brief?.map_generated_at === "string" ? brief.map_generated_at : "";
+  const latestMapGeneratedAt = typeof brief?.latest_map_generated_at === "string" ? brief.latest_map_generated_at : "";
+  const latestMapRefreshReason = typeof brief?.latest_map_refresh_reason === "string" ? brief.latest_map_refresh_reason : "";
   if (!brief && !(props.data?.recent_execution_thoughts?.length || readTargets(props.latestStrategy).length)) {
     return <EmptyState message="RT 还没有形成公开可读的战术板，等第一轮执行或策略输出后会自动出现。" />;
   }
 
   return (
     <div className="space-y-4">
+      {mapNote ? (
+        <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
+          <div>{mapNote}</div>
+          {mapGeneratedAt ? <div className="mt-1 text-xs text-amber-100/70">当前地图时间：{formatTime(mapGeneratedAt)}</div> : null}
+          {latestMapGeneratedAt ? (
+            <div className="mt-1 text-xs text-amber-100/70">
+              最近刷新时间：{formatTime(latestMapGeneratedAt)}
+              {latestMapRefreshReason ? ` · ${latestMapRefreshReason}` : ""}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <TacticalMetric label="组合姿态" value={nonEmptyText(brief?.portfolio_posture, portfolioModeLabel(props.latestStrategy["portfolio_mode"]))} />
         <TacticalMetric label="Desk Focus" value={nonEmptyText(brief?.desk_focus, "先看本轮执行与风控变化。")} />
         <TacticalMetric label="风险偏向" value={nonEmptyText(brief?.risk_bias, "风险状态正常。")} />
         <TacticalMetric label="下一轮提示" value={nonEmptyText(brief?.next_review_hint, "等待下一次 cadence。")} />
       </div>
+      {brief?.strategy_key || brief?.map_refresh_reason ? (
+        <div className="flex flex-wrap gap-2">
+          {brief?.strategy_key ? (
+            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
+              策略键：{String(brief.strategy_key)}
+            </div>
+          ) : null}
+          {brief?.map_refresh_reason ? (
+            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300">
+              地图刷新：{String(brief.map_refresh_reason)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {trigger ? (
         <div className="flex flex-wrap gap-2">
           {[

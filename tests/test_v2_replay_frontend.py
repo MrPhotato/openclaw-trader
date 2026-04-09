@@ -107,6 +107,63 @@ class ReplayFrontendServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_latest_agent_state_falls_back_to_last_populated_rt_tactical_map(self) -> None:
+        harness = build_test_harness()
+        try:
+            state_memory = harness.container.state_memory
+            state_memory.save_asset(
+                asset_type="rt_tactical_map",
+                actor_role="risk_trader",
+                trace_id="trace-rt-map-1",
+                payload={
+                    "strategy_key": "strategy_demo:r197",
+                    "updated_at_utc": "2026-04-09T06:08:59Z",
+                    "refresh_reason": "pm_strategy_revision",
+                    "portfolio_posture": "常规推进",
+                    "desk_focus": "先沿着 BTC / ETH / SOL 逐步建仓。",
+                    "risk_bias": "风险状态正常，可按策略节奏推进。",
+                    "next_review_hint": "等待下一轮 RT cadence。",
+                    "coins": [
+                        {
+                            "coin": "BTC",
+                            "working_posture": "先观察再推进",
+                            "base_case": "沿主趋势推进。",
+                            "preferred_add_condition": "回踩站稳后继续加仓。",
+                            "preferred_reduce_condition": "若结构转弱则减仓。",
+                            "reference_take_profit_condition": "冲高分批止盈。",
+                            "reference_stop_loss_condition": "跌破关键结构止损。",
+                            "no_trade_zone": "震荡中段不开新仓。",
+                            "force_pm_recheck_condition": "若宏观冲击升级，要求 PM 重评。",
+                            "next_focus": "观察 BTC 领涨是否持续。",
+                        }
+                    ],
+                },
+            )
+            state_memory.save_asset(
+                asset_type="rt_tactical_map",
+                actor_role="risk_trader",
+                trace_id="trace-rt-map-2",
+                payload={
+                    "strategy_key": "strategy_demo:r197",
+                    "updated_at_utc": "2026-04-09T06:51:29Z",
+                    "refresh_reason": "execution_followup",
+                    "portfolio_posture": "常规推进",
+                    "desk_focus": "执行后跟进回执与风险锁。",
+                    "risk_bias": "先观察成交后的波动反馈。",
+                    "next_review_hint": "等待 execution follow-up 完整沉淀。",
+                    "coins": [],
+                },
+            )
+            service = ReplayFrontendService(harness.container.state_memory, harness.container.settings)
+            latest = service.latest_agent_state("risk_trader")
+            self.assertEqual(latest["latest_rt_tactical_map"]["payload"]["refresh_reason"], "execution_followup")
+            self.assertEqual(latest["tactical_brief"]["state"], "materialized_map")
+            self.assertEqual(latest["tactical_brief"]["coins"][0]["coin"], "BTC")
+            self.assertEqual(latest["tactical_brief"]["map_source"], "last_populated_formal_map")
+            self.assertIn("最近几轮 RT", latest["tactical_brief"]["map_note"])
+        finally:
+            harness.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

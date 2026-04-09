@@ -47,15 +47,25 @@ class ReplayFrontendService:
         if agent_role == "pm":
             response["latest_strategy"] = self.state_memory.latest_asset(asset_type="strategy", actor_role="pm") or self.state_memory.latest_asset(asset_type="strategy")
         elif agent_role == "risk_trader":
+            recent_rt_tactical_maps = self.state_memory.recent_assets(asset_type="rt_tactical_map", actor_role="risk_trader", limit=8)
+            latest_rt_tactical_map = recent_rt_tactical_maps[0] if recent_rt_tactical_maps else None
+            display_rt_tactical_map = self._display_rt_tactical_map(
+                latest_rt_tactical_map=latest_rt_tactical_map,
+                recent_rt_tactical_maps=recent_rt_tactical_maps,
+            )
             response["latest_execution_batch"] = self.state_memory.latest_asset(asset_type="execution_batch", actor_role="risk_trader")
             response["latest_rt_trigger_event"] = self.state_memory.latest_asset(asset_type="rt_trigger_event", actor_role="system")
             response["latest_risk_brake_event"] = self.state_memory.latest_asset(asset_type="risk_brake_event", actor_role="system")
             response["recent_execution_thoughts"] = self.state_memory.get_recent_execution_thoughts(limit=6)
-            response["latest_rt_tactical_map"] = self.state_memory.latest_asset(asset_type="rt_tactical_map", actor_role="risk_trader")
+            response["latest_rt_tactical_map"] = latest_rt_tactical_map
             response["tactical_brief"] = self._build_rt_tactical_brief(
                 latest_strategy=self.state_memory.latest_asset(asset_type="strategy") or self.state_memory.latest_strategy(),
                 latest_execution_batch=response["latest_execution_batch"],
-                latest_rt_tactical_map=response["latest_rt_tactical_map"],
+                latest_rt_tactical_map=display_rt_tactical_map,
+                latest_rt_tactical_map_status=self._rt_tactical_map_status(
+                    latest_rt_tactical_map=latest_rt_tactical_map,
+                    display_rt_tactical_map=display_rt_tactical_map,
+                ),
                 latest_rt_trigger_event=response["latest_rt_trigger_event"],
                 latest_risk_brake_event=response["latest_risk_brake_event"],
                 recent_execution_thoughts=response["recent_execution_thoughts"],
@@ -85,6 +95,7 @@ class ReplayFrontendService:
         latest_strategy: dict | None,
         latest_execution_batch: dict | None,
         latest_rt_tactical_map: dict | None,
+        latest_rt_tactical_map_status: dict | None,
         latest_rt_trigger_event: dict | None,
         latest_risk_brake_event: dict | None,
         recent_execution_thoughts: list[dict] | None,
@@ -98,9 +109,11 @@ class ReplayFrontendService:
                 "desk_focus": payload.get("desk_focus"),
                 "risk_bias": payload.get("risk_bias"),
                 "next_review_hint": payload.get("next_review_hint"),
-                "map_refresh_reason": payload.get("map_refresh_reason"),
+                "strategy_key": payload.get("strategy_key"),
+                "map_refresh_reason": payload.get("refresh_reason") or payload.get("map_refresh_reason"),
                 "coins": list(payload.get("coins") or []),
                 "trigger": self._compact_rt_trigger(latest_rt_trigger_event, latest_risk_brake_event),
+                **dict(latest_rt_tactical_map_status or {}),
             }
 
         strategy_payload = dict((latest_strategy or {}).get("payload") or latest_strategy or {})
@@ -173,6 +186,49 @@ class ReplayFrontendService:
             "map_refresh_reason": str((latest_rt_trigger_event or {}).get("payload", {}).get("summary") or "最近一次执行节奏与风险状态已提炼成公开摘要。"),
             "coins": coins,
             "trigger": self._compact_rt_trigger(latest_rt_trigger_event, latest_risk_brake_event),
+        }
+
+    @staticmethod
+    def _rt_tactical_map_has_coins(asset: dict | None) -> bool:
+        payload = dict((asset or {}).get("payload") or {})
+        coins = payload.get("coins") or []
+        return isinstance(coins, list) and any(isinstance(item, dict) and item.get("coin") for item in coins)
+
+    def _display_rt_tactical_map(
+        self,
+        *,
+        latest_rt_tactical_map: dict | None,
+        recent_rt_tactical_maps: list[dict],
+    ) -> dict | None:
+        if self._rt_tactical_map_has_coins(latest_rt_tactical_map):
+            return latest_rt_tactical_map
+        for record in recent_rt_tactical_maps:
+            if self._rt_tactical_map_has_coins(record):
+                return record
+        return latest_rt_tactical_map
+
+    def _rt_tactical_map_status(
+        self,
+        *,
+        latest_rt_tactical_map: dict | None,
+        display_rt_tactical_map: dict | None,
+    ) -> dict | None:
+        if not latest_rt_tactical_map or not display_rt_tactical_map:
+            return None
+        latest_payload = dict(latest_rt_tactical_map.get("payload") or {})
+        display_payload = dict(display_rt_tactical_map.get("payload") or {})
+        if latest_rt_tactical_map.get("asset_id") == display_rt_tactical_map.get("asset_id"):
+            return {
+                "map_source": "latest_formal_map",
+                "map_note": None,
+                "map_generated_at": display_payload.get("updated_at_utc") or display_rt_tactical_map.get("created_at"),
+            }
+        return {
+            "map_source": "last_populated_formal_map",
+            "map_note": "最近几轮 RT 只刷新了跟进状态，分币种地图没有补全；当前展示最近一张完整正式地图。",
+            "map_generated_at": display_payload.get("updated_at_utc") or display_rt_tactical_map.get("created_at"),
+            "latest_map_generated_at": latest_payload.get("updated_at_utc") or latest_rt_tactical_map.get("created_at"),
+            "latest_map_refresh_reason": latest_payload.get("refresh_reason") or latest_payload.get("map_refresh_reason"),
         }
 
     @staticmethod
