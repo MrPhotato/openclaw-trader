@@ -318,9 +318,14 @@ describe("App", () => {
     await waitFor(() => expect(screen.getAllByText("名义占用 3.23%").length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getByText("观察线")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId("balance-risk-legend")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "展开最新成交回执" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "展开高优先事件" })).toBeInTheDocument());
+    expect(screen.queryByText("交易方向：卖出")).not.toBeInTheDocument();
+    expect(screen.queryByText(/order-1/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开最新成交回执" }));
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("已回传 1 笔成交回执。")).toBeInTheDocument());
-    expect(screen.queryByText(/order-1/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "PM" }));
     await waitFor(() => expect(screen.getByTestId("pm-view")).toBeInTheDocument());

@@ -71,6 +71,8 @@ type BalanceRiskLine = { key: "observe" | "reduce" | "exit"; label: string; colo
 
 export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
+  const [executionFeedExpanded, setExecutionFeedExpanded] = useState(false);
+  const [eventFeedExpanded, setEventFeedExpanded] = useState(false);
   const chartViewportRef = useRef<HTMLDivElement | null>(null);
   const streamDisabled = isStreamDisabled();
   const activeView = useMissionControlStore((state) => state.activeView);
@@ -119,6 +121,8 @@ export default function App() {
   const balanceDomain = buildBalanceDomain(balanceSeries, balanceRiskLines);
   const balanceChartWidth = computeBalanceChartWidth(balanceSeries.length, balanceGranularity);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
+  const executionRecords = (executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 8);
+  const macroEventRecords = (newsQuery.data?.macro_events ?? overview?.current_macro_events ?? []).slice(0, 6);
   const agentDataByRole = Object.fromEntries(
     agentPages.map((agent, index) => [agent.role, agentQueries[index].data]),
   ) as Record<string, AgentLatestData | undefined>;
@@ -351,23 +355,45 @@ export default function App() {
             </div>
 
             <div className="min-w-0 space-y-4 sm:space-y-6">
-              <Panel title="高优先事件">
-                <div className="space-y-3">
-                  {renderAssetCollection(
-                    (newsQuery.data?.macro_events ?? overview?.current_macro_events ?? []).slice(0, 6),
-                    (record) => <MacroEventCard key={record.asset_id} asset={record} />,
-                    "高影响事件会在这里排到最上面，当前还没有新的正式事件。",
-                  )}
-                </div>
-              </Panel>
               <Panel title="最新成交回执">
-                <div className="space-y-3">
-                  {renderAssetCollection(
-                    (executionsQuery.data?.results ?? overview?.recent_execution_results ?? []).slice(0, 8),
-                    (record) => <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />,
-                    "最近还没有新的正式执行结果。",
-                  )}
-                </div>
+                <OverviewDisclosure
+                  expanded={executionFeedExpanded}
+                  onToggle={() => setExecutionFeedExpanded((value) => !value)}
+                  summary={overviewExecutionSummary(executionRecords)}
+                  count={executionRecords.length}
+                  emptyMessage="最近还没有新的正式执行结果。"
+                  expandLabel="展开最新成交回执"
+                  collapseLabel="收起最新成交回执"
+                  dataTestId="overview-execution-disclosure"
+                >
+                  <div className="space-y-3">
+                    {renderAssetCollection(
+                      executionRecords,
+                      (record) => <TradeBlotterCard key={record.asset_id} asset={record} latestPortfolio={latestPortfolio} />,
+                      "最近还没有新的正式执行结果。",
+                    )}
+                  </div>
+                </OverviewDisclosure>
+              </Panel>
+              <Panel title="高优先事件">
+                <OverviewDisclosure
+                  expanded={eventFeedExpanded}
+                  onToggle={() => setEventFeedExpanded((value) => !value)}
+                  summary={overviewEventSummary(macroEventRecords)}
+                  count={macroEventRecords.length}
+                  emptyMessage="高影响事件会在这里排到最上面，当前还没有新的正式事件。"
+                  expandLabel="展开高优先事件"
+                  collapseLabel="收起高优先事件"
+                  dataTestId="overview-event-disclosure"
+                >
+                  <div className="space-y-3">
+                    {renderAssetCollection(
+                      macroEventRecords,
+                      (record) => <MacroEventCard key={record.asset_id} asset={record} />,
+                      "高影响事件会在这里排到最上面，当前还没有新的正式事件。",
+                    )}
+                  </div>
+                </OverviewDisclosure>
               </Panel>
             </div>
           </section>
@@ -680,6 +706,42 @@ function EmptyState(props: { message: string }) {
   return <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-slate-400">{props.message}</div>;
 }
 
+function OverviewDisclosure(props: {
+  expanded: boolean;
+  onToggle: () => void;
+  summary: string;
+  count: number;
+  emptyMessage: string;
+  expandLabel: string;
+  collapseLabel: string;
+  dataTestId: string;
+  children: ReactNode;
+}) {
+  if (props.count === 0) {
+    return <EmptyState message={props.emptyMessage} />;
+  }
+
+  return (
+    <div className="space-y-3" data-testid={props.dataTestId}>
+      <div className="flex items-start justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-[11px] tracking-[0.2em] text-slate-500">最近 {props.count} 条</div>
+          <div className="mt-1 text-sm leading-6 text-slate-300">{props.summary}</div>
+        </div>
+        <button
+          type="button"
+          onClick={props.onToggle}
+          aria-label={props.expanded ? props.collapseLabel : props.expandLabel}
+          className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-white/20 hover:bg-white/10"
+        >
+          {props.expanded ? "收起" : "展开"}
+        </button>
+      </div>
+      {props.expanded ? props.children : null}
+    </div>
+  );
+}
+
 function AgentHero(props: { agent: (typeof agentPages)[number]; data?: AgentLatestData }) {
   const sessionStatus = String(props.data?.session?.status ?? "offline");
   const latestType = String(props.data?.latest_asset?.asset_type ?? "none");
@@ -977,6 +1039,26 @@ function riskStateNarrative(riskOverlay: OverviewData["risk_overlay"], latestPor
   const current = usdCompactText(riskOverlay.current_equity_usd);
   const peak = usdCompactText(riskOverlay.day_peak_equity_usd);
   return `今日组合峰值 ${peak}，当前余额 ${current}。黄橙红三条线分别对应观察、减仓与退出。`;
+}
+
+function overviewExecutionSummary(records: AssetRecord[]) {
+  if (records.length === 0) {
+    return "最近还没有新的正式执行结果。";
+  }
+  const latest = records[0];
+  const headline = tradeHeadline(latest);
+  const amount = usdText(actualFilledNotional(latest) ?? latest.payload["notional_usd"]);
+  return `${headline}，成交金额 ${amount}。点击展开可看完整回执。`;
+}
+
+function overviewEventSummary(records: AssetRecord[]) {
+  if (records.length === 0) {
+    return "当前还没有新的正式高优先事件。";
+  }
+  const latest = records[0];
+  const impact = impactLabel(String(latest.payload["impact_level"] ?? "low"));
+  const summary = nonEmptyText(latest.payload["summary"], "暂无摘要。");
+  return `${impact}影响：${compactText(summary, 54)} 点击展开查看事件卡片。`;
 }
 
 function latestAssetTimestamp(data?: AgentLatestData) {
