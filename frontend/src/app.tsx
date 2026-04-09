@@ -222,7 +222,6 @@ export default function App() {
                               stroke={line.color}
                               strokeWidth={1}
                               ifOverflow="extendDomain"
-                              label={{ value: line.label, position: "right", fill: line.color, fontSize: 11 }}
                             />
                           ))}
                           <XAxis
@@ -239,6 +238,16 @@ export default function App() {
                             cursor={{ stroke: "rgba(113,246,209,0.35)" }}
                             formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
                             labelFormatter={(label) => `时间：${label}`}
+                            contentStyle={{
+                              backgroundColor: "rgba(9, 14, 27, 0.96)",
+                              border: "1px solid rgba(148, 163, 184, 0.22)",
+                              borderRadius: "14px",
+                              boxShadow: "0 18px 40px rgba(2, 6, 23, 0.55)",
+                              color: "#e2e8f0",
+                            }}
+                            itemStyle={{ color: "#f8fafc", fontSize: 12 }}
+                            labelStyle={{ color: "#cbd5e1", fontSize: 12 }}
+                            wrapperStyle={{ zIndex: 20, outline: "none" }}
                           />
                           <Line
                             type="monotone"
@@ -254,6 +263,20 @@ export default function App() {
                     </div>
                   </div>
                 </ChartShell>
+                {balanceRiskLines.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2" data-testid="balance-risk-legend">
+                    {balanceRiskLines.map((line) => (
+                      <div
+                        key={line.key}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300"
+                      >
+                        <span className="h-px w-4" style={{ backgroundColor: line.color }} />
+                        <span className="text-slate-200">{line.label}</span>
+                        <span className="text-slate-400">{usdCompactText(line.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                   <div className="flex flex-wrap gap-2">
                     {([
