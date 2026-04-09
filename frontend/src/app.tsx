@@ -504,14 +504,6 @@ export default function App() {
             <AgentHero agent={agentPages[2]} data={meaData} />
             <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[0.92fr_1.08fr]">
               <div className="min-w-0 space-y-4 sm:space-y-6">
-                <Panel title="宏观记忆">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-300">
-                    {nonEmptyText(
-                      meaData?.latest_macro_daily_memory?.payload?.summary ?? newsQuery.data?.macro_daily_memory?.payload?.summary,
-                      "今天还没有形成正式的宏观日记忆。",
-                    )}
-                  </div>
-                </Panel>
                 <Panel title="影响分布">
                   <ChartShell>
                     <ResponsiveContainer width="100%" height={240}>
@@ -528,6 +520,14 @@ export default function App() {
                       </BarChart>
                     </ResponsiveContainer>
                   </ChartShell>
+                </Panel>
+                <Panel title="宏观记忆">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-300">
+                    {nonEmptyText(
+                      meaData?.latest_macro_daily_memory?.payload?.summary ?? newsQuery.data?.macro_daily_memory?.payload?.summary,
+                      "今天还没有形成正式的宏观日记忆。",
+                    )}
+                  </div>
                 </Panel>
               </div>
               <Panel title="事件墙">
