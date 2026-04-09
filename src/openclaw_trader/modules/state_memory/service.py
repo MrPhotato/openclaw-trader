@@ -360,6 +360,7 @@ class StateMemoryService:
     def build_overview(self) -> OverviewQueryView:
         latest_strategy = self.latest_asset(asset_type="strategy")
         latest_portfolio = self.latest_asset(asset_type="portfolio_snapshot") or self.latest_portfolio()
+        risk_overlay = self._build_portfolio_risk_overlay()
         latest_execution_batch = self.latest_asset(asset_type="execution_batch")
         recent_execution_results = self.recent_assets(asset_type="execution_result", limit=10)
         current_macro_events = self.recent_assets(asset_type="macro_event", limit=10)
@@ -404,6 +405,7 @@ class StateMemoryService:
             },
             latest_strategy=latest_strategy,
             latest_portfolio=latest_portfolio,
+            risk_overlay=risk_overlay,
             portfolio_history=portfolio_history,
             latest_execution_batch=latest_execution_batch,
             recent_execution_results=recent_execution_results,
@@ -412,6 +414,48 @@ class StateMemoryService:
             recent_notifications=recent_notifications,
             recent_events=recent_events,
         )
+
+    def _build_portfolio_risk_overlay(self) -> dict[str, object] | None:
+        latest_policy = self.latest_asset(asset_type="policy_guard")
+        if latest_policy is None:
+            return None
+        payload = latest_policy.get("payload") or {}
+        if not isinstance(payload, dict):
+            return None
+        portfolio_state = payload.get("portfolio_risk_state") or {}
+        if not isinstance(portfolio_state, dict):
+            return None
+        thresholds = portfolio_state.get("thresholds") or {}
+        if not isinstance(thresholds, dict):
+            thresholds = {}
+
+        day_peak_equity = self._parse_float(portfolio_state.get("day_peak_equity_usd"))
+        if day_peak_equity is None or day_peak_equity <= 0:
+            return None
+
+        overlay: dict[str, object] = {
+            "state": str(portfolio_state.get("state") or "normal"),
+            "day_peak_equity_usd": str(portfolio_state.get("day_peak_equity_usd") or ""),
+            "current_equity_usd": str(portfolio_state.get("current_equity_usd") or ""),
+        }
+        for key in ("observe", "reduce", "exit"):
+            drawdown_key = f"{key}_drawdown_pct"
+            drawdown_pct = self._parse_float(thresholds.get(drawdown_key))
+            if drawdown_pct is None:
+                continue
+            overlay[key] = {
+                "drawdown_pct": round(drawdown_pct, 4),
+                "equity_usd": str(round(day_peak_equity * (1.0 - drawdown_pct / 100.0), 8)),
+            }
+        return overlay
+
+    @staticmethod
+    def _parse_float(value: object) -> float | None:
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return number if number == number else None
 
     @staticmethod
     def _compact_execution_result_for_thought(payload: dict | None) -> dict | None:

@@ -27,6 +27,14 @@ export type OverviewData = {
   system: Record<string, unknown>;
   latest_strategy?: AssetRecord | null;
   latest_portfolio?: AssetRecord | null;
+  risk_overlay?: {
+    state?: string;
+    day_peak_equity_usd?: string | number | null;
+    current_equity_usd?: string | number | null;
+    observe?: { drawdown_pct?: number | null; equity_usd?: string | number | null } | null;
+    reduce?: { drawdown_pct?: number | null; equity_usd?: string | number | null } | null;
+    exit?: { drawdown_pct?: number | null; equity_usd?: string | number | null } | null;
+  } | null;
   portfolio_history: Array<{
     created_at: string;
     total_equity_usd?: string | number | null;

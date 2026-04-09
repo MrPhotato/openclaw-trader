@@ -37,6 +37,14 @@ const overviewPayload = {
     metadata: {},
     created_at: "2026-03-20T08:00:00Z",
   },
+  risk_overlay: {
+    state: "observe",
+    day_peak_equity_usd: "1030",
+    current_equity_usd: "1002.5",
+    observe: { drawdown_pct: 1.0, equity_usd: "1019.7" },
+    reduce: { drawdown_pct: 2.0, equity_usd: "1009.4" },
+    exit: { drawdown_pct: 3.0, equity_usd: "999.1" },
+  },
   portfolio_history: [
     {
       created_at: "2026-03-20T07:30:00Z",
@@ -183,6 +191,9 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("ETH")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("SOL")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("总敞口")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("观察线")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("减仓线")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("退出线")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId("balance-viewport-caption")).toHaveTextContent("只有主图与时间轴会横向滚动"));
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("交易方向：卖出")).toBeInTheDocument());

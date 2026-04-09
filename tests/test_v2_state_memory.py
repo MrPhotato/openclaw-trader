@@ -98,6 +98,36 @@ class StateMemoryServiceTests(unittest.TestCase):
             self.assertIsNotNone(latest)
             self.assertEqual(latest["payload"]["submission_id"], canonical["submission_id"])
 
+    def test_build_overview_includes_portfolio_risk_overlay(self) -> None:
+        with TemporaryDirectory() as tmp:
+            service = StateMemoryService(StateMemoryRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            service.save_asset(
+                asset_type="policy_guard",
+                payload={
+                    "coin": "BTC",
+                    "portfolio_risk_state": {
+                        "state": "observe",
+                        "current_equity_usd": "1002.5",
+                        "day_peak_equity_usd": "1030",
+                        "thresholds": {
+                            "observe_drawdown_pct": 1.0,
+                            "reduce_drawdown_pct": 2.0,
+                            "exit_drawdown_pct": 3.0,
+                        },
+                    },
+                },
+                trace_id="trace-policy",
+                actor_role="system",
+                group_key="BTC",
+            )
+
+            overview = service.build_overview()
+            self.assertIsNotNone(overview.risk_overlay)
+            self.assertEqual(overview.risk_overlay["state"], "observe")
+            self.assertEqual(overview.risk_overlay["observe"]["equity_usd"], "1019.7")
+            self.assertEqual(overview.risk_overlay["reduce"]["equity_usd"], "1009.4")
+            self.assertEqual(overview.risk_overlay["exit"]["equity_usd"], "999.1")
+
 
 if __name__ == "__main__":
     unittest.main()

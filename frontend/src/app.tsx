@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { fetchAgentLatest, fetchExecutions, fetchNews, fetchOverview, isStreamDisabled, openEventStream } from "./lib/api";
 import { useMissionControlStore } from "./lib/store";
@@ -31,6 +31,7 @@ const DISPLAY_LEVERAGE = 5;
 const DISPLAY_NOMINAL_USD = DISPLAY_PRINCIPAL_USD * DISPLAY_LEVERAGE;
 type BalanceGranularity = "15m" | "1h" | "1d";
 type BalancePoint = { label: string; equity: number; createdAtMs: number };
+type BalanceRiskLine = { key: "observe" | "reduce" | "exit"; label: string; color: string; value: number };
 
 export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
@@ -80,7 +81,9 @@ export default function App() {
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
   const balanceSeries = buildBalanceHistory(overview?.portfolio_history ?? [], latestPortfolio, balanceGranularity);
-  const balanceTicks = buildBalanceTicks(balanceSeries);
+  const balanceRiskLines = buildBalanceRiskLines(overview?.risk_overlay);
+  const balanceTicks = buildBalanceTicks(balanceSeries, balanceRiskLines);
+  const balanceDomain = buildBalanceDomain(balanceSeries, balanceRiskLines);
   const balanceChartWidth = computeBalanceChartWidth(balanceSeries.length, balanceGranularity);
   const impactBreakdown = buildImpactBreakdown(newsQuery.data?.macro_events ?? []);
 
@@ -212,6 +215,16 @@ export default function App() {
                       <div style={{ width: `${balanceChartWidth}px`, minWidth: "100%" }}>
                         <LineChart width={balanceChartWidth} height={260} data={balanceSeries} margin={{ top: 12, right: 8, bottom: 0, left: 0 }}>
                           <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                          {balanceRiskLines.map((line) => (
+                            <ReferenceLine
+                              key={line.key}
+                              y={line.value}
+                              stroke={line.color}
+                              strokeWidth={1}
+                              ifOverflow="extendDomain"
+                              label={{ value: line.label, position: "right", fill: line.color, fontSize: 11 }}
+                            />
+                          ))}
                           <XAxis
                             dataKey="label"
                             tick={{ fill: "#9fb0c7", fontSize: 12 }}
@@ -221,7 +234,7 @@ export default function App() {
                             minTickGap={28}
                             height={32}
                           />
-                          <YAxis hide domain={["dataMin", "dataMax"]} ticks={balanceTicks} />
+                          <YAxis hide domain={balanceDomain} ticks={balanceTicks} />
                           <Tooltip
                             cursor={{ stroke: "rgba(113,246,209,0.35)" }}
                             formatter={(value: number) => [`$${trimNumber(value)}`, balanceWindowLabel(balanceGranularity)]}
@@ -961,13 +974,12 @@ function balanceScrollCaption(length: number, granularity: BalanceGranularity) {
   return `已同步 ${length} 个 ${balanceWindowLabel(granularity)}点。桌面滚轮浏览，移动端左右滑动，只有主图与时间轴会横向滚动。`;
 }
 
-function buildBalanceTicks(points: Array<{ equity: number }>) {
-  if (points.length === 0) {
+function buildBalanceTicks(points: Array<{ equity: number }>, lines: BalanceRiskLine[] = []) {
+  const domain = buildBalanceDomain(points, lines);
+  if (domain.length === 0) {
     return [];
   }
-  const values = points.map((point) => point.equity);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const [min, max] = domain;
   if (Math.abs(max - min) < 0.0001) {
     return [min];
   }
@@ -979,6 +991,43 @@ function buildBalanceTicks(points: Array<{ equity: number }>) {
 
 function balanceAxisTickLabel(value: number) {
   return `$${trimNumber(value)}`;
+}
+
+function buildBalanceDomain(points: Array<{ equity: number }>, lines: BalanceRiskLine[] = []) {
+  const values = [
+    ...points.map((point) => point.equity),
+    ...lines.map((line) => line.value),
+  ].filter((value) => Number.isFinite(value));
+  if (values.length === 0) {
+    return [] as number[];
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (Math.abs(max - min) < 0.0001) {
+    const padding = Math.max(1, max * 0.01);
+    return [min - padding, max + padding];
+  }
+  const padding = (max - min) * 0.06;
+  return [Math.max(0, min - padding), max + padding];
+}
+
+function buildBalanceRiskLines(raw: OverviewData["risk_overlay"]): BalanceRiskLine[] {
+  if (!raw) {
+    return [];
+  }
+  const definitions = [
+    { key: "observe" as const, label: "观察线", color: "#facc15" },
+    { key: "reduce" as const, label: "减仓线", color: "#fb923c" },
+    { key: "exit" as const, label: "退出线", color: "#f87171" },
+  ];
+  return definitions.flatMap((definition) => {
+    const line = raw[definition.key];
+    const value = toNumber(line?.equity_usd);
+    if (value === null) {
+      return [];
+    }
+    return [{ ...definition, value }];
+  });
 }
 
 function newerOverview(

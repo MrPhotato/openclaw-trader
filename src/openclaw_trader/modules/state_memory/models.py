@@ -193,6 +193,7 @@ class OverviewQueryView(BaseModel):
     system: dict[str, Any] = Field(default_factory=dict)
     latest_strategy: dict[str, Any] | None = None
     latest_portfolio: dict[str, Any] | None = None
+    risk_overlay: dict[str, Any] | None = None
     portfolio_history: list[dict[str, Any]] = Field(default_factory=list)
     latest_execution_batch: dict[str, Any] | None = None
     recent_execution_results: list[dict[str, Any]] = Field(default_factory=list)
