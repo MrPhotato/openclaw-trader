@@ -39,9 +39,10 @@ class ApiIntegrationTests(unittest.TestCase):
             with TestClient(app) as client:
                 pm_pack = client.post(
                     "/api/agent/pull/pm",
-                    json={"trigger_type": "daily_main", "params": {"cadence_source": "openclaw_cron"}},
+                    json={"trigger_type": "pm_main_cron", "params": {"cadence_source": "openclaw_cron"}},
                 )
                 self.assertEqual(pm_pack.status_code, 200)
+                self.assertEqual(pm_pack.json()["trigger_type"], "pm_main_cron")
                 response = client.post(
                     "/api/agent/submit/strategy",
                     json={
@@ -81,9 +82,10 @@ class ApiIntegrationTests(unittest.TestCase):
             with TestClient(app) as client:
                 pm_pack = client.post(
                     "/api/agent/pull/pm",
-                    json={"trigger_type": "daily_main", "params": {"cadence_source": "openclaw_cron"}},
+                    json={"trigger_type": "pm_main_cron", "params": {"cadence_source": "openclaw_cron"}},
                 )
                 self.assertEqual(pm_pack.status_code, 200)
+                self.assertEqual(pm_pack.json()["trigger_type"], "pm_main_cron")
                 pm_input_id = pm_pack.json()["input_id"]
                 submit_strategy = client.post(
                     "/api/agent/submit/strategy",
@@ -101,7 +103,7 @@ class ApiIntegrationTests(unittest.TestCase):
                     },
                 )
                 self.assertEqual(submit_strategy.status_code, 200)
-                self.assertEqual(submit_strategy.json()["strategy"]["trigger_type"], "daily_main")
+                self.assertEqual(submit_strategy.json()["strategy"]["trigger_type"], "pm_main_cron")
                 self.assertFalse(submit_strategy.json()["follow_up"]["accepted"])
                 self.assertEqual(
                     submit_strategy.json()["follow_up"]["reason"],
@@ -214,8 +216,9 @@ class ApiIntegrationTests(unittest.TestCase):
         try:
             app = create_app(harness.container)
             with TestClient(app) as client:
-                pm_pack = client.post("/api/agent/pull/pm", json={"trigger_type": "daily_main"})
+                pm_pack = client.post("/api/agent/pull/pm", json={"trigger_type": "pm_main_cron"})
                 self.assertEqual(pm_pack.status_code, 200)
+                self.assertEqual(pm_pack.json()["trigger_type"], "pm_main_cron")
                 pm_input_id = pm_pack.json()["input_id"]
                 submit_strategy = client.post(
                     "/api/agent/submit/strategy",
@@ -231,7 +234,7 @@ class ApiIntegrationTests(unittest.TestCase):
                     },
                 )
                 self.assertEqual(submit_strategy.status_code, 200)
-                self.assertEqual(submit_strategy.json()["strategy"]["trigger_type"], "daily_main")
+                self.assertEqual(submit_strategy.json()["strategy"]["trigger_type"], "pm_main_cron")
                 self.assertFalse(submit_strategy.json()["follow_up"]["accepted"])
                 self.assertEqual(
                     submit_strategy.json()["follow_up"]["reason"],
@@ -256,6 +259,44 @@ class ApiIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(submit_news.status_code, 200)
                 self.assertEqual(submit_news.json()["high_impact_count"], 1)
+        finally:
+            harness.cleanup()
+
+    def test_pull_pm_endpoint_audits_direct_message_and_unspecified_wakeups(self) -> None:
+        harness = build_test_harness()
+        try:
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                agent_message = client.post(
+                    "/api/agent/pull/pm",
+                    json={
+                        "trigger_type": "agent_message",
+                        "params": {
+                            "wake_source": "sessions_send",
+                            "source_role": "risk_trader",
+                            "reason": "target band stale after breakout failure",
+                            "severity": "high",
+                        },
+                    },
+                )
+                self.assertEqual(agent_message.status_code, 200)
+                self.assertEqual(agent_message.json()["trigger_type"], "agent_message")
+                self.assertEqual(
+                    agent_message.json()["payload"]["latest_pm_trigger_event"]["trigger_category"],
+                    "message",
+                )
+                self.assertEqual(
+                    agent_message.json()["payload"]["latest_pm_trigger_event"]["wake_source"],
+                    "sessions_send",
+                )
+
+                unspecified = client.post("/api/agent/pull/pm", json={})
+                self.assertEqual(unspecified.status_code, 200)
+                self.assertEqual(unspecified.json()["trigger_type"], "pm_unspecified")
+                self.assertEqual(
+                    unspecified.json()["payload"]["latest_pm_trigger_event"]["trigger_category"],
+                    "unknown",
+                )
         finally:
             harness.cleanup()
 

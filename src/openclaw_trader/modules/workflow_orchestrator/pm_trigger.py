@@ -19,6 +19,14 @@ def record_pm_trigger_event(
 ) -> dict[str, Any]:
     normalized = dict(payload)
     normalized["event_id"] = str(normalized.get("event_id") or new_id("pm_trigger"))
+    normalized["trigger_category"] = str(
+        normalized.get("trigger_category")
+        or ("workflow" if str(normalized.get("trigger_type") or "") in {"scheduled_recheck", "risk_brake"} else "unknown")
+    ).strip() or "unknown"
+    normalized["wake_source"] = str(
+        normalized.get("wake_source")
+        or ("workflow_orchestrator" if normalized["trigger_category"] == "workflow" else "unknown")
+    ).strip() or "unknown"
     state_memory.save_asset(
         asset_type="pm_trigger_event",
         asset_id=str(normalized["event_id"]),

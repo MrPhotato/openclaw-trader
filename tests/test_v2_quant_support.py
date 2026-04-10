@@ -48,10 +48,22 @@ from openclaw_trader.modules.quant_intelligence.support.daily_macro_history impo
     FreeDailyMacroDerivativesProvider,
     _parse_coinalyze_history,
 )
+from openclaw_trader.modules.quant_intelligence.support.candle_loader import _load_cached_candles
 from openclaw_trader.shared.protocols import Candle
 
 
 class QuantSupportTests(unittest.TestCase):
+    def test_load_cached_candles_ignores_and_clears_corrupt_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            cache_dir = Path(tempdir)
+            broken_path = cache_dir / "BTC_15m.joblib"
+            broken_path.write_bytes(b"not-a-valid-joblib-payload")
+
+            loaded = _load_cached_candles(cache_dir, coin="BTC", interval="15m")
+
+            self.assertEqual(loaded, {})
+            self.assertFalse(broken_path.exists())
+
     def test_save_and_load_artifact_payload_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             artifact_root = Path(tempdir) / "perps"

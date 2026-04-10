@@ -94,7 +94,7 @@ def build_router() -> APIRouter:
     def pull_pm_runtime_input(req: AgentPullRequest, request: Request):
         container = request.app.state.container
         payload = container.agent_gateway.pull_pm_runtime_input(
-            trigger_type=req.trigger_type or "daily_main",
+            trigger_type=req.trigger_type or "pm_unspecified",
             params=req.params,
         )
         return payload.model_dump(mode="json")

@@ -29,9 +29,11 @@ Use this skill for `PM` work only.
 3. Emit formal JSON using [formal-output.md](references/formal-output.md), and carry the current `input_id` back to the submit bridge.
 
 ## Guardrails
-- Do not use `web_fetch` or any browser-style fetch against `127.0.0.1` / localhost. Pull the PM runtime pack with shell `curl` only.
+- Do not use `web_fetch` or any browser-style fetch against `127.0.0.1` / localhost. Pull the PM runtime pack with shell helper tooling only.
 - Pull exactly once by default. If submit returns `unknown_input_id`, pull exactly one fresh runtime pack, replace the old `input_id`, and try once more. Do not keep retrying guessed ids.
 - Prefer saving the runtime pack to a file and reading fields from that file instead of relying on truncated terminal output.
+- Fixed `pm-main` cadence runs should be tagged `pm_main_cron`. Direct RT / MEA / Chief / owner wakeups should be tagged `agent_message`. Use `manual` only for a true ad-hoc manual refresh.
+- If the wakeup already came from a pending system event such as `scheduled_recheck` or `risk_brake`, let the bridge preserve that trigger instead of overwriting it.
 - Do not define execution mechanics or order tactics.
 - For formal submission, emit exactly one JSON object and nothing else.
 - Do not wrap formal JSON in markdown fences.

@@ -32,7 +32,14 @@ def _load_cached_candles(cache_dir: Path, *, coin: str, interval: str) -> dict[i
     path = _cache_file(cache_dir, coin=coin, interval=interval)
     if not path.exists():
         return {}
-    payload = joblib.load(path)
+    try:
+        payload = joblib.load(path)
+    except Exception:
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return {}
     if not isinstance(payload, dict):
         return {}
     candles: dict[int, Candle] = {}

@@ -260,7 +260,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "dispatched": True,
                 },
             )
-            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
             self.assertEqual(pack.trigger_type, "scheduled_recheck")
             self.assertEqual(pack.payload["latest_pm_trigger_event"]["reason"], "scheduled_recheck")
             self.assertEqual(pack.payload["trigger_context"]["trigger_type"], "scheduled_recheck")
@@ -268,9 +268,9 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertIsNotNone(claimed_asset)
             self.assertEqual(claimed_asset["payload"]["claimed_ref"], pack.trace_id)
 
-            second = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
-            self.assertEqual(second.trigger_type, "daily_main")
-            self.assertNotIn("latest_pm_trigger_event", second.payload)
+            second = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
+            self.assertEqual(second.trigger_type, "pm_main_cron")
+            self.assertEqual(second.payload["latest_pm_trigger_event"]["trigger_type"], "pm_main_cron")
         finally:
             harness.cleanup()
 
@@ -291,9 +291,61 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "skipped_reason": "cron_run_failed",
                 },
             )
-            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
-            self.assertEqual(pack.trigger_type, "daily_main")
-            self.assertNotIn("latest_pm_trigger_event", pack.payload)
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
+            self.assertEqual(pack.trigger_type, "pm_main_cron")
+            self.assertEqual(pack.payload["latest_pm_trigger_event"]["trigger_type"], "pm_main_cron")
+            self.assertEqual(pack.payload["latest_pm_trigger_event"]["wake_source"], "openclaw_cron")
+        finally:
+            harness.cleanup()
+
+    def test_pull_pm_runtime_input_audits_direct_agent_message(self) -> None:
+        harness = build_test_harness()
+        try:
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(
+                trigger_type="agent_message",
+                params={
+                    "wake_source": "sessions_send",
+                    "source_role": "macro_event_analyst",
+                    "reason": "high-impact macro alert",
+                    "severity": "high",
+                },
+            )
+            self.assertEqual(pack.trigger_type, "agent_message")
+            latest_event = dict(pack.payload["latest_pm_trigger_event"])
+            self.assertEqual(latest_event["trigger_type"], "agent_message")
+            self.assertEqual(latest_event["trigger_category"], "message")
+            self.assertEqual(latest_event["wake_source"], "sessions_send")
+            self.assertEqual(latest_event["source_role"], "macro_event_analyst")
+            self.assertEqual(latest_event["reason"], "high-impact macro alert")
+        finally:
+            harness.cleanup()
+
+    def test_pull_pm_runtime_input_audits_unspecified_trigger_as_unknown(self) -> None:
+        harness = build_test_harness()
+        try:
+            pack = harness.container.agent_gateway.pull_pm_runtime_input()
+            self.assertEqual(pack.trigger_type, "pm_unspecified")
+            latest_event = dict(pack.payload["latest_pm_trigger_event"])
+            self.assertEqual(latest_event["trigger_type"], "pm_unspecified")
+            self.assertEqual(latest_event["trigger_category"], "unknown")
+            self.assertEqual(latest_event["wake_source"], "unknown")
+            self.assertEqual(latest_event["reason"], "pm_unspecified")
+        finally:
+            harness.cleanup()
+
+    def test_pull_pm_runtime_input_audits_manual_refresh(self) -> None:
+        harness = build_test_harness()
+        try:
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(
+                trigger_type="manual",
+                params={"reason": "operator rerun after validation failure"},
+            )
+            self.assertEqual(pack.trigger_type, "manual")
+            latest_event = dict(pack.payload["latest_pm_trigger_event"])
+            self.assertEqual(latest_event["trigger_type"], "manual")
+            self.assertEqual(latest_event["trigger_category"], "manual")
+            self.assertEqual(latest_event["wake_source"], "manual")
+            self.assertEqual(latest_event["reason"], "operator rerun after validation failure")
         finally:
             harness.cleanup()
 
@@ -487,12 +539,12 @@ class AgentGatewayServiceTests(unittest.TestCase):
         harness = build_test_harness()
         try:
             pack = harness.container.agent_gateway.pull_pm_runtime_input(
-                trigger_type="daily_main",
+                trigger_type="pm_main_cron",
                 params={"cadence_source": "openclaw_cron", "cadence_label": "pm_0100"},
             )
             self.assertEqual(pack.agent_role, "pm")
             self.assertEqual(pack.task_kind, "strategy")
-            self.assertEqual(pack.trigger_type, "daily_main")
+            self.assertEqual(pack.trigger_type, "pm_main_cron")
             self.assertIn("trigger_context", pack.payload)
             lease_asset = harness.container.state_memory.get_asset(pack.input_id)
             self.assertIsNotNone(lease_asset)
@@ -588,7 +640,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
-            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
             result = harness.container.agent_gateway.submit_strategy(
                 input_id=pack.input_id,
                 payload={
@@ -601,7 +653,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "scheduled_rechecks": [],
                 },
             )
-            self.assertEqual(result["strategy"]["trigger_type"], "daily_main")
+            self.assertEqual(result["strategy"]["trigger_type"], "pm_main_cron")
             lease_asset = harness.container.state_memory.get_asset(pack.input_id)
             self.assertEqual(lease_asset["payload"]["status"], "consumed")
             with self.assertRaises(RuntimeInputLeaseError) as raised:
@@ -626,7 +678,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
-            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="daily_main")
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
             with self.assertRaises(RuntimeInputLeaseError) as raised:
                 harness.container.agent_gateway.submit_execution(
                     input_id=pack.input_id,

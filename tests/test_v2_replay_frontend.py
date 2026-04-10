@@ -50,7 +50,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
         harness = build_test_harness()
         try:
             gateway = harness.container.agent_gateway
-            pm_pack = gateway.pull_pm_runtime_input(trigger_type="daily_main")
+            pm_pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
             strategy = gateway.submit_strategy(
                 input_id=pm_pack.input_id,
                 payload={

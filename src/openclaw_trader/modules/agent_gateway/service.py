@@ -90,6 +90,22 @@ class AgentGatewayService:
     _NEWS_PROMPT_REF = "specs/modules/agent_gateway/contracts/news.prompt.md"
     _CHIEF_RETRO_SPEC_REF = "specs/agents/crypto_chief/spec.md"
     _CHIEF_RETRO_PROMPT_REF = "skills/chief-retro-and-summary/SKILL.md"
+    _PM_TRIGGER_EVENT_TYPE = "workflow.pm_trigger.detected"
+    _PM_TRIGGER_TYPE_ALIASES = {
+        "daily_main": "pm_main_cron",
+        "cadence": "pm_main_cron",
+        "event": "agent_message",
+        "event_driven": "agent_message",
+        "mea_event": "agent_message",
+    }
+    _PM_TRIGGER_CATEGORY_BY_TYPE = {
+        "pm_main_cron": "cadence",
+        "scheduled_recheck": "workflow",
+        "risk_brake": "workflow",
+        "agent_message": "message",
+        "manual": "manual",
+        "pm_unspecified": "unknown",
+    }
 
     def __init__(
         self,
@@ -144,7 +160,7 @@ class AgentGatewayService:
     def pull_pm_runtime_input(
         self,
         *,
-        trigger_type: str = "daily_main",
+        trigger_type: str = "pm_unspecified",
         params: dict[str, object] | None = None,
     ) -> AgentRuntimePack:
         return self._issue_runtime_pack(agent_role="pm", task_kind="strategy", trigger_type=trigger_type, params=params)
@@ -579,18 +595,27 @@ class AgentGatewayService:
     ) -> AgentRuntimePack:
         self._require_runtime_bridge_dependencies()
         trace_id = new_id("trace")
-        latest_pm_trigger_event = (
-            self.state_memory.claim_pending_pm_trigger_event(claim_ref=trace_id)
-            if agent_role == "pm"
-            else None
-        )
+        resolved_params = dict(params or {})
+        latest_pm_trigger_event = None
         resolved_trigger_type = trigger_type
-        if latest_pm_trigger_event is not None:
-            resolved_trigger_type = str(latest_pm_trigger_event.get("trigger_type") or trigger_type).strip() or trigger_type
+        if agent_role == "pm":
+            resolved_trigger_type, resolved_params = self._normalize_pm_pull_request(
+                trigger_type=trigger_type,
+                params=resolved_params,
+            )
+            latest_pm_trigger_event = self.state_memory.claim_pending_pm_trigger_event(claim_ref=trace_id)
+            if latest_pm_trigger_event is not None:
+                resolved_trigger_type = str(latest_pm_trigger_event.get("trigger_type") or resolved_trigger_type).strip() or resolved_trigger_type
+            else:
+                latest_pm_trigger_event = self._record_pm_pull_trigger_event(
+                    trace_id=trace_id,
+                    trigger_type=resolved_trigger_type,
+                    params=resolved_params,
+                )
         trigger_context = self._build_trigger_context(
             agent_role=agent_role,
             trigger_type=resolved_trigger_type,
-            params=params,
+            params=resolved_params,
         )
         context = self._collect_bridge_context(
             agent_role=agent_role,
@@ -692,6 +717,99 @@ class AgentGatewayService:
                 expires_at_utc=expires_at.isoformat(),
             )
         return pack
+
+    def _normalize_pm_pull_request(
+        self,
+        *,
+        trigger_type: str,
+        params: dict[str, object] | None = None,
+    ) -> tuple[str, dict[str, object]]:
+        payload = dict(params or {})
+        raw_trigger_type = str(trigger_type or "").strip() or "pm_unspecified"
+        normalized_trigger_type = self._PM_TRIGGER_TYPE_ALIASES.get(raw_trigger_type, raw_trigger_type)
+        if normalized_trigger_type == "pm_main_cron":
+            payload.setdefault("wake_source", "openclaw_cron")
+            payload.setdefault("cadence_label", "pm-main")
+            payload.setdefault("reason", "pm_main_cron")
+        elif normalized_trigger_type == "agent_message":
+            payload.setdefault("wake_source", "sessions_send")
+            source_role = str(
+                payload.get("source_role")
+                or payload.get("sender_role")
+                or payload.get("from_role")
+                or payload.get("agent_role")
+                or ""
+            ).strip()
+            if source_role:
+                payload["source_role"] = source_role
+            payload.setdefault("reason", payload.get("message_reason") or "agent_message")
+        elif normalized_trigger_type == "manual":
+            payload.setdefault("wake_source", "manual")
+            payload.setdefault("reason", "manual")
+        elif normalized_trigger_type in {"scheduled_recheck", "risk_brake"}:
+            payload.setdefault("wake_source", "workflow_orchestrator")
+            payload.setdefault("reason", normalized_trigger_type)
+        else:
+            normalized_trigger_type = "pm_unspecified"
+            payload.setdefault("wake_source", "unknown")
+            payload.setdefault("reason", "pm_unspecified")
+        return normalized_trigger_type, payload
+
+    def _record_pm_pull_trigger_event(
+        self,
+        *,
+        trace_id: str,
+        trigger_type: str,
+        params: dict[str, object] | None = None,
+    ) -> dict[str, Any]:
+        current = datetime.now(UTC)
+        payload = dict(params or {})
+        normalized = {
+            "event_id": new_id("pm_trigger"),
+            "detected_at_utc": current.isoformat(),
+            "trigger_type": trigger_type,
+            "trigger_category": self._PM_TRIGGER_CATEGORY_BY_TYPE.get(trigger_type, "unknown"),
+            "reason": str(payload.get("reason") or trigger_type).strip() or trigger_type,
+            "severity": str(payload.get("severity") or "normal").strip() or "normal",
+            "wake_source": str(payload.get("wake_source") or "unknown").strip() or "unknown",
+            "source_role": str(payload.get("source_role") or "").strip() or None,
+            "source_session_key": str(payload.get("source_session_key") or "").strip() or None,
+            "source_message_excerpt": str(payload.get("source_message_excerpt") or "").strip()[:240] or None,
+            "cadence_label": str(payload.get("cadence_label") or "").strip() or None,
+            "audit_origin": "agent_gateway_pull",
+            "claimable": False,
+            "claimed_at_utc": current.isoformat(),
+            "claimed_ref": trace_id,
+            "dispatched": True,
+        }
+        self.state_memory.save_asset(
+            asset_type="pm_trigger_event",
+            asset_id=str(normalized["event_id"]),
+            payload=normalized,
+            trace_id=trace_id,
+            actor_role="system",
+            group_key="pm",
+            metadata={
+                "trigger_type": trigger_type,
+                "wake_source": normalized["wake_source"],
+                "audit_origin": "agent_gateway_pull",
+            },
+        )
+        envelope = EventFactory.build(
+            trace_id=trace_id,
+            event_type=self._PM_TRIGGER_EVENT_TYPE,
+            source_module="agent_gateway",
+            entity_type="pm_trigger_event",
+            entity_id=str(normalized["event_id"]),
+            payload=normalized,
+        )
+        self.state_memory.append_event(envelope)
+        if self.event_bus is not None:
+            try:
+                self.event_bus.publish(envelope)
+            except Exception:
+                pass
+        return normalized
 
     def _build_trigger_context(
         self,

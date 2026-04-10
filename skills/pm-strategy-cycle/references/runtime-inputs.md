@@ -7,16 +7,28 @@ Current runtime path is:
 
 PM should pull one `pm` runtime pack from `agent_gateway`.
 
-Working example:
+Fixed `pm-main` cadence example:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8788/api/agent/pull/pm \
-  -H "Content-Type: application/json" \
-  -d '{"params":{}}' \
-  > /tmp/pm_runtime_pack.json
+python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py \
+  --trigger-type pm_main_cron \
+  --wake-source openclaw_cron \
+  --output /tmp/pm_runtime_pack.json
 ```
 
-Use this default form in live cadence or event wakeups so the bridge can preserve the real PM trigger reason. Only force `"trigger_type":"manual"` for explicit ad-hoc manual testing.
+Direct message wake example:
+
+```bash
+python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py \
+  --trigger-type agent_message \
+  --wake-source sessions_send \
+  --source-role macro_event_analyst \
+  --reason "high-impact macro alert" \
+  --severity high \
+  --output /tmp/pm_runtime_pack.json
+```
+
+Use `manual` only for a true ad-hoc manual refresh. If a pending system wake such as `scheduled_recheck` or `risk_brake` already exists, let the bridge preserve that trigger instead of overwriting it.
 
 This call is not instant. In the live stack it can take roughly `20-30s` because the bridge compiles market, news, forecast, and risk facts before returning.
 
@@ -40,7 +52,7 @@ The response shape is:
   "task_kind": "strategy",
   "input_id": "input_...",
   "trace_id": "trace_...",
-  "trigger_type": "daily_main",
+  "trigger_type": "pm_main_cron",
   "expires_at_utc": "2026-03-22T...",
   "payload": {
     "trace_id": "trace_...",
@@ -71,6 +83,7 @@ Important live field layout:
 - strategy facts live under `payload`
 - `market_context` and `portfolio` are **inside** `payload.market`, not top-level siblings
 - `news_events` is a compact recent-news layer for PM review, not an unbounded raw news dump
+- `latest_pm_trigger_event` records the audited PM wake reason for this run. Fixed cadence, workflow wakes, direct agent messages, and manual refreshes should all land here.
 - `latest_risk_brake_event` may be present when the system just forced a reduce or exit order before waking PM
 - `previous_strategy` already uses canonical strategy field names such as:
   - `portfolio_thesis`
@@ -93,10 +106,12 @@ PM should not assume it can request data directly from MQ.
 - Pull once, work from that pack, and submit against the same `input_id`.
 - Do not probe the bridge with `GET /api/agent/pull/pm`. The live bridge is `POST` only.
 - Never use `web_fetch` for `127.0.0.1` or localhost. Use shell `curl` only.
+- Prefer `python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py` over handwritten curl so PM wake provenance stays audited and consistent.
 - Do not infer `input_id` from timestamps, process ids, filenames, or partial logs. Read the top-level `input_id` from the runtime pack directly.
 - Because runtime pack output can be long, prefer writing it to a file first and then reading the file. Do not trust truncated process output.
 - Do not paste the full runtime pack back into the conversation after pulling it. Keep the large JSON in a file and only extract the fields you need.
 - If `latest_risk_brake_event` is present, treat it as a hard desk fact: the system has already reduced or exited risk. Your job is to re-evaluate mandate and publish a new strategy revision around that new state.
+- If you were woken by RT / MEA / Chief / owner directly, classify the wake as `agent_message` and include `source_role`, `wake_source=sessions_send`, and a one-line `reason` in the pull helper args.
 - If submit fails with `unknown_input_id`, do one fresh `pull/pm`, replace the old `input_id`, and retry once. Stop there; repeated retries with guessed ids are always wrong.
 - If runtime facts and later design notes diverge, follow the live pack plus the formal strategy contract.
 - Do not wait for `workflow_orchestrator` to push a strategy payload. PM is agent-first now.
