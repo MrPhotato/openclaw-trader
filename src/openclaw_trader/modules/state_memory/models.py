@@ -156,6 +156,15 @@ class RTTacticalMapAsset(BaseModel):
     coins: list[RTTacticalMapCoinAsset] = Field(default_factory=list)
 
 
+class RuntimeBridgeState(BaseModel):
+    state_id: str
+    refreshed_at_utc: datetime
+    refresh_reason: str
+    source_timestamps: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
+    runtime_inputs: dict[str, Any] = Field(default_factory=dict)
+
+
 class MacroEventRecord(BaseModel):
     event_id: str
     category: str

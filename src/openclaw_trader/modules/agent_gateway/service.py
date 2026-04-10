@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from datetime import UTC, date, datetime, timedelta
@@ -128,6 +129,7 @@ class AgentGatewayService:
         event_bus: EventBus | None = None,
         runtime_pack_ttl_seconds: int = 900,
         runtime_dispatcher: Any | None = None,
+        runtime_bridge_max_age_seconds: int | None = None,
     ) -> None:
         self.pm_runner = pm_runner
         self.risk_runner = risk_runner
@@ -147,9 +149,16 @@ class AgentGatewayService:
         self.event_bus = event_bus
         self.runtime_pack_ttl_seconds = runtime_pack_ttl_seconds
         self.runtime_dispatcher = runtime_dispatcher
+        self.runtime_bridge_monitor: Any | None = None
+        self.runtime_bridge_max_age_seconds = runtime_bridge_max_age_seconds
 
     def bind_runtime_dispatcher(self, runtime_dispatcher: Any) -> None:
         self.runtime_dispatcher = runtime_dispatcher
+
+    def bind_runtime_bridge_monitor(self, runtime_bridge_monitor: Any, *, max_age_seconds: int | None = None) -> None:
+        self.runtime_bridge_monitor = runtime_bridge_monitor
+        if max_age_seconds is not None:
+            self.runtime_bridge_max_age_seconds = max_age_seconds
 
     def session_id_for_role(self, agent_role: str) -> str:
         session_id = self._resolve_openclaw_main_session_id(agent_role)
@@ -675,20 +684,14 @@ class AgentGatewayService:
             trigger_type=resolved_trigger_type,
             params=resolved_params,
         )
-        context = self._collect_bridge_context(
+        runtime_bundle = self._resolve_runtime_bridge_bundle(
             agent_role=agent_role,
             trace_id=trace_id,
             trigger_type=resolved_trigger_type,
         )
-        runtime_inputs = self.build_runtime_inputs(
-            trace_id=trace_id,
-            market=context["market"],
-            policies=context["policies"],
-            forecasts=context["forecasts"],
-            news_events=context["news"],
-            latest_strategy=context["latest_strategy"],
-            macro_memory=context["macro_memory"],
-        )
+        context = dict(runtime_bundle["context"] or {})
+        runtime_inputs = runtime_bundle["runtime_inputs"]
+        snapshot_meta = dict(runtime_bundle.get("snapshot_meta") or {})
         runtime_input = runtime_inputs[agent_role]
         expires_at = datetime.now(UTC) + timedelta(seconds=self.runtime_pack_ttl_seconds)
         if agent_role == "crypto_chief":
@@ -705,6 +708,7 @@ class AgentGatewayService:
                     "recent_news_submissions": self.state_memory.get_recent_news_submissions(limit=10),
                 },
                 "trigger_context": trigger_context,
+                "runtime_bridge_state": snapshot_meta,
             }
             hidden_payload = {
                 "runtime_inputs": {
@@ -715,6 +719,7 @@ class AgentGatewayService:
         else:
             payload = dict(runtime_input.payload)
             payload["trigger_context"] = trigger_context
+            payload["runtime_bridge_state"] = snapshot_meta
             if latest_pm_trigger_event is not None and agent_role == "pm":
                 payload["latest_pm_trigger_event"] = latest_pm_trigger_event
             latest_risk_brake_event = self._latest_risk_brake_event()
@@ -741,17 +746,16 @@ class AgentGatewayService:
                     "live": True,
                 }
                 payload["runtime_bridge_state"] = {
-                    "source": "runtime_bridge_pull",
-                    "captured_at_utc": datetime.now(UTC).isoformat(),
+                    **snapshot_meta,
                     "strategy_key": strategy_key,
                     "lock_mode": lock_mode,
                 }
                 payload["rt_decision_digest"] = self._build_rt_decision_digest(payload)
             hidden_payload = {
-                "market": context["market"].model_dump(mode="json"),
-                "policies": {coin: decision.model_dump(mode="json") for coin, decision in context["policies"].items()},
-                "forecasts": {coin: forecast.model_dump(mode="json") for coin, forecast in context["forecasts"].items()},
-                "news": [item.model_dump(mode="json") for item in context["news"]],
+                "market": context["market"],
+                "policies": context["policies"],
+                "forecasts": context["forecasts"],
+                "news": context["news"],
                 "latest_strategy": context["latest_strategy"] or {},
                 "macro_memory": list(context["macro_memory"]),
             }
@@ -796,6 +800,136 @@ class AgentGatewayService:
                 expires_at_utc=expires_at.isoformat(),
             )
         return pack
+
+    def _resolve_runtime_bridge_bundle(
+        self,
+        *,
+        agent_role: str,
+        trace_id: str,
+        trigger_type: str,
+    ) -> dict[str, Any]:
+        max_age_seconds = self.runtime_bridge_max_age_seconds
+        bridge_asset = self.state_memory.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
+        snapshot_source = "cache"
+        if bridge_asset is None and self.runtime_bridge_monitor is not None:
+            try:
+                bridge_asset = self.runtime_bridge_monitor.refresh_once(
+                    reason=f"pull:{agent_role}",
+                    trace_id=trace_id,
+                    force_sync_news=agent_role == "macro_event_analyst" and trigger_type == "news_batch_ready",
+                )
+            except Exception:
+                bridge_asset = None
+            if bridge_asset is None:
+                stale_asset = self.state_memory.latest_runtime_bridge_state_asset()
+                if stale_asset is not None:
+                    bridge_asset = stale_asset
+                    snapshot_source = "stale_cache"
+        elif bridge_asset is None:
+            stale_asset = self.state_memory.latest_runtime_bridge_state_asset()
+            if stale_asset is not None:
+                bridge_asset = stale_asset
+                snapshot_source = "stale_cache"
+
+        if bridge_asset is not None:
+            payload = dict(bridge_asset.get("payload") or {})
+            context = dict(payload.get("context") or {})
+            runtime_inputs = self._runtime_inputs_from_bridge_state(
+                trace_id=trace_id,
+                base_runtime_inputs=dict(payload.get("runtime_inputs") or {}),
+            )
+            if runtime_inputs:
+                if snapshot_source == "cache" and max_age_seconds is not None:
+                    asset_age = self._runtime_bridge_asset_age_seconds(bridge_asset)
+                    if asset_age is not None and asset_age > max_age_seconds:
+                        snapshot_source = "stale_cache"
+                return {
+                    "context": context,
+                    "runtime_inputs": runtime_inputs,
+                    "snapshot_meta": self._runtime_bridge_snapshot_meta(bridge_asset, source=snapshot_source),
+                }
+
+        context_models = self._collect_bridge_context(
+            agent_role=agent_role,
+            trace_id=trace_id,
+            trigger_type=trigger_type,
+        )
+        runtime_inputs = self.build_runtime_inputs(
+            trace_id=trace_id,
+            market=context_models["market"],
+            policies=context_models["policies"],
+            forecasts=context_models["forecasts"],
+            news_events=context_models["news"],
+            latest_strategy=context_models["latest_strategy"],
+            macro_memory=context_models["macro_memory"],
+        )
+        return {
+            "context": {
+                "market": context_models["market"].model_dump(mode="json"),
+                "policies": {coin: decision.model_dump(mode="json") for coin, decision in context_models["policies"].items()},
+                "forecasts": {coin: forecast.model_dump(mode="json") for coin, forecast in context_models["forecasts"].items()},
+                "news": [item.model_dump(mode="json") for item in context_models["news"]],
+                "latest_strategy": context_models["latest_strategy"] or {},
+                "macro_memory": list(context_models["macro_memory"]),
+            },
+            "runtime_inputs": runtime_inputs,
+            "snapshot_meta": {
+                "source": "direct_fallback",
+                "refreshed_at_utc": datetime.now(UTC).isoformat(),
+                "age_seconds": None,
+            },
+        }
+
+    def _runtime_inputs_from_bridge_state(
+        self,
+        *,
+        trace_id: str,
+        base_runtime_inputs: dict[str, Any],
+    ) -> dict[str, AgentRuntimeInput]:
+        runtime_inputs: dict[str, AgentRuntimeInput] = {}
+        for role, item in base_runtime_inputs.items():
+            if not isinstance(item, dict):
+                continue
+            payload = copy.deepcopy(dict(item.get("payload") or {}))
+            payload["trace_id"] = trace_id
+            task_kind = str(item.get("task_kind") or self._task_kind_for_role(role))
+            runtime_inputs[role] = AgentRuntimeInput(
+                input_id=new_id("input"),
+                agent_role=role,
+                task_kind=task_kind,
+                payload=payload,
+            )
+        return runtime_inputs
+
+    @staticmethod
+    def _task_kind_for_role(agent_role: str) -> str:
+        mapping = {
+            "pm": "strategy",
+            "risk_trader": "execution",
+            "macro_event_analyst": "event_summary",
+            "crypto_chief": "retro",
+        }
+        return mapping.get(agent_role, "generic")
+
+    @staticmethod
+    def _runtime_bridge_asset_age_seconds(asset: dict[str, Any]) -> float | None:
+        payload = dict(asset.get("payload") or {})
+        raw_timestamp = payload.get("refreshed_at_utc") or asset.get("created_at")
+        try:
+            refreshed_at = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+        except Exception:
+            return None
+        if refreshed_at.tzinfo is None:
+            refreshed_at = refreshed_at.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - refreshed_at.astimezone(UTC)).total_seconds()
+
+    def _runtime_bridge_snapshot_meta(self, asset: dict[str, Any], *, source: str) -> dict[str, Any]:
+        payload = dict(asset.get("payload") or {})
+        return {
+            "source": source,
+            "refreshed_at_utc": payload.get("refreshed_at_utc") or asset.get("created_at"),
+            "age_seconds": self._runtime_bridge_asset_age_seconds(asset),
+        }
 
     def _normalize_pm_pull_request(
         self,

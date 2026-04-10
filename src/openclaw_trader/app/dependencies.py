@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from ..config.loader import load_system_settings
 from ..modules.agent_gateway import AgentGatewayService
+from ..modules.agent_gateway.runtime_bridge import RuntimeBridgeConfig, RuntimeBridgeMonitor
 from ..modules.agent_gateway.adapters import (
     DeterministicAgentRunner,
     DeterministicSessionController,
@@ -46,6 +47,7 @@ class ServiceContainer:
     notification_service: NotificationService
     replay_frontend: ReplayFrontendService
     workflow_orchestrator: WorkflowOrchestratorService
+    runtime_bridge_monitor: RuntimeBridgeMonitor | None = None
 
     @property
     def memory_assets(self) -> StateMemoryService:
@@ -53,6 +55,8 @@ class ServiceContainer:
 
     def close(self) -> None:
         self.workflow_orchestrator.close()
+        if self.runtime_bridge_monitor is not None:
+            self.runtime_bridge_monitor.stop()
         self.event_bus.close()
 
 
@@ -161,6 +165,30 @@ def build_container() -> ServiceContainer:
     notification_service = NotificationService(OpenClawNotificationProvider(), state_memory)
     agent_gateway.notification_service = notification_service
     replay_frontend = ReplayFrontendService(state_memory, settings)
+    runtime_bridge_monitor = None
+    if bool(settings.orchestrator.runtime_bridge_enabled):
+        runtime_bridge_monitor = RuntimeBridgeMonitor(
+            state_memory=state_memory,
+            market_data=market_data,
+            news_events=news_events,
+            quant_intelligence=quant_intelligence,
+            policy_risk=policy_risk,
+            gateway=agent_gateway,
+            config=RuntimeBridgeConfig(
+                enabled=True,
+                refresh_interval_seconds=int(settings.orchestrator.runtime_bridge_refresh_interval_seconds),
+                max_age_seconds=int(settings.orchestrator.runtime_bridge_max_age_seconds),
+            ),
+        )
+        agent_gateway.bind_runtime_bridge_monitor(
+            runtime_bridge_monitor,
+            max_age_seconds=int(settings.orchestrator.runtime_bridge_max_age_seconds),
+        )
+        try:
+            runtime_bridge_monitor.refresh_once(reason="bootstrap")
+        except Exception:
+            pass
+        runtime_bridge_monitor.start()
     executor = WorkflowCommandExecutor(
         state_memory=state_memory,
         event_bus=event_bus,
@@ -257,4 +285,5 @@ def build_container() -> ServiceContainer:
         notification_service=notification_service,
         replay_frontend=replay_frontend,
         workflow_orchestrator=workflow_orchestrator,
+        runtime_bridge_monitor=runtime_bridge_monitor,
     )
