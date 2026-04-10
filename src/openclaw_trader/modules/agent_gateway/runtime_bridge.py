@@ -1,0 +1,232 @@
+from __future__ import annotations
+
+import copy
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from threading import Event, Lock, Thread
+from typing import TYPE_CHECKING, Any
+
+from ...shared.utils import new_id
+from ..news_events.models import NewsDigestEvent
+from ..news_events.service import NewsEventService
+from ..policy_risk.service import PolicyRiskService
+from ..quant_intelligence.service import QuantIntelligenceService
+from ..state_memory.service import StateMemoryService
+from ..trade_gateway.market_data.models import DataIngestBundle
+from ..trade_gateway.market_data.service import DataIngestService
+
+if TYPE_CHECKING:
+    from .service import AgentGatewayService
+
+
+@dataclass(frozen=True)
+class RuntimeBridgeConfig:
+    enabled: bool = True
+    refresh_interval_seconds: int = 10
+    max_age_seconds: int = 30
+
+
+class RuntimeBridgeMonitor:
+    def __init__(
+        self,
+        *,
+        state_memory: StateMemoryService,
+        market_data: DataIngestService,
+        news_events: NewsEventService,
+        quant_intelligence: QuantIntelligenceService,
+        policy_risk: PolicyRiskService,
+        gateway: AgentGatewayService,
+        config: RuntimeBridgeConfig | None = None,
+    ) -> None:
+        self.state_memory = state_memory
+        self.market_data = market_data
+        self.news_events = news_events
+        self.quant_intelligence = quant_intelligence
+        self.policy_risk = policy_risk
+        self.gateway = gateway
+        self.config = config or RuntimeBridgeConfig()
+        self._stop = Event()
+        self._thread: Thread | None = None
+        self._lock = Lock()
+        self._latest_asset: dict[str, Any] | None = None
+
+    def start(self) -> None:
+        if not self.config.enabled or self._thread is not None:
+            return
+        self._thread = Thread(target=self._loop, name="agent-gateway-runtime-bridge", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+
+    def latest_asset(self, *, max_age_seconds: int | None = None) -> dict[str, Any] | None:
+        with self._lock:
+            asset = copy.deepcopy(self._latest_asset)
+        if asset is None:
+            asset = self.state_memory.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
+        elif max_age_seconds is not None and self._asset_age_seconds(asset) > max_age_seconds:
+            asset = self.state_memory.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
+        return asset
+
+    def refresh_once(
+        self,
+        *,
+        reason: str = "scheduled",
+        trace_id: str | None = None,
+        force_sync_news: bool = False,
+    ) -> dict[str, Any]:
+        trace = trace_id or new_id("trace")
+        market, news, latest_strategy_asset, prior_risk_state, macro_memory = self._collect_primitives(
+            trace_id=trace,
+            force_sync_news=force_sync_news,
+        )
+        latest_strategy = (
+            latest_strategy_asset["payload"]
+            if latest_strategy_asset and "payload" in latest_strategy_asset
+            else latest_strategy_asset
+        )
+        forecasts = self.quant_intelligence.get_latest_forecasts(market)
+        policies = self.policy_risk.evaluate(
+            market=market,
+            forecasts=forecasts,
+            news_events=news,
+            prior_risk_state=dict((prior_risk_state or {}).get("payload") or {}),
+            latest_strategy=latest_strategy or {},
+        )
+        runtime_inputs = self.gateway.build_runtime_inputs(
+            trace_id=trace,
+            market=market,
+            policies=policies,
+            forecasts=forecasts,
+            news_events=news,
+            latest_strategy=latest_strategy,
+            macro_memory=macro_memory,
+        )
+        now = datetime.now(UTC)
+        payload = {
+            "state_id": new_id("runtime_bridge_state"),
+            "refreshed_at_utc": now.isoformat(),
+            "refresh_reason": reason,
+            "source_timestamps": self._source_timestamps(
+                market=market,
+                news=news,
+                latest_strategy=latest_strategy,
+                prior_risk_state=prior_risk_state,
+                refreshed_at=now,
+            ),
+            "context": {
+                "market": market.model_dump(mode="json"),
+                "news": [item.model_dump(mode="json") for item in news],
+                "forecasts": {coin: forecast.model_dump(mode="json") for coin, forecast in forecasts.items()},
+                "policies": {coin: policy.model_dump(mode="json") for coin, policy in policies.items()},
+                "latest_strategy": latest_strategy or {},
+                "macro_memory": list(macro_memory or []),
+            },
+            "runtime_inputs": {
+                role: {
+                    "task_kind": runtime_input.task_kind,
+                    "payload": runtime_input.payload,
+                }
+                for role, runtime_input in runtime_inputs.items()
+            },
+        }
+        self._persist_portfolio_snapshot(trace_id=trace, market=market, reason=reason)
+        asset = self.state_memory.materialize_runtime_bridge_state(
+            trace_id=trace,
+            authored_payload=payload,
+            metadata={"refresh_reason": reason},
+        )
+        with self._lock:
+            self._latest_asset = copy.deepcopy(asset)
+        return asset
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self.refresh_once(reason="scheduled")
+            except Exception:
+                pass
+            if self._stop.wait(max(int(self.config.refresh_interval_seconds), 1)):
+                break
+
+    def _collect_primitives(
+        self,
+        *,
+        trace_id: str,
+        force_sync_news: bool,
+    ) -> tuple[DataIngestBundle, list[NewsDigestEvent], dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]]]:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            market_future = executor.submit(self.market_data.get_market_overview, trace_id=trace_id)
+            news_future = executor.submit(self.news_events.get_latest_news_batch, force_sync=force_sync_news)
+            strategy_future = executor.submit(self.state_memory.get_latest_strategy)
+            risk_state_future = executor.submit(self.state_memory.get_asset, "risk_brake_state")
+            macro_memory_future = executor.submit(self.state_memory.get_macro_memory)
+            market = market_future.result()
+            news = news_future.result()
+            latest_strategy_asset = strategy_future.result()
+            prior_risk_state = risk_state_future.result()
+            macro_memory = macro_memory_future.result()
+        return market, news, latest_strategy_asset, prior_risk_state, macro_memory
+
+    def _persist_portfolio_snapshot(self, *, trace_id: str, market: DataIngestBundle, reason: str) -> None:
+        portfolio_payload = market.portfolio.model_dump(mode="json")
+        self.state_memory.save_portfolio(trace_id, portfolio_payload)
+        self.state_memory.save_asset(
+            asset_type="portfolio_snapshot",
+            payload=portfolio_payload,
+            trace_id=trace_id,
+            actor_role="system",
+            group_key=trace_id,
+            metadata={
+                "reason": "runtime_bridge_refresh",
+                "refresh_reason": reason,
+            },
+        )
+
+    @staticmethod
+    def _source_timestamps(
+        *,
+        market: DataIngestBundle,
+        news: list[NewsDigestEvent],
+        latest_strategy: dict[str, Any] | None,
+        prior_risk_state: dict[str, Any] | None,
+        refreshed_at: datetime,
+    ) -> dict[str, Any]:
+        latest_news_time = None
+        if news:
+            latest_news_time = max(
+                (
+                    item.published_at.astimezone(UTC).isoformat()
+                    if item.published_at.tzinfo is not None
+                    else item.published_at.replace(tzinfo=UTC).isoformat()
+                )
+                for item in news
+            )
+        strategy_generated_at = None
+        if isinstance(latest_strategy, dict):
+            strategy_generated_at = latest_strategy.get("generated_at_utc")
+        return {
+            "refreshed_at_utc": refreshed_at.isoformat(),
+            "market_captured_at_utc": market.portfolio.captured_at.astimezone(UTC).isoformat()
+            if market.portfolio.captured_at.tzinfo is not None
+            else market.portfolio.captured_at.replace(tzinfo=UTC).isoformat(),
+            "latest_news_published_at_utc": latest_news_time,
+            "latest_strategy_generated_at_utc": strategy_generated_at,
+            "risk_brake_state_updated_at_utc": (prior_risk_state or {}).get("created_at"),
+        }
+
+    @staticmethod
+    def _asset_age_seconds(asset: dict[str, Any]) -> float:
+        payload = dict(asset.get("payload") or {})
+        raw_timestamp = payload.get("refreshed_at_utc") or asset.get("created_at")
+        try:
+            refreshed_at = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+        except Exception:
+            return float("inf")
+        if refreshed_at.tzinfo is None:
+            refreshed_at = refreshed_at.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - refreshed_at.astimezone(UTC)).total_seconds()

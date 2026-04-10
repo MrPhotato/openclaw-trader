@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import time
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from openclaw_trader.app.factory import create_app
 
 from .helpers_v2 import build_test_harness
+from .test_v2_agent_gateway import _seed_runtime_bridge_state
 
 
 class ApiIntegrationTests(unittest.TestCase):
@@ -29,6 +31,36 @@ class ApiIntegrationTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 409)
                     self.assertFalse(response.json()["detail"]["accepted"])
                     self.assertEqual(response.json()["detail"]["reason"], "legacy_market_workflow_disabled_use_agent_cron")
+        finally:
+            harness.cleanup()
+
+    def test_all_agent_pull_endpoints_use_cached_runtime_bridge_state_when_available(self) -> None:
+        harness = build_test_harness()
+        try:
+            _seed_runtime_bridge_state(harness)
+            app = create_app(harness.container)
+            with (
+                patch.object(harness.container.market_data, "get_market_overview", side_effect=AssertionError("market_data should not be called")),
+                patch.object(harness.container.news_events, "get_latest_news_batch", side_effect=AssertionError("news_events should not be called")),
+                patch.object(harness.container.quant_intelligence, "get_latest_forecasts", side_effect=AssertionError("quant should not be called")),
+                patch.object(harness.container.state_memory, "get_latest_strategy", side_effect=AssertionError("strategy should not be called")),
+                patch.object(harness.container.state_memory, "get_asset", side_effect=AssertionError("get_asset should not be called")),
+                patch.object(harness.container.state_memory, "get_macro_memory", side_effect=AssertionError("macro memory should not be called")),
+            ):
+                with TestClient(app) as client:
+                    pm_pack = client.post("/api/agent/pull/pm", json={"trigger_type": "pm_main_cron"})
+                    rt_pack = client.post("/api/agent/pull/rt", json={"trigger_type": "cadence"})
+                    mea_pack = client.post("/api/agent/pull/mea", json={"trigger_type": "cadence"})
+                    chief_pack = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
+
+            self.assertEqual(pm_pack.status_code, 200)
+            self.assertEqual(rt_pack.status_code, 200)
+            self.assertEqual(mea_pack.status_code, 200)
+            self.assertEqual(chief_pack.status_code, 200)
+            self.assertEqual(pm_pack.json()["payload"]["runtime_bridge_state"]["source"], "cache")
+            self.assertEqual(rt_pack.json()["payload"]["runtime_bridge_state"]["source"], "cache")
+            self.assertEqual(mea_pack.json()["payload"]["runtime_bridge_state"]["source"], "cache")
+            self.assertEqual(chief_pack.json()["payload"]["runtime_bridge_state"]["source"], "cache")
         finally:
             harness.cleanup()
 
