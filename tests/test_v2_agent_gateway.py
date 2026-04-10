@@ -48,6 +48,46 @@ def _write_learning_targets(learning_targets: list[dict[str, object]]) -> list[d
     return results
 
 
+def _seed_runtime_bridge_state(harness, *, trace_id: str = "trace-runtime-bridge") -> dict[str, object]:
+    context = harness.container.agent_gateway._collect_bridge_context(
+        agent_role="pm",
+        trace_id=trace_id,
+        trigger_type="pm_main_cron",
+    )
+    runtime_inputs = harness.container.agent_gateway.build_runtime_inputs(
+        trace_id=trace_id,
+        market=context["market"],
+        policies=context["policies"],
+        forecasts=context["forecasts"],
+        news_events=context["news"],
+        latest_strategy=context["latest_strategy"],
+        macro_memory=context["macro_memory"],
+    )
+    payload = {
+        "state_id": "runtime_bridge_state_test",
+        "refreshed_at_utc": datetime.now(UTC).isoformat(),
+        "refresh_reason": "test_seed",
+        "source_timestamps": {},
+        "context": {
+            "market": context["market"].model_dump(mode="json"),
+            "news": [item.model_dump(mode="json") for item in context["news"]],
+            "forecasts": {coin: forecast.model_dump(mode="json") for coin, forecast in context["forecasts"].items()},
+            "policies": {coin: policy.model_dump(mode="json") for coin, policy in context["policies"].items()},
+            "latest_strategy": context["latest_strategy"] or {},
+            "macro_memory": list(context["macro_memory"]),
+        },
+        "runtime_inputs": {
+            role: {"task_kind": runtime_input.task_kind, "payload": runtime_input.payload}
+            for role, runtime_input in runtime_inputs.items()
+        },
+    }
+    return harness.container.state_memory.materialize_runtime_bridge_state(
+        trace_id=trace_id,
+        authored_payload=payload,
+        metadata={"refresh_reason": "test_seed"},
+    )
+
+
 class AgentGatewayServiceTests(unittest.TestCase):
     def test_request_execution_decisions_uses_deterministic_runner(self) -> None:
         gateway = AgentGatewayService(
@@ -135,6 +175,30 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertEqual(rt_context["current_position_share_pct_of_exposure_budget"], 4.0)
         self.assertLessEqual(len(inputs["risk_trader"].payload["news_events"]), 5)
         self.assertEqual(inputs["risk_trader"].payload["news_events"][0]["title"], "Macro headline")
+
+    def test_all_runtime_pulls_use_cached_runtime_bridge_state_when_available(self) -> None:
+        harness = build_test_harness()
+        try:
+            _seed_runtime_bridge_state(harness)
+            with (
+                patch.object(harness.container.market_data, "get_market_overview", side_effect=AssertionError("market_data should not be called")),
+                patch.object(harness.container.news_events, "get_latest_news_batch", side_effect=AssertionError("news_events should not be called")),
+                patch.object(harness.container.quant_intelligence, "get_latest_forecasts", side_effect=AssertionError("quant should not be called")),
+                patch.object(harness.container.state_memory, "get_latest_strategy", side_effect=AssertionError("strategy should not be called")),
+                patch.object(harness.container.state_memory, "get_asset", side_effect=AssertionError("get_asset should not be called")),
+                patch.object(harness.container.state_memory, "get_macro_memory", side_effect=AssertionError("macro memory should not be called")),
+            ):
+                pm_pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
+                rt_pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
+                mea_pack = harness.container.agent_gateway.pull_mea_runtime_input(trigger_type="cadence")
+                chief_pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+
+            self.assertEqual(pm_pack.payload["runtime_bridge_state"]["source"], "cache")
+            self.assertEqual(rt_pack.payload["runtime_bridge_state"]["source"], "cache")
+            self.assertEqual(mea_pack.payload["runtime_bridge_state"]["source"], "cache")
+            self.assertEqual(chief_pack.payload["runtime_bridge_state"]["source"], "cache")
+        finally:
+            harness.cleanup()
 
     def test_build_runtime_inputs_compacts_and_ranks_news_for_pm_and_rt(self) -> None:
         gateway = AgentGatewayService(

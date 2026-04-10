@@ -107,6 +107,11 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
             thinking=str(dispatch_payload.get("thinking", "minimal")),
             timeout_seconds=int(dispatch_payload.get("timeout_seconds", 180)),
             process_timeout_grace_seconds=int(dispatch_payload.get("process_timeout_grace_seconds", 15)),
+            runtime_bridge_enabled=bool(dispatch_payload.get("runtime_bridge_enabled", True)),
+            runtime_bridge_refresh_interval_seconds=int(
+                dispatch_payload.get("runtime_bridge_refresh_interval_seconds", 10)
+            ),
+            runtime_bridge_max_age_seconds=int(dispatch_payload.get("runtime_bridge_max_age_seconds", 30)),
             rt_event_trigger_enabled=bool(dispatch_payload.get("rt_event_trigger_enabled", False)),
             rt_event_trigger_job_id=str(
                 dispatch_payload.get(

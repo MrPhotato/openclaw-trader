@@ -12,6 +12,7 @@ from .models import (
     OverviewQueryView,
     ReplayQueryView,
     RTTacticalMapAsset,
+    RuntimeBridgeState,
     StateSnapshot,
     StrategyAsset,
     WorkflowStateRef,
@@ -171,6 +172,25 @@ class StateMemoryService:
     def latest_asset(self, *, asset_type: str, actor_role: str | None = None) -> dict | None:
         return self.repository.latest_asset(asset_type=asset_type, actor_role=actor_role)
 
+    def latest_runtime_bridge_state_asset(self) -> dict | None:
+        return self.latest_asset(asset_type="runtime_bridge_state", actor_role="system")
+
+    def get_runtime_bridge_state_asset(self, *, max_age_seconds: int | None = None) -> dict | None:
+        asset = self.latest_runtime_bridge_state_asset()
+        if asset is None or max_age_seconds is None:
+            return asset
+        payload = dict(asset.get("payload") or {})
+        raw_timestamp = payload.get("refreshed_at_utc") or asset.get("created_at")
+        try:
+            refreshed_at = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+        except Exception:
+            return None
+        if refreshed_at.tzinfo is None:
+            refreshed_at = refreshed_at.replace(tzinfo=UTC)
+        if (datetime.now(UTC) - refreshed_at.astimezone(UTC)).total_seconds() > max_age_seconds:
+            return None
+        return asset
+
     def recent_assets(
         self,
         *,
@@ -241,6 +261,27 @@ class StateMemoryService:
             metadata=metadata or {},
         )
         return canonical_payload
+
+    def materialize_runtime_bridge_state(
+        self,
+        *,
+        trace_id: str,
+        authored_payload: dict,
+        actor_role: str = "system",
+        group_key: str = "global",
+        source_ref: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        canonical_payload = RuntimeBridgeState.model_validate(authored_payload).model_dump(mode="json")
+        return self.save_asset(
+            asset_type="runtime_bridge_state",
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=group_key,
+            source_ref=source_ref,
+            metadata=metadata,
+        )
 
     def get_pending_scheduled_rechecks(self) -> list[dict]:
         latest_strategy = self.get_latest_strategy()

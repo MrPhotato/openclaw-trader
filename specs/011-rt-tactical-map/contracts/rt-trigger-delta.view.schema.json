@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RT Trigger Delta View",
+  "type": "object",
+  "required": [
+    "trigger_reason",
+    "trigger_severity",
+    "strategy_changed",
+    "risk_brake_changed",
+    "positions_changed",
+    "execution_changed",
+    "market_structure_changed_coins",
+    "headline_risk_changed",
+    "summary"
+  ],
+  "properties": {
+    "trigger_reason": { "type": "string" },
+    "trigger_severity": { "type": "string" },
+    "strategy_changed": { "type": "boolean" },
+    "risk_brake_changed": { "type": "boolean" },
+    "positions_changed": { "type": "boolean" },
+    "execution_changed": { "type": "boolean" },
+    "market_structure_changed_coins": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "headline_risk_changed": { "type": "boolean" },
+    "lock_mode": {
+      "type": ["string", "null"]
+    },
+    "summary": { "type": "string" }
+  },
+  "additionalProperties": false
+}

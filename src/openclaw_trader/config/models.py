@@ -345,6 +345,9 @@ class OrchestratorSettings(BaseModel):
     thinking: str = "minimal"
     timeout_seconds: int = 180
     process_timeout_grace_seconds: int = 15
+    runtime_bridge_enabled: bool = True
+    runtime_bridge_refresh_interval_seconds: int = 10
+    runtime_bridge_max_age_seconds: int = 30
     rt_event_trigger_enabled: bool = False
     rt_event_trigger_job_id: str = "ccbf7286-dba4-4d57-bebe-932340374492"
     rt_event_trigger_scan_interval_seconds: int = 30
