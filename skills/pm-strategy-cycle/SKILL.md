@@ -29,6 +29,7 @@ Use this skill for `PM` work only.
 3. Emit formal JSON using [formal-output.md](references/formal-output.md), and carry the current `input_id` back to the submit bridge.
 
 ## Guardrails
+- Default to Chinese for all non-JSON commentary unless a downstream contract explicitly requires another language.
 - Do not use `web_fetch` or any browser-style fetch against `127.0.0.1` / localhost. Pull the PM runtime pack with shell helper tooling only.
 - Pull exactly once by default. If submit returns `unknown_input_id`, pull exactly one fresh runtime pack, replace the old `input_id`, and try once more. Do not keep retrying guessed ids.
 - Prefer saving the runtime pack to a file and reading fields from that file instead of relying on truncated terminal output.

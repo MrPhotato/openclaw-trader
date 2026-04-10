@@ -130,6 +130,32 @@ class ExecutionResultRecord(BaseModel):
     technical_failure: bool = False
 
 
+class RTTacticalMapCoinAsset(BaseModel):
+    coin: str
+    working_posture: str
+    base_case: str
+    preferred_add_condition: str
+    preferred_reduce_condition: str
+    reference_take_profit_condition: str | None = None
+    reference_stop_loss_condition: str | None = None
+    no_trade_zone: str
+    force_pm_recheck_condition: str
+    next_focus: str
+
+
+class RTTacticalMapAsset(BaseModel):
+    map_id: str
+    strategy_key: str
+    updated_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    refresh_reason: str
+    lock_mode: str | None = None
+    portfolio_posture: str
+    desk_focus: str
+    risk_bias: str
+    next_review_hint: str | None = None
+    coins: list[RTTacticalMapCoinAsset] = Field(default_factory=list)
+
+
 class MacroEventRecord(BaseModel):
     event_id: str
     category: str

@@ -1,7 +1,11 @@
 # Three-Stage Funnel
 
 # Default read order
-Before the funnel, read `rt_decision_digest` first.
+Before the funnel, read in this order:
+- `trigger_delta`
+- `standing_tactical_map`
+- `rt_decision_digest`
+- helper-generated `/tmp/rt_execution_submission.json`
 
 Only drill into raw sections when the digest leaves ambiguity:
 - `execution_contexts`
@@ -11,6 +15,8 @@ Only drill into raw sections when the digest leaves ambiguity:
 
 ## 1. Task eligibility
 Read first:
+- `trigger_delta`
+- `standing_tactical_map`
 - `rt_decision_digest.trigger_summary`
 - `rt_decision_digest.portfolio_summary`
 - `rt_decision_digest.strategy_summary`
@@ -23,6 +29,8 @@ Read first:
 Answer:
 - can I act now
 - do I need to act now
+- do I need to refresh the tactical map in this same round
+- which parts of the submission scaffold need to be filled rather than rebuilt
 
 ## 2. Market timing
 Read second:

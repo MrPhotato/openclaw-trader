@@ -12,6 +12,7 @@ Expected output shape:
 - keep the `trigger_type` from the runtime pack's `trigger_context` when present; otherwise use a clear value such as `condition_trigger`
 - output only JSON; do not emit markdown fences, prose, headings, or trailing notes
 - one submission may include multi-symbol `decisions[]`
+- when this round changes RT's tactical plan, or when `trigger_delta.requires_tactical_map_refresh = true`, include root-level `tactical_map_update`
 - put `decisions[]` at the root level of the submission object
 - do **not** wrap the batch under `execution`, `payload.execution`, `result`, or any other nested key
 - if you decide to do nothing this round, submit an explicit root-level `\"decisions\": []` no-op batch
@@ -35,6 +36,24 @@ After formal submission, risk approval happens downstream.
 
 Bridge call for official condition-triggered, heartbeat, and PM follow-up operation:
 
+Preferred helper:
+
+```bash
+python3 /Users/chenzian/openclaw-trader/scripts/pull_rt_runtime.py
+# edit /tmp/rt_execution_submission.json in place, then submit
+python3 /Users/chenzian/openclaw-trader/scripts/submit_rt_decision.py \
+  --input-id "input_from_pull_pack" \
+  --payload-file /tmp/rt_execution_submission.json \
+  --live
+```
+
+Helper reminder:
+- `/tmp/rt_execution_submission.json` must contain only the root `ExecutionSubmission` object.
+- Do **not** put `input_id`, `trace_id`, `agent_role`, `task_kind`, `pm_recheck_request`, `rt_commentary`, or per-decision `execution_params` into that file.
+- `submit_rt_decision.py` adds `input_id`, `live`, and optional `max_notional_usd` outside the payload file for you.
+
+Equivalent raw HTTP call:
+
 ```bash
 curl -s -X POST http://127.0.0.1:8788/api/agent/submit/execution \
   -H "Content-Type: application/json" \
@@ -45,6 +64,27 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/execution \
     "strategy_id": "strategy_...",
     "generated_at_utc": "2026-03-22T17:57:00Z",
     "trigger_type": "condition_trigger",
+    "tactical_map_update": {
+      "map_refresh_reason": "pm_strategy_revision",
+      "portfolio_posture": "防守偏多，优先控制追价冲动。",
+      "desk_focus": "BTC / ETH 只在回踩承接时推进，SOL 保持观察。",
+      "risk_bias": "若 headline risk 再升级，先减风险再联系 PM。",
+      "next_review_hint": "下次重点看 BTC 回踩后的承接质量和 ETH 是否重新站回结构位。",
+      "coins": [
+        {
+          "coin": "BTC",
+          "working_posture": "回踩承接优先，避免突破后追高。",
+          "base_case": "只在结构确认继续的情况下慢慢推进。",
+          "preferred_add_condition": "回踩 1h 结构位后重新站稳并伴随买盘恢复。",
+          "preferred_reduce_condition": "若承接失败并失守最近 pullback low，则先减回观察仓。",
+          "reference_take_profit_condition": "上冲 1h 范围上沿但动能衰减时，分批收一部分。",
+          "reference_stop_loss_condition": "跌破关键回踩低点且卖压扩张时，优先减仓。",
+          "no_trade_zone": "突破后第一根冲高延伸里不追单。",
+          "force_pm_recheck_condition": "若 headline risk 继续升级并导致 BTC / ETH 同步失守关键位，要求 PM 重评。",
+          "next_focus": "观察回踩后的真实承接而不是单根上冲。"
+        }
+      ]
+    },
     "decisions": [
       {
         "symbol": "BTC",
@@ -77,6 +117,7 @@ Optional testing/debug override:
 Boundary reminder:
 - `execution` submit is a **decision-layer** contract, not an order-layer contract.
 - RT submits `decisions[]`, not `orders[]`.
+- `tactical_map_update` is optional, but when present it must live at the root level beside `decisions[]`, not nested inside a decision item.
 - A payload like `{..., "execution": {"decisions": [...]}}` is invalid and will be rejected.
 - An explicit empty batch `{..., "decisions": []}` is valid and means "no action this round".
 - Use `hold` only to mean "keep the current position unchanged"; it is a valid no-op and should not generate a new order.

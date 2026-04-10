@@ -23,6 +23,83 @@
     "trigger_type": {
       "type": "string"
     },
+    "tactical_map_update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "map_refresh_reason",
+        "portfolio_posture",
+        "desk_focus",
+        "risk_bias",
+        "coins"
+      ],
+      "properties": {
+        "map_refresh_reason": {
+          "type": "string"
+        },
+        "portfolio_posture": {
+          "type": "string"
+        },
+        "desk_focus": {
+          "type": "string"
+        },
+        "risk_bias": {
+          "type": "string"
+        },
+        "next_review_hint": {
+          "type": "string"
+        },
+        "coins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "coin",
+              "working_posture",
+              "base_case",
+              "preferred_add_condition",
+              "preferred_reduce_condition",
+              "no_trade_zone",
+              "force_pm_recheck_condition",
+              "next_focus"
+            ],
+            "properties": {
+              "coin": {
+                "type": "string"
+              },
+              "working_posture": {
+                "type": "string"
+              },
+              "base_case": {
+                "type": "string"
+              },
+              "preferred_add_condition": {
+                "type": "string"
+              },
+              "preferred_reduce_condition": {
+                "type": "string"
+              },
+              "reference_take_profit_condition": {
+                "type": "string"
+              },
+              "reference_stop_loss_condition": {
+                "type": "string"
+              },
+              "no_trade_zone": {
+                "type": "string"
+              },
+              "force_pm_recheck_condition": {
+                "type": "string"
+              },
+              "next_focus": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "decisions": {
       "type": "array",
       "items": {

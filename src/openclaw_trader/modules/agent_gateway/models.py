@@ -163,6 +163,32 @@ class ExecutionSubmissionDecision(BaseModel):
     valid_for_minutes: int
 
 
+class TacticalMapCoinUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coin: str
+    working_posture: str
+    base_case: str
+    preferred_add_condition: str
+    preferred_reduce_condition: str
+    reference_take_profit_condition: str | None = None
+    reference_stop_loss_condition: str | None = None
+    no_trade_zone: str
+    force_pm_recheck_condition: str
+    next_focus: str
+
+
+class TacticalMapUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    map_refresh_reason: str
+    portfolio_posture: str
+    desk_focus: str
+    risk_bias: str
+    next_review_hint: str | None = None
+    coins: list[TacticalMapCoinUpdate] = Field(default_factory=list)
+
+
 class ExecutionSubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -171,6 +197,7 @@ class ExecutionSubmission(BaseModel):
     generated_at_utc: datetime
     trigger_type: str
     decisions: list[ExecutionSubmissionDecision]
+    tactical_map_update: TacticalMapUpdate | None = None
 
 
 class NewsSubmissionEvent(BaseModel):

@@ -113,6 +113,9 @@ class ApiIntegrationTests(unittest.TestCase):
                 rt_pack = client.post("/api/agent/pull/rt", json={"trigger_type": "cadence"})
                 self.assertEqual(rt_pack.status_code, 200)
                 rt_payload = rt_pack.json()
+                self.assertIn("trigger_delta", rt_payload["payload"])
+                self.assertIn("standing_tactical_map", rt_payload["payload"])
+                self.assertIn("execution_submit_defaults", rt_payload["payload"])
                 submit_execution = client.post(
                     "/api/agent/submit/execution",
                     json={
@@ -122,6 +125,26 @@ class ApiIntegrationTests(unittest.TestCase):
                             "strategy_id": client.get("/api/query/strategy/current").json()["strategy_id"],
                             "generated_at_utc": "2026-03-21T00:00:00Z",
                             "trigger_type": "cadence",
+                            "tactical_map_update": {
+                                "map_refresh_reason": "pm_strategy_revision",
+                                "portfolio_posture": "先按当前策略初始化战术图。",
+                                "desk_focus": "BTC 先按最小动作初始化跟踪。",
+                                "risk_bias": "先建立地图，再决定后续节奏。",
+                                "coins": [
+                                    {
+                                        "coin": "BTC",
+                                        "working_posture": "初始化观察",
+                                        "base_case": "先维持观察，再等待更明确结构。",
+                                        "preferred_add_condition": "结构确认后再加。",
+                                        "preferred_reduce_condition": "若结构转弱则先减。",
+                                        "reference_take_profit_condition": "冲高衰减时部分止盈。",
+                                        "reference_stop_loss_condition": "跌破关键位时减仓。",
+                                        "no_trade_zone": "噪音区间不追单。",
+                                        "force_pm_recheck_condition": "若主逻辑快速失效则要求 PM 重评。",
+                                        "next_focus": "先完成地图初始化。",
+                                    }
+                                ],
+                            },
                             "decisions": [
                                 {
                                     "symbol": "BTC",
@@ -292,10 +315,14 @@ class ApiIntegrationTests(unittest.TestCase):
 
                 unspecified = client.post("/api/agent/pull/pm", json={})
                 self.assertEqual(unspecified.status_code, 200)
-                self.assertEqual(unspecified.json()["trigger_type"], "pm_unspecified")
+                self.assertEqual(unspecified.json()["trigger_type"], "agent_message")
                 self.assertEqual(
                     unspecified.json()["payload"]["latest_pm_trigger_event"]["trigger_category"],
-                    "unknown",
+                    "message",
+                )
+                self.assertEqual(
+                    unspecified.json()["payload"]["latest_pm_trigger_event"]["audit_origin"],
+                    "agent_gateway_pull_fallback_recent_message",
                 )
         finally:
             harness.cleanup()

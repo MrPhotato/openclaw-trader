@@ -6,6 +6,8 @@ Current runtime path is:
 `Workflow Orchestrator condition trigger or heartbeat -> OpenClaw cron run -> RT -> AG pull bridge -> single RT runtime pack`
 
 RT should pull one `rt` runtime pack from `agent_gateway`, then read:
+- `trigger_delta` first
+- `standing_tactical_map` second
 - `rt_decision_digest` first
 - `market`
 - `execution_contexts`
@@ -36,7 +38,10 @@ The runtime pack from `/api/agent/pull/rt` contains:
 - `recent_execution_thoughts` - the last 5 RT decision summaries paired with actual execution outcome details
 - `latest_rt_trigger_event` - the latest objective trigger record, if WO called the registered RT cron job because PM strategy changed, MEA raised a high-impact event, exposure drifted, execution filled, market structure changed, or heartbeat elapsed
 - `latest_risk_brake_event` - the latest system risk-brake record, if the system already forced a reduce or exit order before waking RT
+- `standing_tactical_map` - the latest compatible formal RT tactical map for the current `strategy_key` and `lock_mode`; if this is `null`, RT currently has no valid map for this strategy/lock combination
+- `trigger_delta` - the compact explanation of what changed since the last valid map, including whether this round requires a tactical map refresh
 - `rt_decision_digest` - a compact, decision-first summary that already merges trigger reason, portfolio snapshot, strategy snapshot, symbol focus, recent thoughts, and thin headline risk
+- `execution_submit_defaults` - the default submit flags for this round, including the intended `trigger_type` and default `live` mode
 - when present, each recent thought may also carry `reference_take_profit_condition` and `reference_stop_loss_condition`, textual exit clues left by RT for the next wakeup
 - Real-time `captured_at` timestamps
 - Normalized exposure/share fields that already follow the new house convention:
@@ -90,6 +95,8 @@ from pathlib import Path
 
 pack = json.loads(Path("/tmp/rt_runtime_pack.json").read_text())
 print(pack["input_id"])
+print(json.dumps(pack["payload"]["trigger_delta"], ensure_ascii=False, indent=2))
+print(json.dumps(pack["payload"]["standing_tactical_map"], ensure_ascii=False, indent=2))
 print(json.dumps(pack["payload"]["rt_decision_digest"], ensure_ascii=False, indent=2))
 PY
 ```
@@ -108,8 +115,12 @@ RT also remains a decision agent, not an order router.
 
 ## Use Now
 - Pull once, work from that pack, and submit against the same `input_id`.
+- `python3 /Users/chenzian/openclaw-trader/scripts/pull_rt_runtime.py` now also writes `/tmp/rt_execution_submission.json`. Treat that file as the default submission scaffold for the current round.
+- Keep `/tmp/rt_execution_submission.json` as a pure root-level `ExecutionSubmission` object. Do not add wrapper fields such as `input_id`, `trace_id`, `agent_role`, `task_kind`, `rt_commentary`, `pm_recheck_request`, or per-decision `execution_params`.
 - Prefer writing the runtime pack to a file first and then reading the needed fields from that file. Do not dump the full JSON pack back into the model context.
-- Read `rt_decision_digest` first. It is the default working view for this round.
+- Read `trigger_delta` first, then `standing_tactical_map`, then `rt_decision_digest`.
+- If `standing_tactical_map` is `null` and `trigger_delta.requires_tactical_map_refresh = true`, this round must carry a `tactical_map_update` inside the same `execution` submission. The helper-generated scaffold will already include the required root-level block; fill it in rather than deleting it.
+- If `standing_tactical_map` is present and `trigger_delta.requires_tactical_map_refresh = false`, default to operating from the map and do not rewrite it on a routine no-op round.
 - Only drill into raw `execution_contexts`, `market.market_context`, `recent_execution_thoughts`, or `news_events` if the digest leaves a material ambiguity.
 - Do not use `GET /api/agent/pull/rt`. The live bridge is `POST` only.
 - Treat `execution_contexts` as the actionable bridge from PM formal strategy to RT execution batching.

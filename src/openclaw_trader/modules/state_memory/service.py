@@ -11,6 +11,7 @@ from .models import (
     NotificationResult,
     OverviewQueryView,
     ReplayQueryView,
+    RTTacticalMapAsset,
     StateSnapshot,
     StrategyAsset,
     WorkflowStateRef,
@@ -179,6 +180,68 @@ class StateMemoryService:
     ) -> list[dict]:
         return self.repository.recent_assets(asset_type=asset_type, actor_role=actor_role, limit=limit)
 
+    def latest_rt_tactical_map(
+        self,
+        *,
+        strategy_key: str | None = None,
+        lock_mode: str | None = None,
+        require_coins: bool = False,
+        limit: int = 20,
+    ) -> dict | None:
+        normalized_lock_mode = str(lock_mode or "").strip() or None
+        for asset in self.recent_assets(asset_type="rt_tactical_map", actor_role="risk_trader", limit=limit):
+            payload = dict(asset.get("payload") or {})
+            if strategy_key is not None and str(payload.get("strategy_key") or "") != strategy_key:
+                continue
+            asset_lock_mode = str(payload.get("lock_mode") or "").strip() or None
+            if asset_lock_mode != normalized_lock_mode:
+                continue
+            if require_coins and not self._rt_tactical_map_has_coins(asset):
+                continue
+            return asset
+        return None
+
+    def materialize_rt_tactical_map(
+        self,
+        *,
+        trace_id: str,
+        strategy_key: str,
+        lock_mode: str | None,
+        authored_payload: dict,
+        actor_role: str = "risk_trader",
+        source_ref: str | None = None,
+        group_key: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        now = datetime.now(UTC)
+        canonical_payload = dict(authored_payload)
+        refresh_reason = str(
+            canonical_payload.pop("refresh_reason", None)
+            or canonical_payload.pop("map_refresh_reason", None)
+            or "rt_tactical_refresh"
+        ).strip() or "rt_tactical_refresh"
+        canonical_payload.update(
+            {
+                "map_id": new_id("rt_tactical_map"),
+                "strategy_key": strategy_key,
+                "updated_at_utc": now.isoformat(),
+                "refresh_reason": refresh_reason,
+                "lock_mode": str(lock_mode or "").strip() or None,
+            }
+        )
+        canonical_payload = RTTacticalMapAsset.model_validate(canonical_payload).model_dump(mode="json")
+        self.save_asset(
+            asset_type="rt_tactical_map",
+            asset_id=str(canonical_payload["map_id"]),
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=group_key or strategy_key,
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
     def get_pending_scheduled_rechecks(self) -> list[dict]:
         latest_strategy = self.get_latest_strategy()
         if latest_strategy is None:
@@ -228,6 +291,12 @@ class StateMemoryService:
             due.append(enriched)
         return due
 
+    @staticmethod
+    def _rt_tactical_map_has_coins(asset: dict | None) -> bool:
+        payload = dict((asset or {}).get("payload") or {})
+        coins = payload.get("coins") or []
+        return isinstance(coins, list) and any(isinstance(item, dict) and item.get("coin") for item in coins)
+
     def claim_pending_pm_trigger_event(
         self,
         *,
@@ -275,6 +344,32 @@ class StateMemoryService:
             "asset_id": asset.get("asset_id"),
             **payload,
         }
+
+    def find_recent_pm_trigger_event(
+        self,
+        *,
+        trigger_category: str | None = None,
+        max_age_minutes: int = 10,
+    ) -> dict | None:
+        current = datetime.now(UTC)
+        normalized_category = str(trigger_category or "").strip() or None
+        for asset in self.recent_assets(asset_type="pm_trigger_event", actor_role="system", limit=20):
+            payload = dict(asset.get("payload") or {})
+            if normalized_category is not None:
+                category = str(payload.get("trigger_category") or "").strip()
+                if category != normalized_category:
+                    continue
+            detected_at = _parse_utc_datetime(payload.get("detected_at_utc") or asset.get("created_at"))
+            if detected_at is None:
+                continue
+            if current - detected_at > timedelta(minutes=max_age_minutes):
+                continue
+            return {
+                "created_at": asset.get("created_at"),
+                "asset_id": asset.get("asset_id"),
+                **payload,
+            }
+        return None
 
     def get_macro_memory(self, *, limit: int = 5) -> list[dict]:
         macro_daily = self.recent_assets(asset_type="macro_daily_memory", limit=limit)

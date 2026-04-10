@@ -63,11 +63,20 @@ class NotificationService:
     def handle_event(self, envelope: EventEnvelope) -> list[EventEnvelope]:
         if envelope.event_type != "strategy.submitted":
             return []
-        payload = envelope.payload.get("strategy") if isinstance(envelope.payload.get("strategy"), dict) else envelope.payload
+        event_payload = envelope.payload if isinstance(envelope.payload, dict) else {}
+        payload = event_payload.get("strategy") if isinstance(event_payload.get("strategy"), dict) else event_payload
+        strategy_payload = dict(payload) if isinstance(payload, dict) else {}
+        latest_trigger = event_payload.get("latest_pm_trigger_event")
+        if isinstance(latest_trigger, dict):
+            strategy_payload["latest_pm_trigger_event"] = dict(latest_trigger)
+        for key in ("trigger_type", "trigger_reason", "wake_source", "source_role"):
+            value = event_payload.get(key)
+            if value not in (None, "") and key not in strategy_payload:
+                strategy_payload[key] = value
         commands = self._build_event_commands(
             trace_id=envelope.trace_id,
             message_type="strategy_update",
-            strategy=payload if isinstance(payload, dict) else {},
+            strategy=strategy_payload,
             execution_results=[],
         )
         return self._send_commands(trace_id=envelope.trace_id, commands=commands)
@@ -161,6 +170,35 @@ class NotificationService:
         strategy_version = strategy.get("strategy_version") or strategy.get("strategy_id") or strategy.get("version")
         if strategy_version:
             lines.append(f"strategy: {strategy_version}")
+        trigger = strategy.get("latest_pm_trigger_event") if isinstance(strategy.get("latest_pm_trigger_event"), dict) else None
+        trigger_type = None
+        trigger_reason = None
+        wake_source = None
+        source_role = None
+        if trigger is not None:
+            trigger_type = str(trigger.get("trigger_type") or "").strip() or None
+            trigger_reason = str(trigger.get("reason") or "").strip() or None
+            wake_source = str(trigger.get("wake_source") or "").strip() or None
+            source_role = str(trigger.get("source_role") or "").strip() or None
+        if trigger_type is None:
+            trigger_type = str(strategy.get("trigger_type") or "").strip() or None
+        if trigger_reason is None:
+            trigger_reason = str(strategy.get("trigger_reason") or "").strip() or None
+        if wake_source is None:
+            wake_source = str(strategy.get("wake_source") or "").strip() or None
+        if source_role is None:
+            source_role = str(strategy.get("source_role") or "").strip() or None
+        if trigger_type:
+            lines.append(f"trigger: {trigger_type}")
+        trigger_parts = []
+        if trigger_reason:
+            trigger_parts.append(trigger_reason)
+        if wake_source:
+            trigger_parts.append(f"via {wake_source}")
+        if source_role:
+            trigger_parts.append(f"from {source_role}")
+        if trigger_parts:
+            lines.append("trigger_reason: " + " | ".join(trigger_parts))
         thesis = str(strategy.get("thesis") or strategy.get("portfolio_thesis") or "").strip()
         if thesis:
             lines.append(f"thesis: {thesis}")

@@ -73,6 +73,48 @@ class NotificationServiceTests(unittest.TestCase):
         finally:
             tempdir.cleanup()
 
+    def test_handle_event_includes_strategy_trigger_reason_in_message(self) -> None:
+        tempdir = TemporaryDirectory()
+        try:
+            state_memory = StateMemoryService(StateMemoryRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
+            notifier = FakeNotificationProvider()
+            service = NotificationService(notifier, state_memory)
+
+            envelope = EventFactory.build(
+                trace_id="trace-strategy",
+                event_type="strategy.submitted",
+                source_module="agent_gateway",
+                entity_type="strategy",
+                entity_id="strategy-1",
+                payload={
+                    "strategy": {
+                        "strategy_id": "strategy-1",
+                        "portfolio_thesis": "macro pressure remains elevated",
+                        "targets": [],
+                    },
+                    "trigger_type": "agent_message",
+                    "trigger_reason": "high-impact macro alert",
+                    "wake_source": "sessions_send",
+                    "source_role": "macro_event_analyst",
+                    "latest_pm_trigger_event": {
+                        "trigger_type": "agent_message",
+                        "reason": "high-impact macro alert",
+                        "wake_source": "sessions_send",
+                        "source_role": "macro_event_analyst",
+                    },
+                },
+            )
+
+            events = service.handle_event(envelope)
+
+            self.assertEqual(len(events), 2)
+            self.assertEqual(len(notifier.commands), 2)
+            owner_message = notifier.commands[0].message
+            self.assertIn("trigger: agent_message", owner_message)
+            self.assertIn("trigger_reason: high-impact macro alert | via sessions_send | from macro_event_analyst", owner_message)
+        finally:
+            tempdir.cleanup()
+
 
 class OpenClawNotificationProviderTests(unittest.TestCase):
     @patch("openclaw_trader.modules.notification_service.adapters.openclaw.subprocess.run")

@@ -214,6 +214,11 @@ class AgentGatewayService:
             actor_role="pm",
             source_ref=envelope.envelope_id,
         )
+        latest_pm_trigger_event = (
+            dict(lease.pack.payload.get("latest_pm_trigger_event"))
+            if isinstance(lease.pack.payload.get("latest_pm_trigger_event"), dict)
+            else None
+        )
         self._record_events(
             [
                 self.build_submission_event(trace_id=lease.pack.trace_id, envelope=envelope),
@@ -227,6 +232,22 @@ class AgentGatewayService:
                         "strategy": strategy_payload,
                         "envelope_id": envelope.envelope_id,
                         "trigger_type": lease.pack.trigger_type,
+                        "latest_pm_trigger_event": latest_pm_trigger_event,
+                        "trigger_reason": (
+                            str(latest_pm_trigger_event.get("reason") or "").strip()
+                            if latest_pm_trigger_event is not None
+                            else None
+                        ),
+                        "wake_source": (
+                            str(latest_pm_trigger_event.get("wake_source") or "").strip()
+                            if latest_pm_trigger_event is not None
+                            else None
+                        ),
+                        "source_role": (
+                            str(latest_pm_trigger_event.get("source_role") or "").strip()
+                            if latest_pm_trigger_event is not None
+                            else None
+                        ),
                         "input_id": input_id,
                     },
                 ),
@@ -268,6 +289,14 @@ class AgentGatewayService:
             payload=payload,
         )
         submission = ExecutionSubmission.model_validate(envelope.payload)
+        trigger_delta = dict(lease.pack.payload.get("trigger_delta") or {})
+        if bool(trigger_delta.get("requires_tactical_map_refresh")) and submission.tactical_map_update is None:
+            raise RuntimeInputLeaseError(
+                reason="tactical_map_update_required",
+                input_id=input_id,
+                agent_role="risk_trader",
+                detail=str(trigger_delta.get("tactical_map_refresh_reason") or "tactical_map_refresh_required"),
+            )
         self._record_events(
             [
                 self.build_submission_event(trace_id=lease.pack.trace_id, envelope=envelope),
@@ -300,6 +329,26 @@ class AgentGatewayService:
             source_ref=envelope.envelope_id,
             metadata={"strategy_id": submission.strategy_id, "input_id": input_id},
         )
+        strategy_key = self._strategy_key(
+            dict(lease.hidden_payload.get("latest_strategy") or lease.pack.payload.get("strategy") or {})
+        )
+        current_lock_mode = self._rt_lock_mode_from_payload(lease.pack.payload)
+        if submission.tactical_map_update is not None:
+            self.state_memory.materialize_rt_tactical_map(
+                trace_id=lease.pack.trace_id,
+                strategy_key=strategy_key,
+                lock_mode=current_lock_mode,
+                authored_payload=submission.tactical_map_update.model_dump(mode="json"),
+                actor_role="risk_trader",
+                source_ref=envelope.envelope_id,
+                group_key=submission.decision_id,
+                metadata={
+                    "decision_id": submission.decision_id,
+                    "strategy_id": submission.strategy_id,
+                    "input_id": input_id,
+                    "lock_mode": current_lock_mode,
+                },
+            )
 
         market = DataIngestBundle.model_validate(lease.hidden_payload.get("market") or {})
         policies = {
@@ -607,6 +656,15 @@ class AgentGatewayService:
             if latest_pm_trigger_event is not None:
                 resolved_trigger_type = str(latest_pm_trigger_event.get("trigger_type") or resolved_trigger_type).strip() or resolved_trigger_type
             else:
+                inherited_pm_trigger_event = self._inherit_recent_pm_message_trigger_event(
+                    trigger_type=resolved_trigger_type,
+                    params=resolved_params,
+                )
+                if inherited_pm_trigger_event is not None:
+                    resolved_trigger_type = str(
+                        inherited_pm_trigger_event.get("trigger_type") or resolved_trigger_type
+                    ).strip() or resolved_trigger_type
+                    resolved_params = inherited_pm_trigger_event
                 latest_pm_trigger_event = self._record_pm_pull_trigger_event(
                     trace_id=trace_id,
                     trigger_type=resolved_trigger_type,
@@ -667,6 +725,27 @@ class AgentGatewayService:
                 latest_trigger_event = self._latest_rt_trigger_event()
                 if latest_trigger_event is not None:
                     payload["latest_rt_trigger_event"] = latest_trigger_event
+                strategy_key = self._strategy_key(dict(payload.get("strategy") or {}))
+                lock_mode = self._rt_lock_mode_from_payload(payload)
+                payload["standing_tactical_map"] = self._standing_rt_tactical_map(
+                    strategy_key=strategy_key,
+                    lock_mode=lock_mode,
+                )
+                payload["trigger_delta"] = self._build_rt_trigger_delta(
+                    payload=payload,
+                    strategy_key=strategy_key,
+                    lock_mode=lock_mode,
+                )
+                payload["execution_submit_defaults"] = {
+                    "trigger_type": trigger_context.get("trigger_type"),
+                    "live": True,
+                }
+                payload["runtime_bridge_state"] = {
+                    "source": "runtime_bridge_pull",
+                    "captured_at_utc": datetime.now(UTC).isoformat(),
+                    "strategy_key": strategy_key,
+                    "lock_mode": lock_mode,
+                }
                 payload["rt_decision_digest"] = self._build_rt_decision_digest(payload)
             hidden_payload = {
                 "market": context["market"].model_dump(mode="json"),
@@ -764,6 +843,7 @@ class AgentGatewayService:
     ) -> dict[str, Any]:
         current = datetime.now(UTC)
         payload = dict(params or {})
+        audit_origin = str(payload.get("audit_origin") or "agent_gateway_pull").strip() or "agent_gateway_pull"
         normalized = {
             "event_id": new_id("pm_trigger"),
             "detected_at_utc": current.isoformat(),
@@ -776,7 +856,9 @@ class AgentGatewayService:
             "source_session_key": str(payload.get("source_session_key") or "").strip() or None,
             "source_message_excerpt": str(payload.get("source_message_excerpt") or "").strip()[:240] or None,
             "cadence_label": str(payload.get("cadence_label") or "").strip() or None,
-            "audit_origin": "agent_gateway_pull",
+            "audit_origin": audit_origin,
+            "inherited_from_event_id": str(payload.get("inherited_from_event_id") or "").strip() or None,
+            "inherited_from_trace_id": str(payload.get("inherited_from_trace_id") or "").strip() or None,
             "claimable": False,
             "claimed_at_utc": current.isoformat(),
             "claimed_ref": trace_id,
@@ -792,7 +874,7 @@ class AgentGatewayService:
             metadata={
                 "trigger_type": trigger_type,
                 "wake_source": normalized["wake_source"],
-                "audit_origin": "agent_gateway_pull",
+                "audit_origin": audit_origin,
             },
         )
         envelope = EventFactory.build(
@@ -810,6 +892,50 @@ class AgentGatewayService:
             except Exception:
                 pass
         return normalized
+
+    def _inherit_recent_pm_message_trigger_event(
+        self,
+        *,
+        trigger_type: str,
+        params: dict[str, object] | None,
+    ) -> dict[str, object] | None:
+        if trigger_type != "pm_unspecified":
+            return None
+        payload = dict(params or {})
+        if not self._pm_pull_request_lacks_provenance(payload):
+            return None
+        recent_event = self.state_memory.find_recent_pm_trigger_event(
+            trigger_category="message",
+            max_age_minutes=10,
+        )
+        if recent_event is None:
+            return None
+        return {
+            "trigger_type": recent_event.get("trigger_type") or "agent_message",
+            "wake_source": recent_event.get("wake_source"),
+            "source_role": recent_event.get("source_role"),
+            "source_session_key": recent_event.get("source_session_key"),
+            "source_message_excerpt": recent_event.get("source_message_excerpt"),
+            "reason": recent_event.get("reason"),
+            "severity": recent_event.get("severity"),
+            "audit_origin": "agent_gateway_pull_fallback_recent_message",
+            "inherited_from_event_id": recent_event.get("event_id") or recent_event.get("asset_id"),
+            "inherited_from_trace_id": recent_event.get("claimed_ref"),
+        }
+
+    @staticmethod
+    def _pm_pull_request_lacks_provenance(params: dict[str, object]) -> bool:
+        wake_source = str(params.get("wake_source") or "").strip()
+        source_role = str(params.get("source_role") or params.get("sender_role") or params.get("from_role") or "").strip()
+        source_session_key = str(params.get("source_session_key") or "").strip()
+        reason = str(params.get("reason") or "").strip()
+        if wake_source and wake_source != "unknown":
+            return False
+        if source_role or source_session_key:
+            return False
+        if reason and reason != "pm_unspecified":
+            return False
+        return True
 
     def _build_trigger_context(
         self,
@@ -1187,6 +1313,103 @@ class AgentGatewayService:
                 "headline_risk": compact_news,
             },
         }
+
+    def _standing_rt_tactical_map(
+        self,
+        *,
+        strategy_key: str,
+        lock_mode: str | None,
+    ) -> dict[str, Any] | None:
+        asset = self.state_memory.latest_rt_tactical_map(
+            strategy_key=strategy_key,
+            lock_mode=lock_mode,
+            require_coins=True,
+        )
+        if asset is None:
+            return None
+        payload = dict(asset.get("payload") or {})
+        return {
+            "map_id": payload.get("map_id") or asset.get("asset_id"),
+            **payload,
+        }
+
+    def _build_rt_trigger_delta(
+        self,
+        *,
+        payload: dict[str, Any],
+        strategy_key: str,
+        lock_mode: str | None,
+    ) -> dict[str, Any]:
+        latest_trigger_event = dict(payload.get("latest_rt_trigger_event") or {})
+        latest_risk_brake_event = dict(payload.get("latest_risk_brake_event") or {})
+        latest_map_asset = self.state_memory.latest_asset(asset_type="rt_tactical_map", actor_role="risk_trader")
+        latest_map_payload = dict((latest_map_asset or {}).get("payload") or {})
+        compatible_map_asset = self.state_memory.latest_rt_tactical_map(
+            strategy_key=strategy_key,
+            lock_mode=lock_mode,
+            require_coins=True,
+        )
+        compatible_map_exists = compatible_map_asset is not None
+        latest_map_strategy_key = str(latest_map_payload.get("strategy_key") or "").strip()
+        latest_map_lock_mode = str(latest_map_payload.get("lock_mode") or "").strip() or None
+        trigger_reason = str(latest_trigger_event.get("reason") or "").strip()
+        trigger_severity = str(latest_trigger_event.get("severity") or "").strip() or None
+        strategy_changed = bool(strategy_key and strategy_key != latest_map_strategy_key)
+        risk_lock_changed = lock_mode != latest_map_lock_mode
+        execution_changed = trigger_reason == "execution_followup"
+        headline_risk_changed = bool(trigger_severity in {"high", "critical"})
+        market_structure_changed_coins = list(latest_trigger_event.get("coins") or [])
+        requires_tactical_map_refresh = False
+        refresh_reason: str | None = None
+        if not compatible_map_exists:
+            if strategy_changed:
+                requires_tactical_map_refresh = True
+                refresh_reason = "pm_strategy_revision"
+            elif risk_lock_changed and lock_mode is not None:
+                requires_tactical_map_refresh = True
+                refresh_reason = "risk_lock_changed"
+            elif execution_changed:
+                requires_tactical_map_refresh = True
+                refresh_reason = "execution_followup"
+            elif trigger_reason in {"pm_strategy_update", "risk_brake", "market_structure_change"}:
+                requires_tactical_map_refresh = True
+                refresh_reason = trigger_reason
+
+        if compatible_map_exists:
+            map_status = "compatible"
+        elif latest_map_asset is None:
+            map_status = "missing"
+        elif latest_map_strategy_key and latest_map_strategy_key != strategy_key:
+            map_status = "stale_strategy"
+        elif latest_map_lock_mode != lock_mode:
+            map_status = "stale_lock_mode"
+        else:
+            map_status = "empty"
+
+        return {
+            "trigger_reason": trigger_reason or None,
+            "trigger_severity": trigger_severity,
+            "strategy_changed": strategy_changed,
+            "risk_lock_changed": risk_lock_changed,
+            "execution_changed": execution_changed,
+            "market_structure_changed_coins": market_structure_changed_coins,
+            "headline_risk_changed": headline_risk_changed,
+            "lock_mode": lock_mode,
+            "map_status": map_status,
+            "requires_tactical_map_refresh": requires_tactical_map_refresh,
+            "tactical_map_refresh_reason": refresh_reason,
+            "latest_tactical_map_strategy_key": latest_map_strategy_key or None,
+            "latest_tactical_map_lock_mode": latest_map_lock_mode,
+        }
+
+    @staticmethod
+    def _strategy_key(payload: dict[str, Any] | None) -> str:
+        data = dict(payload or {})
+        strategy_id = str(data.get("strategy_id") or "").strip()
+        revision = str(data.get("revision_number") or "").strip()
+        if strategy_id or revision:
+            return f"{strategy_id}:{revision}"
+        return ""
 
     @staticmethod
     def _rt_lock_mode_from_payload(payload: dict[str, Any]) -> str | None:

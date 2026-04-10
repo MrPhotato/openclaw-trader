@@ -27,6 +27,7 @@ Use this skill for `Crypto Chief` work only.
 3. Execute [post-meeting-actions.md](references/post-meeting-actions.md), and carry the current `input_id` through the retro outcome submit.
 
 ## Guardrails
+- Default to Chinese for all non-JSON commentary unless a downstream contract explicitly requires another language.
 - No rigid meeting template is required.
 - Do not turn daily discussion transcripts into formal truth assets.
 - Run a maximum of 2 rounds.

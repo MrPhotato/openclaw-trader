@@ -21,6 +21,8 @@ Use this skill for `RT` work only.
 
 ## Job
 - Pull exactly one RT runtime pack from `agent_gateway`.
+- Let the helper generate the round's default submission scaffold, then edit that scaffold instead of composing the JSON from scratch.
+- Read `trigger_delta` and `standing_tactical_map` before raw context traversal.
 - Read `rt_decision_digest` first and treat it as the default working view for this turn.
 - Convert PM intent into a multi-symbol execution decision batch.
 - Operate inside PM and risk boundaries.
@@ -30,16 +32,23 @@ Use this skill for `RT` work only.
 
 ## Workflow
 1. Read [runtime-inputs.md](references/runtime-inputs.md) to understand the current payload and the target chain.
-2. Read `rt_decision_digest` first. Do not start by manually traversing the full runtime pack.
-3. Follow [three-stage-funnel.md](references/three-stage-funnel.md) in order.
-4. Only drill into raw `execution_contexts`, `market.market_context`, `recent_execution_thoughts`, or `news_events` when the digest leaves a material ambiguity.
-5. Apply [escalation-and-boundaries.md](references/escalation-and-boundaries.md).
-6. Emit formal JSON using [formal-output.md](references/formal-output.md), and carry the current `input_id` back to the submit bridge.
+2. Read `trigger_delta`, then `standing_tactical_map`, then `rt_decision_digest`. Do not start by manually traversing the full runtime pack.
+3. Reuse the helper-generated `/tmp/rt_execution_submission.json` scaffold for this round. Only rebuild the whole JSON batch by hand if the helper is unavailable.
+4. Follow [three-stage-funnel.md](references/three-stage-funnel.md) in order.
+5. Only drill into raw `execution_contexts`, `market.market_context`, `recent_execution_thoughts`, or `news_events` when the digest leaves a material ambiguity.
+6. Apply [escalation-and-boundaries.md](references/escalation-and-boundaries.md).
+7. If `trigger_delta.requires_tactical_map_refresh = true`, the scaffold must already contain `tactical_map_update`; fill it in instead of deleting it.
+8. Emit formal JSON using [formal-output.md](references/formal-output.md), and carry the current `input_id` back to the submit bridge.
 
 ## Guardrails
+- Default to Chinese for all non-JSON commentary unless a downstream contract explicitly requires another language.
 - Pull the RT runtime pack with one correct `POST` only. Do not probe the endpoint with a preliminary `GET`.
 - Prefer saving the RT runtime pack to a temp file and reading the fields you need from that file instead of pasting the full JSON pack back into the session.
-- Default to the digest-first path: `rt_decision_digest -> targeted drill-down -> submit`.
+- Prefer editing the helper-generated `/tmp/rt_execution_submission.json` scaffold instead of writing a fresh JSON batch by hand.
+- Keep the scaffold file as a pure root-level `ExecutionSubmission` object. Do not insert wrapper fields such as `input_id`, `trace_id`, `agent_role`, `task_kind`, `pm_recheck_request`, `rt_commentary`, or per-decision `execution_params`.
+- Default to the map-first path: `trigger_delta -> standing_tactical_map -> rt_decision_digest -> targeted drill-down -> submit`.
+- If `standing_tactical_map` is null and `trigger_delta.requires_tactical_map_refresh = true`, you must refresh the map in the same `execution` submission via `tactical_map_update`.
+- Do not rewrite the tactical map on ordinary no-op / heartbeat rounds unless the runtime pack explicitly indicates a refresh is required or you are making a materially new tactical call.
 - No long-term memory or recall.
 - Do not redefine portfolio direction.
 - Do not bypass `policy_risk`.

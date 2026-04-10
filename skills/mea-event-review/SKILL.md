@@ -26,6 +26,7 @@ Use this skill for `MEA` work only.
 3. Emit formal JSON using [formal-output.md](references/formal-output.md), and carry the current `input_id` back to the submit bridge.
 
 ## Guardrails
+- Default to Chinese for all non-JSON commentary unless a downstream contract explicitly requires another language.
 - Do not hold strategy authority.
 - Do not wait for WO to track high-priority events.
 - Formal `news` submission must be JSON only, with no markdown fence or prose wrapper.

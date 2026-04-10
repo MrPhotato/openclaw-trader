@@ -107,6 +107,7 @@ PM should not assume it can request data directly from MQ.
 - Do not probe the bridge with `GET /api/agent/pull/pm`. The live bridge is `POST` only.
 - Never use `web_fetch` for `127.0.0.1` or localhost. Use shell `curl` only.
 - Prefer `python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py` over handwritten curl so PM wake provenance stays audited and consistent.
+- The bridge now has a narrow safety net for raw `pull/pm`: if PM was just woken by a recent direct agent message and then issues a bare `pm_unspecified` pull, the service will inherit that recent message provenance instead of silently downgrading to `pm_unspecified`. This is only a guardrail, not the preferred path.
 - Do not infer `input_id` from timestamps, process ids, filenames, or partial logs. Read the top-level `input_id` from the runtime pack directly.
 - Because runtime pack output can be long, prefer writing it to a file first and then reading the file. Do not trust truncated process output.
 - Do not paste the full runtime pack back into the conversation after pulling it. Keep the large JSON in a file and only extract the fields you need.

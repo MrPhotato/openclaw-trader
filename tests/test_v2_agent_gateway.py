@@ -333,6 +333,35 @@ class AgentGatewayServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_pull_pm_runtime_input_inherits_recent_agent_message_for_raw_unspecified_pull(self) -> None:
+        harness = build_test_harness()
+        try:
+            first = harness.container.agent_gateway.pull_pm_runtime_input(
+                trigger_type="agent_message",
+                params={
+                    "wake_source": "sessions_send",
+                    "source_role": "mea",
+                    "reason": "high-impact macro alert",
+                    "severity": "high",
+                },
+            )
+            self.assertEqual(first.trigger_type, "agent_message")
+
+            second = harness.container.agent_gateway.pull_pm_runtime_input()
+            self.assertEqual(second.trigger_type, "agent_message")
+            latest_event = dict(second.payload["latest_pm_trigger_event"])
+            self.assertEqual(latest_event["trigger_type"], "agent_message")
+            self.assertEqual(latest_event["wake_source"], "sessions_send")
+            self.assertEqual(latest_event["source_role"], "mea")
+            self.assertEqual(latest_event["reason"], "high-impact macro alert")
+            self.assertEqual(
+                latest_event["audit_origin"],
+                "agent_gateway_pull_fallback_recent_message",
+            )
+            self.assertTrue(str(latest_event["inherited_from_event_id"]).startswith("pm_trigger"))
+        finally:
+            harness.cleanup()
+
     def test_pull_pm_runtime_input_audits_manual_refresh(self) -> None:
         harness = build_test_harness()
         try:
@@ -630,8 +659,144 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(thoughts[0]["execution_result"]["first_fill_price"], "68000")
             self.assertEqual(pack.payload["latest_rt_trigger_event"]["reason"], "pm_strategy_update")
             self.assertEqual(pack.payload["latest_rt_trigger_event"]["coins"], ["BTC"])
+            self.assertIn("trigger_delta", pack.payload)
+            self.assertIn("standing_tactical_map", pack.payload)
+            self.assertIn("execution_submit_defaults", pack.payload)
+            self.assertIn("runtime_bridge_state", pack.payload)
             self.assertNotIn("asset_id", pack.payload["latest_rt_trigger_event"])
             self.assertNotIn("trigger_id", pack.payload["latest_rt_trigger_event"])
+        finally:
+            harness.cleanup()
+
+    def test_pull_rt_runtime_input_returns_compatible_standing_tactical_map(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            strategy = harness.container.state_memory.materialize_strategy_asset(
+                trace_id="trace-strategy",
+                authored_payload={
+                    "portfolio_mode": "normal",
+                    "target_gross_exposure_band_pct": [20.0, 30.0],
+                    "portfolio_thesis": "test strategy",
+                    "portfolio_invalidation": "test invalidation",
+                    "change_summary": "test summary",
+                    "targets": [],
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="pm_main_cron",
+            )
+            strategy_key = f"{strategy['strategy_id']}:{strategy['revision_number']}"
+            harness.container.state_memory.materialize_rt_tactical_map(
+                trace_id="trace-map",
+                strategy_key=strategy_key,
+                lock_mode=None,
+                authored_payload={
+                    "map_refresh_reason": "pm_strategy_revision",
+                    "portfolio_posture": "常规推进",
+                    "desk_focus": "沿 BTC 主线推进。",
+                    "risk_bias": "风险状态正常。",
+                    "coins": [
+                        {
+                            "coin": "BTC",
+                            "working_posture": "先观察再推进",
+                            "base_case": "沿主趋势推进。",
+                            "preferred_add_condition": "回踩站稳后继续加仓。",
+                            "preferred_reduce_condition": "若结构转弱则减仓。",
+                            "reference_take_profit_condition": "冲高分批止盈。",
+                            "reference_stop_loss_condition": "跌破关键结构止损。",
+                            "no_trade_zone": "震荡中段不开新仓。",
+                            "force_pm_recheck_condition": "若宏观冲击升级，要求 PM 重评。",
+                            "next_focus": "观察 BTC 领涨是否持续。",
+                        }
+                    ],
+                },
+            )
+
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="condition_trigger")
+            standing_map = pack.payload["standing_tactical_map"]
+            self.assertIsNotNone(standing_map)
+            self.assertEqual(standing_map["strategy_key"], strategy_key)
+            self.assertEqual(standing_map["coins"][0]["coin"], "BTC")
+            self.assertFalse(pack.payload["trigger_delta"]["requires_tactical_map_refresh"])
+        finally:
+            harness.cleanup()
+
+    def test_pull_rt_runtime_input_requires_refresh_when_strategy_changed_and_map_missing(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            old_strategy = harness.container.state_memory.materialize_strategy_asset(
+                trace_id="trace-strategy-old",
+                authored_payload={
+                    "portfolio_mode": "normal",
+                    "target_gross_exposure_band_pct": [10.0, 20.0],
+                    "portfolio_thesis": "old strategy",
+                    "portfolio_invalidation": "old invalidation",
+                    "change_summary": "old summary",
+                    "targets": [],
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="pm_main_cron",
+            )
+            harness.container.state_memory.materialize_rt_tactical_map(
+                trace_id="trace-map-old",
+                strategy_key=f"{old_strategy['strategy_id']}:{old_strategy['revision_number']}",
+                lock_mode=None,
+                authored_payload={
+                    "map_refresh_reason": "pm_strategy_revision",
+                    "portfolio_posture": "旧图",
+                    "desk_focus": "旧图焦点。",
+                    "risk_bias": "旧图风险。",
+                    "coins": [
+                        {
+                            "coin": "BTC",
+                            "working_posture": "旧图姿态",
+                            "base_case": "旧图 base case。",
+                            "preferred_add_condition": "旧图 add。",
+                            "preferred_reduce_condition": "旧图 reduce。",
+                            "reference_take_profit_condition": "旧图 tp。",
+                            "reference_stop_loss_condition": "旧图 sl。",
+                            "no_trade_zone": "旧图 no-trade。",
+                            "force_pm_recheck_condition": "旧图 pm。",
+                            "next_focus": "旧图 focus。",
+                        }
+                    ],
+                },
+            )
+            harness.container.state_memory.materialize_strategy_asset(
+                trace_id="trace-strategy-new",
+                authored_payload={
+                    "portfolio_mode": "defensive",
+                    "target_gross_exposure_band_pct": [0.0, 10.0],
+                    "portfolio_thesis": "new strategy",
+                    "portfolio_invalidation": "new invalidation",
+                    "change_summary": "new summary",
+                    "targets": [],
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="pm_main_cron",
+            )
+            harness.container.state_memory.save_asset(
+                asset_type="rt_trigger_event",
+                trace_id="trace-trigger",
+                actor_role="system",
+                payload={
+                    "trigger_id": "rt-trigger-refresh",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "reason": "pm_strategy_update",
+                    "severity": "high",
+                    "coins": ["BTC"],
+                    "dispatched": True,
+                },
+            )
+
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="condition_trigger")
+            self.assertIsNone(pack.payload["standing_tactical_map"])
+            self.assertTrue(pack.payload["trigger_delta"]["strategy_changed"])
+            self.assertTrue(pack.payload["trigger_delta"]["requires_tactical_map_refresh"])
+            self.assertEqual(pack.payload["trigger_delta"]["tactical_map_refresh_reason"], "pm_strategy_revision")
         finally:
             harness.cleanup()
 
@@ -670,6 +835,50 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     },
                 )
             self.assertEqual(raised.exception.reason, "input_already_consumed")
+        finally:
+            harness.cleanup()
+
+    def test_submit_strategy_emits_trigger_provenance_for_notifications(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(
+                trigger_type="agent_message",
+                params={
+                    "wake_source": "sessions_send",
+                    "source_role": "macro_event_analyst",
+                    "reason": "high-impact macro alert",
+                    "severity": "high",
+                },
+            )
+            harness.container.agent_gateway.submit_strategy(
+                input_id=pack.input_id,
+                payload={
+                    "portfolio_mode": "defensive",
+                    "target_gross_exposure_band_pct": [0.0, 5.0],
+                    "portfolio_thesis": "agent first thesis",
+                    "portfolio_invalidation": "agent first invalidation",
+                    "change_summary": "agent first update",
+                    "targets": [],
+                    "scheduled_rechecks": [],
+                },
+            )
+            strategy_events = [
+                item
+                for item in harness.container.state_memory.query_events()
+                if item.get("event_type") == "strategy.submitted"
+            ]
+            self.assertTrue(strategy_events)
+            event_payload = strategy_events[-1]["payload"]
+            self.assertEqual(event_payload["trigger_type"], "agent_message")
+            self.assertEqual(event_payload["trigger_reason"], "high-impact macro alert")
+            self.assertEqual(event_payload["wake_source"], "sessions_send")
+            self.assertEqual(event_payload["source_role"], "macro_event_analyst")
+            self.assertEqual(
+                event_payload["latest_pm_trigger_event"]["trigger_type"],
+                "agent_message",
+            )
         finally:
             harness.cleanup()
 
@@ -722,6 +931,129 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(result["accepted_count"], 0)
             self.assertEqual(result["plan_count"], 0)
             self.assertEqual(result["execution_results"], [])
+        finally:
+            harness.cleanup()
+
+    def test_submit_execution_requires_tactical_map_update_when_refresh_is_required(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            harness.container.state_memory.materialize_strategy_asset(
+                trace_id="trace-strategy-current",
+                authored_payload={
+                    "portfolio_mode": "normal",
+                    "target_gross_exposure_band_pct": [15.0, 25.0],
+                    "portfolio_thesis": "current strategy",
+                    "portfolio_invalidation": "current invalidation",
+                    "change_summary": "current summary",
+                    "targets": [],
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="pm_main_cron",
+            )
+            harness.container.state_memory.save_asset(
+                asset_type="rt_trigger_event",
+                trace_id="trace-trigger-required",
+                actor_role="system",
+                payload={
+                    "trigger_id": "rt-trigger-required",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "reason": "pm_strategy_update",
+                    "severity": "high",
+                    "coins": ["BTC"],
+                    "dispatched": True,
+                },
+            )
+
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="condition_trigger")
+            self.assertTrue(pack.payload["trigger_delta"]["requires_tactical_map_refresh"])
+            with self.assertRaises(RuntimeInputLeaseError) as raised:
+                harness.container.agent_gateway.submit_execution(
+                    input_id=pack.input_id,
+                    payload={
+                        "decision_id": "decision-missing-map-1",
+                        "generated_at_utc": "2026-04-10T00:00:00Z",
+                        "trigger_type": "condition_trigger",
+                        "decisions": [],
+                    },
+                    live=True,
+                )
+            self.assertEqual(raised.exception.reason, "tactical_map_update_required")
+        finally:
+            harness.cleanup()
+
+    def test_submit_execution_materializes_rt_tactical_map_update(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            strategy = harness.container.state_memory.materialize_strategy_asset(
+                trace_id="trace-strategy-current",
+                authored_payload={
+                    "portfolio_mode": "normal",
+                    "target_gross_exposure_band_pct": [15.0, 25.0],
+                    "portfolio_thesis": "current strategy",
+                    "portfolio_invalidation": "current invalidation",
+                    "change_summary": "current summary",
+                    "targets": [],
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="pm_main_cron",
+            )
+            harness.container.state_memory.save_asset(
+                asset_type="rt_trigger_event",
+                trace_id="trace-trigger-required",
+                actor_role="system",
+                payload={
+                    "trigger_id": "rt-trigger-required",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "reason": "pm_strategy_update",
+                    "severity": "high",
+                    "coins": ["BTC"],
+                    "dispatched": True,
+                },
+            )
+
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="condition_trigger")
+            result = harness.container.agent_gateway.submit_execution(
+                input_id=pack.input_id,
+                payload={
+                    "decision_id": "decision-map-1",
+                    "strategy_id": strategy["strategy_id"],
+                    "generated_at_utc": "2026-04-10T00:00:00Z",
+                    "trigger_type": "condition_trigger",
+                    "tactical_map_update": {
+                        "map_refresh_reason": "pm_strategy_revision",
+                        "portfolio_posture": "先防守后再找承接。",
+                        "desk_focus": "BTC / ETH 先看承接，不追单。",
+                        "risk_bias": "headline risk 高时优先保仓位质量。",
+                        "next_review_hint": "下一轮先检查 BTC 回踩承接。",
+                        "coins": [
+                            {
+                                "coin": "BTC",
+                                "working_posture": "先观察承接再推进",
+                                "base_case": "只有回踩站稳后才继续加仓。",
+                                "preferred_add_condition": "回踩关键位并重新站稳。",
+                                "preferred_reduce_condition": "失守 pullback low 时先减仓。",
+                                "reference_take_profit_condition": "冲上 1h 上沿但动能衰减时收一部分。",
+                                "reference_stop_loss_condition": "跌破关键回踩低点时减仓。",
+                                "no_trade_zone": "突破后第一根延伸里不追价。",
+                                "force_pm_recheck_condition": "headline risk 升级并破坏结构时要求 PM 重评。",
+                                "next_focus": "先看 BTC 回踩后的承接。",
+                            }
+                        ],
+                    },
+                    "decisions": [],
+                },
+                live=True,
+            )
+            self.assertEqual(result["decision_id"], "decision-map-1")
+            latest_map = harness.container.state_memory.latest_asset(asset_type="rt_tactical_map", actor_role="risk_trader")
+            self.assertIsNotNone(latest_map)
+            self.assertEqual(latest_map["payload"]["strategy_key"], f"{strategy['strategy_id']}:{strategy['revision_number']}")
+            self.assertEqual(latest_map["payload"]["refresh_reason"], "pm_strategy_revision")
+            self.assertEqual(latest_map["payload"]["coins"][0]["coin"], "BTC")
         finally:
             harness.cleanup()
 
