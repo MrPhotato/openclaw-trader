@@ -33,6 +33,11 @@ Chief should run retrospectives against a shared daily pack centered on:
 
 ## Use Now
 - Pull once, work from that pack, and submit against the same `input_id`.
+- Prefer:
+  - `python3 /Users/chenzian/openclaw-trader/scripts/pull_chief_retro.py`
+  - This writes:
+    - `/tmp/chief_retro_pack.json`
+    - `/tmp/chief_retro_submission.json`
 - The final `POST /api/agent/submit/retro` body must use the exact same top-level `input_id` value from the pull response.
 - The submit body must include:
   - `input_id`
@@ -43,6 +48,8 @@ Chief should run retrospectives against a shared daily pack centered on:
   - `transcript`
   - `round_count`
   - `meeting_id`
+- Prefer:
+  - `python3 /Users/chenzian/openclaw-trader/scripts/submit_chief_retro.py --input-id "$INPUT_ID" --payload-file /tmp/chief_retro_submission.json`
 - Do not hand-escape a long JSON body inline. Write a JSON file first, then `POST` that file.
 - In the owner-summary phase, the pack provides `learning_targets[]` with:
   - canonical `learning_path`

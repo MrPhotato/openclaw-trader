@@ -26,6 +26,8 @@ Execute in this order:
   - `transcript`
   - `round_count`
   - `meeting_id`
+- prefer editing `/tmp/chief_retro_submission.json` from `pull_chief_retro.py`, then submit with:
+  - `python3 /Users/chenzian/openclaw-trader/scripts/submit_chief_retro.py --input-id "$INPUT_ID" --payload-file /tmp/chief_retro_submission.json`
 - write the submit payload to a local JSON file first, then `POST` that file
 - if needed, parse the top-level `input_id` directly from the saved pull response before submitting
 - never fabricate a local id such as `chief-retro-...`
