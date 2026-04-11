@@ -98,9 +98,9 @@ Source of truth in code:
 ## Target contract
 PM should keep working from structured facts, but the formal output path is:
 
-`PM -> AG submit bridge (+ input_id) -> strategy.schema.json validation -> MQ -> memory_assets + workflow_orchestrator`
+`PM -> AG submit bridge (+ input_id) -> strategy.schema.json validation -> memory_assets + workflow_orchestrator`
 
-PM should not assume it can request data directly from MQ.
+PM should not assume there is any separate message broker hop in the live path.
 
 ## Use Now
 - Pull once, work from that pack, and submit against the same `input_id`.

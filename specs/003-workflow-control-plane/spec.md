@@ -9,7 +9,7 @@
 
 ## 1. 背景与目标
 
-`001` 已经定义“所有主动入口统一收口在状态机与编排器模块”，`002` 又已经定义了事件和总线协议。`003` 的任务是把这些原则变成可实施的控制平面：统一入口、统一命令语义、统一状态迁移和失败降级。
+`001` 已经定义“所有主动入口统一收口在状态机与编排器模块”，`002` 又已经定义了事件协议和进程内总线规则。`003` 的任务是把这些原则变成可实施的控制平面：统一入口、统一命令语义、统一状态迁移和失败降级。
 
 本 feature 只负责工作流控制平面，不直接定义量化、策略或 Agent 内容。
 
@@ -33,7 +33,7 @@
 - 当前系统真实流程散落在 `dispatch/__init__.py`、`dispatch/planning.py`、`dispatch/state_flow.py`、`dispatch/strategy_flow.py` 和 `dispatch/execution.py`。
 - 当前已有 `dispatch-once`、`strategy-refresh`、`run-dispatcher` 等入口，但还没有统一控制 API。
 - 当前已有 `heartbeat -> strategy -> trade_review -> execution` 的事实流程，但状态迁移未收口成单独契约。
-- 本 feature 必须依赖 `002` 的事件协议和 RabbitMQ routing 规则。
+- 本 feature 必须依赖 `002` 的事件协议和 事件路由 规则。
 
 ## 3. 用户场景与验收
 

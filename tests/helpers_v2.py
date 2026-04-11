@@ -255,7 +255,7 @@ class TestHarness:
 def build_test_settings(sqlite_path: Path) -> SystemSettings:
     return SystemSettings(
         runtime_root=sqlite_path.parent.parent,
-        bus=BusSettings(rabbitmq_url="amqp://guest:guest@127.0.0.1:5672/%2F", exchange_name="test.topic"),
+        bus=BusSettings(),
         storage=StorageSettings(sqlite_path=sqlite_path),
         quant=QuantSettings(
             interval="15m",

@@ -12,7 +12,7 @@
 
 - **现有系统事实**：当前主动流程和状态推进分散在 dispatcher 相关模块中。
 - **目标边界**：只定义控制入口、工作流状态模型、命令受理与状态迁移。
-- **主要依赖**：`002-event-envelope-bus` 的事件与 RabbitMQ 契约；`001` 的 [`04-state-machine.md`](specs/001-system-blueprint/architecture/04-state-machine.md) 与 [`08-external-interfaces.md`](specs/001-system-blueprint/architecture/08-external-interfaces.md)。
+- **主要依赖**：`002-event-envelope-bus` 的事件与 事件总线 契约；`001` 的 [`04-state-machine.md`](specs/001-system-blueprint/architecture/04-state-machine.md) 与 [`08-external-interfaces.md`](specs/001-system-blueprint/architecture/08-external-interfaces.md)。
 - **未知项 / 待确认项**：本 feature 统一采用“单控制入口 + 工作流实例记录 + 状态迁移事件”方案，不保留未决问题。
 
 ## 3. 宪法检查（Constitution Check）

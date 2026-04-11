@@ -13,7 +13,7 @@
 - 旧系统已从当前分支移除，仅保留在 `codex/dev`
 - 当前代码已收敛为 9 个顶层实现模块，统一落地到 `src/openclaw_trader/modules/`
 - `Trade Gateway` 内部继续拆分为 `market_data` 与 `execution`
-- RabbitMQ 真 broker 已接通
+- 进程内事件总线已落地
 - SQLite 状态存储已落地
 - v2 回归测试当前通过
 

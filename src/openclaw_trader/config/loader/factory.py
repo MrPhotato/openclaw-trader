@@ -34,8 +34,6 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
     workflow_payload = load_yaml(paths.config_dir / "workflow.yaml")
     agent_payload = load_yaml(paths.config_dir / "agents.yaml")
     news_payload = load_yaml(paths.config_dir / "news.yaml")
-    rabbitmq_url = os.getenv("OPENCLAW_V2_RABBITMQ_URL", "amqp://guest:guest@127.0.0.1:5672/%2F")
-    exchange_name = os.getenv("OPENCLAW_V2_EXCHANGE", "openclaw.topic")
     sqlite_path = Path(os.getenv("OPENCLAW_V2_SQLITE_PATH", str(paths.state_dir / "trader_v2.db")))
 
     quant_payload = dict(model_payload)
@@ -55,10 +53,7 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
             allow_live_exits=bool(app_payload.get("allow_live_exits", True)),
             initial_equity_usd=float(app_payload.get("initial_equity_usd", 207.21)),
         ),
-        bus=BusSettings(
-            rabbitmq_url=rabbitmq_url,
-            exchange_name=exchange_name,
-        ),
+        bus=BusSettings(),
         storage=StorageSettings(sqlite_path=sqlite_path),
         quant=QuantSettings.model_validate(quant_payload),
         risk=RiskSettings.model_validate(risk_payload),

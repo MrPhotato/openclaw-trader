@@ -22,10 +22,16 @@ Source of truth in code:
 ## Target contract
 Target formal chain remains simple:
 
-`MEA -> AG submit bridge (+ input_id) -> news.schema.json validation -> MQ -> memory_assets`
+`MEA -> AG submit bridge (+ input_id) -> news.schema.json validation -> memory_assets`
 
 High-importance reminders remain direct communication to `PM` and `RT`.
 
 ## Use Now
 - Pull once, work from that pack, and submit against the same `input_id`.
 - Use `market` only to help judge event relevance, not to replace structured event reasoning.
+- Before waking `PM`, compare the new event against:
+  - the latest `PM` strategy in the pack,
+  - the latest visible `PM` trigger context,
+  - and the recent direct reminder you already sent on the same theme.
+- Only wake `PM` when the state changed. If the theme, direction, and action implication are unchanged, do not send another `PM` trigger.
+- Repeated same-theme updates should usually flow into the normal `news` submission, not a new `sessions_send` interrupt to `PM`.

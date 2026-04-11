@@ -6,7 +6,7 @@
 
 - `module-ports.md`：10 模块的输入输出端口
 - `openclaw-gateway.md`：OpenClaw / 多 Agent 协作契约
-- `rabbitmq-routing.md`：RabbitMQ 路由与 topic 规范
+- `event-routing.md`：事件类型命名与交付规范
 - `external-control-api.openapi.yaml`：统一外部主动触发接口
 - `event-envelope.schema.json`：结构化事件信封 schema
 

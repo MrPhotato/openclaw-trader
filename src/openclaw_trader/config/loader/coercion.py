@@ -41,10 +41,7 @@ def coerce_system_settings(source: object | None) -> SystemSettings:
             bind_host=str(getattr(app, "bind_host", "127.0.0.1")),
             bind_port=int(getattr(app, "bind_port", 8788)),
         ),
-        bus=BusSettings(
-            rabbitmq_url=os.getenv("OPENCLAW_V2_RABBITMQ_URL", "amqp://guest:guest@127.0.0.1:5672/%2F"),
-            exchange_name=os.getenv("OPENCLAW_V2_EXCHANGE", "openclaw.topic"),
-        ),
+        bus=BusSettings(),
         storage=StorageSettings(
             sqlite_path=Path(os.getenv("OPENCLAW_V2_SQLITE_PATH", str(paths.state_dir / "trader_v2.db")))
         ),

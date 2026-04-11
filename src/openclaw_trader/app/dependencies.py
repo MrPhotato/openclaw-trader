@@ -30,13 +30,13 @@ from ..modules.workflow_orchestrator.trigger_bridge import WorkflowTriggerBridge
 from ..modules.workflow_orchestrator.handlers import WorkflowCommandExecutor
 from ..modules.workflow_orchestrator.risk_brake import RiskBrakeConfig, RiskBrakeMonitor
 from ..modules.workflow_orchestrator.rt_trigger import RTTriggerConfig, RTTriggerMonitor
-from ..shared.infra import RabbitMQEventBus, SqliteDatabase
+from ..shared.infra import EventBus, InMemoryEventBus, SqliteDatabase
 
 
 @dataclass
 class ServiceContainer:
     settings: object
-    event_bus: RabbitMQEventBus
+    event_bus: EventBus
     memory_assets: MemoryAssetsService
     market_data: DataIngestService
     news_events: NewsEventService
@@ -85,7 +85,7 @@ def _build_session_controller(*, settings: object, enabled: bool):
 
 def build_container() -> ServiceContainer:
     settings = load_system_settings()
-    event_bus = RabbitMQEventBus()
+    event_bus = InMemoryEventBus()
     database = SqliteDatabase(settings.storage.sqlite_path)
     memory_assets = MemoryAssetsService(MemoryAssetsRepository(database))
     trigger_bridge = WorkflowTriggerBridge(memory_assets)

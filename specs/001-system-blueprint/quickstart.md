@@ -12,7 +12,7 @@
    - 看当前代码如何映射到未来模块。
 5. [`architecture/04-state-machine.md`](specs/001-system-blueprint/architecture/04-state-machine.md)
    - 看系统流程怎么切换。
-6. [`architecture/05-rabbitmq-topology.md`](specs/001-system-blueprint/architecture/05-rabbitmq-topology.md)
+6. [`architecture/05-event-bus-topology.md`](specs/001-system-blueprint/architecture/05-event-bus-topology.md)
    - 看模块之间如何通过消息通信。
 7. [`architecture/10-trading-semantics-and-learnings.md`](specs/001-system-blueprint/architecture/10-trading-semantics-and-learnings.md)
    - 看当前策略语义、近期放宽项和经验教训。
@@ -37,7 +37,7 @@
 
 - “当前系统”与“目标系统”是两层文档，不要混看。
 - 凡是涉及系统事实、当前文件落点、当前接口，都以基线文档为准。
-- 凡是涉及未来模块边界、RabbitMQ、统一外部入口、多 Agent 分工，都以目标架构和契约文档为准。
+- 凡是涉及未来模块边界、事件总线、统一外部入口、多 Agent 分工，都以目标架构和契约文档为准。
 
 ## 本蓝图不做的事
 

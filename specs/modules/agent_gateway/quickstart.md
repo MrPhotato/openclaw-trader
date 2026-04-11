@@ -3,8 +3,8 @@
 1. Agent 先完成自由协作或独立思考。
 2. Agent 通过正式提交通道提交 `news`、`strategy` 或 `execution` JSON。
 3. `agent_gateway` 依据对应 schema 做准入校验。
-4. 校验通过后，AG 生成 `ValidatedSubmissionEnvelope` 并发往消息总线。
-5. 对应消费者订阅并处理各自语义。
+4. 校验通过后，AG 生成 `ValidatedSubmissionEnvelope` 并写入下游处理链。
+5. 对应消费者通过 `memory_assets`、`workflow_orchestrator` 或进程内调用处理各自语义。
 6. 若校验失败，AG 把 `schema_ref`、`prompt_ref` 和错误列表返回给原 Agent，要求其重新生成纯 JSON。
 
 ## 场景 2：复盘会收尾

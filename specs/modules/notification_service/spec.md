@@ -6,11 +6,11 @@
 
 ## 1. 背景与目标
 
-`notification_service` 是简单的消息监听与转发模块。它监听消息总线上的既定事件，把对应 JSON 序列化成普通文字后直接推送到 owner 与 `Crypto Chief` 的 OpenClaw 对话中，不依赖任何 Agent 思考来决定是否通知或如何通知。
+`notification_service` 是简单的事件监听与转发模块。它消费 `memory_assets` 中的既定结构化事件，并在需要时响应进程内事件发布，把对应 JSON 序列化成普通文字后直接推送到 owner 与 `Crypto Chief` 的 OpenClaw 对话中，不依赖任何 Agent 思考来决定是否通知或如何通知。
 
 ## 2. 职责
 
-- 监听消息总线上的既定事件
+- 监听既定结构化事件
 - 把结构化 JSON 序列化为普通文字
 - 直接推送到 owner-facing 的 OpenClaw 对话
 - 维护投递结果和失败原因
@@ -22,7 +22,7 @@
 
 ## 4. 输入
 
-- 来自消息总线的既定事件
+- 来自 `memory_assets` 与进程内事件发布的既定事件
 - 第一批只监听：
   - PM 正式策略更新
   - RT 正式下单/执行事件
@@ -34,7 +34,7 @@
 
 ## 6. 直接协作边界
 
-- 从消息总线消费 PM 与 RT 的既定事件
+- 从 `memory_assets` / 进程内事件流消费 PM 与 RT 的既定事件
 - 向 OpenClaw 消息发送层适配
 - 向 `memory_assets` 提交通知结果
 

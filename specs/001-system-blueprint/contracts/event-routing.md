@@ -1,13 +1,12 @@
-# RabbitMQ 路由契约
+# 事件类型契约
 
 ## 1. 命名规则
 
-- 交换机统一前缀：`oclt.`
-- routing key 使用点分层级
+- `event_type` 使用点分层级
 - 事件命名使用过去时或完成态，例如 `strategy.intent.ready`
 - 命令命名使用请求态，例如 `workflow.command.accepted`
 
-## 2. 必备 topic
+## 2. 必备事件类型
 
 - `market.snapshot.updated`
 - `news.batch.ready`
@@ -27,8 +26,9 @@
 - `notification.delivered`
 - `parameter.changed`
 
-## 3. 消费约束
+## 3. 交付约束
 
-- 任一模块只能消费自己声明过的输入 topic。
+- 任一模块只能依赖自己声明过的事件类型族。
 - 任一模块发布事件前必须校验 `EventEnvelope` schema。
+- 任一主链事件都必须先落 `memory_assets`，再做进程内 fan-out。
 - 失败事件必须和原始 `trace_id` 保持一致。

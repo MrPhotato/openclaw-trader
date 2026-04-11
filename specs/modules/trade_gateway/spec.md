@@ -73,7 +73,7 @@
   - 产品元数据：`tick_size`、`size_increment`、`min_size`、`min_notional`、`trading_status`
 - 执行侧只消费结构化正式输入，不自行补全策略含义
 - 执行侧不做业务检查；风控检查统一由 `policy_risk` 完成
-- RT 正式执行链固定为 `RT -> AG -> MQ -> policy_risk -> MQ -> Trade Gateway.execution`
+- RT 正式执行链固定为 `RT -> AG -> policy_risk -> Trade Gateway.execution`
 - RT 的最小运行记录归 `Trade Gateway.execution` 所有，不算 RT 记忆
 - execution alpha 复盘账只用于 `Chief` 复盘学习，不做实时奖金账
 - execution 只做最基础的送单与技术性重试，目标是把已过风控的 RT 意图正确执行到交易所
