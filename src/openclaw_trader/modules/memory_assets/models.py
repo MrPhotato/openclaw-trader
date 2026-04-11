@@ -81,6 +81,7 @@ class StrategyAsset(BaseModel):
     target_gross_exposure_band_pct: list[float] = Field(default_factory=list)
     portfolio_thesis: str
     portfolio_invalidation: str
+    flip_triggers: str
     change_summary: str
     targets: list[StrategyTargetAsset] = Field(default_factory=list)
     scheduled_rechecks: list[ScheduledRecheck] = Field(default_factory=list)

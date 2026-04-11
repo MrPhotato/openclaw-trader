@@ -16,6 +16,7 @@ const overviewPayload = {
       portfolio_mode: "normal",
       portfolio_thesis: "Momentum with capped risk and tighter execution discipline.",
       change_summary: "Raise BTC conviction and keep gross exposure capped.",
+      flip_triggers: "If higher-timeframe structure fails together with a macro regime turn, flip instead of only trimming.",
       portfolio_invalidation: "If BTC loses structure and macro risk spikes, cut risk and re-check.",
       scheduled_rechecks: [{ recheck_at_utc: "2026-03-20T10:00:00Z", reason: "US session open" }],
       targets: [{ symbol: "BTC", state: "active", direction: "long", target_exposure_band_pct: [1, 3], rt_discretion_band_pct: 1 }],
@@ -418,6 +419,12 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("pm-view")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Portfolio Manager")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("当前正式策略")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("翻向条件")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByText("If higher-timeframe structure fails together with a macro regime turn, flip instead of only trimming."),
+      ).toBeInTheDocument(),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "RT" }));
     await waitFor(() => expect(screen.getByTestId("rt-view")).toBeInTheDocument());

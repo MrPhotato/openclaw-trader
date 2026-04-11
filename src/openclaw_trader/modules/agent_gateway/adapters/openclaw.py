@@ -18,6 +18,7 @@ _TASK_HINTS: dict[str, set[str]] = {
         "target_gross_exposure_band_pct",
         "portfolio_thesis",
         "portfolio_invalidation",
+        "flip_triggers",
         "change_summary",
         "targets",
         "scheduled_rechecks",

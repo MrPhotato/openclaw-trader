@@ -183,6 +183,7 @@ class ReplayFrontendService:
             "desk_focus": self._desk_focus_text(latest_rt_trigger_event, decisions_by_symbol),
             "risk_bias": self._risk_bias_text(latest_risk_brake_event),
             "next_review_hint": self._next_review_hint_text(strategy_payload),
+            "flip_triggers": str(strategy_payload.get("flip_triggers") or ""),
             "map_refresh_reason": str((latest_rt_trigger_event or {}).get("payload", {}).get("summary") or "最近一次执行节奏与风险状态已提炼成公开摘要。"),
             "coins": coins,
             "trigger": self._compact_rt_trigger(latest_rt_trigger_event, latest_risk_brake_event),

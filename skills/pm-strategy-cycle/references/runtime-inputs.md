@@ -85,9 +85,11 @@ Important live field layout:
 - `news_events` is a compact recent-news layer for PM review, not an unbounded raw news dump
 - `latest_pm_trigger_event` records the audited PM wake reason for this run. Fixed cadence, workflow wakes, direct agent messages, and manual refreshes should all land here.
 - `latest_risk_brake_event` may be present when the system just forced a reduce or exit order before waking PM
+- `risk_brake_policy` describes the standing desk rule: the system watches both single-position peak drawdown and portfolio peak drawdown, and it can automatically reduce or exit before PM wakes
 - `previous_strategy` already uses canonical strategy field names such as:
   - `portfolio_thesis`
   - `portfolio_invalidation`
+  - `flip_triggers`
   - `change_summary`
 - do not assume older aliases such as `thesis` or `invalidation`
 
@@ -100,7 +102,7 @@ PM should keep working from structured facts, but the formal output path is:
 
 `PM -> AG submit bridge (+ input_id) -> strategy.schema.json validation -> memory_assets + workflow_orchestrator`
 
-PM should not assume there is any separate message broker hop in the live path.
+PM should not assume there is any separate message broker hop in the live path, nor that it can request data directly from any message broker.
 
 ## Use Now
 - Pull once, work from that pack, and submit against the same `input_id`.
@@ -112,6 +114,7 @@ PM should not assume there is any separate message broker hop in the live path.
 - Because runtime pack output can be long, prefer writing it to a file first and then reading the file. Do not trust truncated process output.
 - Do not paste the full runtime pack back into the conversation after pulling it. Keep the large JSON in a file and only extract the fields you need.
 - If `latest_risk_brake_event` is present, treat it as a hard desk fact: the system has already reduced or exited risk. Your job is to re-evaluate mandate and publish a new strategy revision around that new state.
+- Treat `risk_brake_policy` as a standing house rule, not a suggestion. PM is not the only risk controller now: the system can auto-reduce or auto-exit on both single-position peak drawdown and portfolio peak drawdown, then wake PM to revise mandate.
 - If you were woken by RT / MEA / Chief / owner directly, classify the wake as `agent_message` and include `source_role`, `wake_source=sessions_send`, and a one-line `reason` in the pull helper args.
 - If submit fails with `unknown_input_id`, do one fresh `pull/pm`, replace the old `input_id`, and retry once. Stop there; repeated retries with guessed ids are always wrong.
 - If runtime facts and later design notes diverge, follow the live pack plus the formal strategy contract.

@@ -8,6 +8,7 @@
     "target_gross_exposure_band_pct",
     "portfolio_thesis",
     "portfolio_invalidation",
+    "flip_triggers",
     "change_summary",
     "targets",
     "scheduled_rechecks"
@@ -34,6 +35,9 @@
       "type": "string"
     },
     "portfolio_invalidation": {
+      "type": "string"
+    },
+    "flip_triggers": {
       "type": "string"
     },
     "change_summary": {

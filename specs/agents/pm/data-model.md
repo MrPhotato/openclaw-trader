@@ -8,6 +8,7 @@
 | `target_gross_exposure_band_pct` | number[2] | 组合总目标暴露区间 |
 | `portfolio_thesis` | string | 组合级解释 |
 | `portfolio_invalidation` | string | 组合级失效条件 |
+| `flip_triggers` | string | 从当前方向切到反向或从平到反向的明确触发条件 |
 | `change_summary` | string | 相对上一版的变化摘要 |
 | `targets` | StrategyTarget[] | 每币目标 |
 | `scheduled_rechecks` | ScheduledRecheck[] | 未来重看计划 |

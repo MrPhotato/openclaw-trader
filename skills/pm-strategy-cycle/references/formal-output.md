@@ -11,7 +11,7 @@ Important fields to always think about:
 - `target_gross_exposure_band_pct`
 - `portfolio_thesis`
 - `portfolio_invalidation`
-- `regime-switch triggers`
+- `flip_triggers`
 - `change_summary`
 - `targets[]`
 - `target_exposure_band_pct`
@@ -25,8 +25,7 @@ Rules:
 - If you need to think or explain, do it before the formal submit step, not inside the submission itself.
 - If judgment is unchanged, still emit a fresh strategy submission.
 - Do not add execution tactics such as order type, order count, or entry path.
-- Even though there is no dedicated schema field for it, you must still think through the `regime-switch triggers`: the specific conditions that would justify flipping directional bias from long to short, short to long, or from active risk to flat/only_reduce.
-- Encode the most important `regime-switch triggers` into `portfolio_thesis`, `portfolio_invalidation`, `change_summary`, or `scheduled_rechecks.reason` as appropriate. Do not invent a new submit field.
+- `flip_triggers` is a dedicated required field. Use it to state the specific conditions that would justify flipping directional bias from long to short, short to long, or from active risk to flat/only_reduce.
 - Treat all exposure percentages as `% of exposure budget`, where exposure budget = `total_equity_usd * max_leverage`.
 - Under this house convention, normalized gross exposure and normalized per-symbol exposure should not exceed `100%`.
 - If you describe current exposure as greater than `100%`, you are almost certainly using the wrong denominator (`raw notional / equity`) instead of the house denominator (`equity * max_leverage`).
@@ -45,6 +44,7 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
     "target_gross_exposure_band_pct": [0, 15],
     "portfolio_thesis": "Range-bound market with weak follow-through. Keep BTC active, keep ETH and SOL on watch, and stay defensive until 4h trend confirms.",
     "portfolio_invalidation": "A clean 4h breakout with strong confirmation, or a policy/risk boundary change that invalidates the defensive stance.",
+    "flip_triggers": "If BTC loses the higher-timeframe breakout and 4h/12h structure turns down together, or if macro shock clearly shifts the regime to risk-off, flip from cautious long bias to defensive short bias.",
     "change_summary": "Kept defensive posture and narrowed active risk to BTC while leaving ETH and SOL on watch.",
     "targets": [
       {
@@ -83,5 +83,6 @@ API compatibility note:
 Common mapping reminders:
 - `portfolio_thesis`, not `thesis`
 - `portfolio_invalidation`, not `invalidation`
+- `flip_triggers`, not `regime_switch_triggers`
 - `change_summary`, not `summary`
 - `input_id` must be carried back exactly as issued by the pull bridge

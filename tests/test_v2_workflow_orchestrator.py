@@ -162,6 +162,7 @@ def _seed_strategy(harness, *, gross_band: list[float] | None = None, targets: l
             "target_gross_exposure_band_pct": gross_band or [0.0, 20.0],
             "portfolio_thesis": "Seed strategy.",
             "portfolio_invalidation": "Seed invalidation.",
+            "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
             "change_summary": "Seeded strategy.",
             "targets": targets
             or [
@@ -253,6 +254,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [5.0, 15.0],
                     "portfolio_thesis": "Seed strategy for retro.",
                     "portfolio_invalidation": "Seed invalidation.",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "Seeded before retro.",
                     "targets": [],
                     "scheduled_rechecks": [],
