@@ -119,7 +119,7 @@ def _seed_runtime_bridge_state(harness, *, trace_id: str = "trace-runtime-bridge
             for role, runtime_input in runtime_inputs.items()
         },
     }
-    return harness.container.state_memory.materialize_runtime_bridge_state(
+    return harness.container.memory_assets.materialize_runtime_bridge_state(
         trace_id=trace_id,
         authored_payload=payload,
         metadata={"refresh_reason": "test_seed"},
@@ -210,9 +210,9 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 patch.object(harness.container.market_data, "get_market_overview", side_effect=AssertionError("market_data should not be called")),
                 patch.object(harness.container.news_events, "get_latest_news_batch", side_effect=AssertionError("news_events should not be called")),
                 patch.object(harness.container.quant_intelligence, "get_latest_forecasts", side_effect=AssertionError("quant should not be called")),
-                patch.object(harness.container.state_memory, "get_latest_strategy", side_effect=AssertionError("strategy should not be called")),
-                patch.object(harness.container.state_memory, "get_asset", side_effect=AssertionError("get_asset should not be called")),
-                patch.object(harness.container.state_memory, "get_macro_memory", side_effect=AssertionError("macro memory should not be called")),
+                patch.object(harness.container.memory_assets, "get_latest_strategy", side_effect=AssertionError("strategy should not be called")),
+                patch.object(harness.container.memory_assets, "get_asset", side_effect=AssertionError("get_asset should not be called")),
+                patch.object(harness.container.memory_assets, "get_macro_memory", side_effect=AssertionError("macro memory should not be called")),
             ):
                 pm_pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
                 rt_pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
@@ -294,7 +294,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
     def test_pull_pm_and_rt_runtime_inputs_include_latest_risk_brake_event(self) -> None:
         harness = build_test_harness()
         try:
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="risk_brake_event",
                 actor_role="system",
                 payload={
@@ -330,7 +330,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
     def test_pull_pm_runtime_input_uses_latest_pm_trigger_event_for_trigger_type(self) -> None:
         harness = build_test_harness()
         try:
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="pm_trigger_event",
                 actor_role="system",
                 payload={
@@ -353,7 +353,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(pack.trigger_type, "scheduled_recheck")
             self.assertEqual(pack.payload["latest_pm_trigger_event"]["reason"], "scheduled_recheck")
             self.assertEqual(pack.payload["trigger_context"]["trigger_type"], "scheduled_recheck")
-            claimed_asset = harness.container.state_memory.latest_asset(asset_type="pm_trigger_event", actor_role="system")
+            claimed_asset = harness.container.memory_assets.latest_asset(asset_type="pm_trigger_event", actor_role="system")
             self.assertIsNotNone(claimed_asset)
             self.assertEqual(claimed_asset["payload"]["claimed_ref"], pack.trace_id)
 
@@ -366,7 +366,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
     def test_pull_pm_runtime_input_ignores_unclaimable_pm_trigger_event(self) -> None:
         harness = build_test_harness()
         try:
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="pm_trigger_event",
                 actor_role="system",
                 payload={
@@ -664,7 +664,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(pack.task_kind, "strategy")
             self.assertEqual(pack.trigger_type, "pm_main_cron")
             self.assertIn("trigger_context", pack.payload)
-            lease_asset = harness.container.state_memory.get_asset(pack.input_id)
+            lease_asset = harness.container.memory_assets.get_asset(pack.input_id)
             self.assertIsNotNone(lease_asset)
             self.assertEqual(lease_asset["asset_type"], "agent_runtime_lease")
             self.assertEqual(lease_asset["payload"]["status"], "issued")
@@ -676,7 +676,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="execution_batch",
                 trace_id="trace-old",
                 actor_role="risk_trader",
@@ -698,7 +698,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     ],
                 },
             )
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="execution_result",
                 trace_id="trace-old",
                 actor_role="risk_trader",
@@ -714,7 +714,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "fills": [{"price": "68000", "size": "0.0018"}],
                 },
             )
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="rt_trigger_event",
                 trace_id="trace-trigger",
                 actor_role="system",
@@ -762,7 +762,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
-            strategy = harness.container.state_memory.materialize_strategy_asset(
+            strategy = harness.container.memory_assets.materialize_strategy_asset(
                 trace_id="trace-strategy",
                 authored_payload={
                     "portfolio_mode": "normal",
@@ -776,7 +776,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 trigger_type="pm_main_cron",
             )
             strategy_key = f"{strategy['strategy_id']}:{strategy['revision_number']}"
-            harness.container.state_memory.materialize_rt_tactical_map(
+            harness.container.memory_assets.materialize_rt_tactical_map(
                 trace_id="trace-map",
                 strategy_key=strategy_key,
                 lock_mode=None,
@@ -816,7 +816,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
-            old_strategy = harness.container.state_memory.materialize_strategy_asset(
+            old_strategy = harness.container.memory_assets.materialize_strategy_asset(
                 trace_id="trace-strategy-old",
                 authored_payload={
                     "portfolio_mode": "normal",
@@ -829,7 +829,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
                 trigger_type="pm_main_cron",
             )
-            harness.container.state_memory.materialize_rt_tactical_map(
+            harness.container.memory_assets.materialize_rt_tactical_map(
                 trace_id="trace-map-old",
                 strategy_key=f"{old_strategy['strategy_id']}:{old_strategy['revision_number']}",
                 lock_mode=None,
@@ -854,7 +854,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     ],
                 },
             )
-            harness.container.state_memory.materialize_strategy_asset(
+            harness.container.memory_assets.materialize_strategy_asset(
                 trace_id="trace-strategy-new",
                 authored_payload={
                     "portfolio_mode": "defensive",
@@ -867,7 +867,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
                 trigger_type="pm_main_cron",
             )
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="rt_trigger_event",
                 trace_id="trace-trigger",
                 actor_role="system",
@@ -908,7 +908,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
             )
             self.assertEqual(result["strategy"]["trigger_type"], "pm_main_cron")
-            lease_asset = harness.container.state_memory.get_asset(pack.input_id)
+            lease_asset = harness.container.memory_assets.get_asset(pack.input_id)
             self.assertEqual(lease_asset["payload"]["status"], "consumed")
             with self.assertRaises(RuntimeInputLeaseError) as raised:
                 harness.container.agent_gateway.submit_strategy(
@@ -955,7 +955,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
             )
             strategy_events = [
                 item
-                for item in harness.container.state_memory.query_events()
+                for item in harness.container.memory_assets.query_events()
                 if item.get("event_type") == "strategy.submitted"
             ]
             self.assertTrue(strategy_events)
@@ -1028,7 +1028,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
-            harness.container.state_memory.materialize_strategy_asset(
+            harness.container.memory_assets.materialize_strategy_asset(
                 trace_id="trace-strategy-current",
                 authored_payload={
                     "portfolio_mode": "normal",
@@ -1041,7 +1041,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
                 trigger_type="pm_main_cron",
             )
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="rt_trigger_event",
                 trace_id="trace-trigger-required",
                 actor_role="system",
@@ -1077,7 +1077,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
-            strategy = harness.container.state_memory.materialize_strategy_asset(
+            strategy = harness.container.memory_assets.materialize_strategy_asset(
                 trace_id="trace-strategy-current",
                 authored_payload={
                     "portfolio_mode": "normal",
@@ -1090,7 +1090,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
                 trigger_type="pm_main_cron",
             )
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="rt_trigger_event",
                 trace_id="trace-trigger-required",
                 actor_role="system",
@@ -1138,7 +1138,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 live=True,
             )
             self.assertEqual(result["decision_id"], "decision-map-1")
-            latest_map = harness.container.state_memory.latest_asset(asset_type="rt_tactical_map", actor_role="risk_trader")
+            latest_map = harness.container.memory_assets.latest_asset(asset_type="rt_tactical_map", actor_role="risk_trader")
             self.assertIsNotNone(latest_map)
             self.assertEqual(latest_map["payload"]["strategy_key"], f"{strategy['strategy_id']}:{strategy['revision_number']}")
             self.assertEqual(latest_map["payload"]["refresh_reason"], "pm_strategy_revision")
@@ -1166,7 +1166,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
             )
             self.assertEqual(result["high_impact_count"], 1)
-            reminders = harness.container.state_memory.recent_assets(asset_type="direct_reminder", limit=10)
+            reminders = harness.container.memory_assets.recent_assets(asset_type="direct_reminder", limit=10)
             self.assertEqual(len(reminders), 2)
         finally:
             harness.cleanup()
@@ -1201,9 +1201,9 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(result["meeting_id"], "retro-test-1")
             self.assertEqual(len(result["transcript"]), 2)
             self.assertEqual(result["learning_results"][0]["agent_role"], "pm")
-            lease_asset = harness.container.state_memory.get_asset(pack.input_id)
+            lease_asset = harness.container.memory_assets.get_asset(pack.input_id)
             self.assertEqual(lease_asset["payload"]["status"], "consumed")
-            retro_asset = harness.container.state_memory.latest_asset(asset_type="chief_retro")
+            retro_asset = harness.container.memory_assets.latest_asset(asset_type="chief_retro")
             self.assertIsNotNone(retro_asset)
             self.assertEqual(retro_asset["payload"]["owner_summary"], "Chief retro landed successfully.")
         finally:

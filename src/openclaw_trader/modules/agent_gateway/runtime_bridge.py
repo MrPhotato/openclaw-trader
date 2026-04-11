@@ -12,7 +12,7 @@ from ..news_events.models import NewsDigestEvent
 from ..news_events.service import NewsEventService
 from ..policy_risk.service import PolicyRiskService
 from ..quant_intelligence.service import QuantIntelligenceService
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.service import MemoryAssetsService
 from ..trade_gateway.market_data.models import DataIngestBundle
 from ..trade_gateway.market_data.service import DataIngestService
 
@@ -31,7 +31,7 @@ class RuntimeBridgeMonitor:
     def __init__(
         self,
         *,
-        state_memory: StateMemoryService,
+        memory_assets: MemoryAssetsService,
         market_data: DataIngestService,
         news_events: NewsEventService,
         quant_intelligence: QuantIntelligenceService,
@@ -39,7 +39,7 @@ class RuntimeBridgeMonitor:
         gateway: AgentGatewayService,
         config: RuntimeBridgeConfig | None = None,
     ) -> None:
-        self.state_memory = state_memory
+        self.memory_assets = memory_assets
         self.market_data = market_data
         self.news_events = news_events
         self.quant_intelligence = quant_intelligence
@@ -67,9 +67,9 @@ class RuntimeBridgeMonitor:
         with self._lock:
             asset = copy.deepcopy(self._latest_asset)
         if asset is None:
-            asset = self.state_memory.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
+            asset = self.memory_assets.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
         elif max_age_seconds is not None and self._asset_age_seconds(asset) > max_age_seconds:
-            asset = self.state_memory.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
+            asset = self.memory_assets.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
         return asset
 
     def refresh_once(
@@ -135,7 +135,7 @@ class RuntimeBridgeMonitor:
             },
         }
         self._persist_portfolio_snapshot(trace_id=trace, market=market, reason=reason)
-        asset = self.state_memory.materialize_runtime_bridge_state(
+        asset = self.memory_assets.materialize_runtime_bridge_state(
             trace_id=trace,
             authored_payload=payload,
             metadata={"refresh_reason": reason},
@@ -162,9 +162,9 @@ class RuntimeBridgeMonitor:
         with ThreadPoolExecutor(max_workers=5) as executor:
             market_future = executor.submit(self.market_data.get_market_overview, trace_id=trace_id)
             news_future = executor.submit(self.news_events.get_latest_news_batch, force_sync=force_sync_news)
-            strategy_future = executor.submit(self.state_memory.get_latest_strategy)
-            risk_state_future = executor.submit(self.state_memory.get_asset, "risk_brake_state")
-            macro_memory_future = executor.submit(self.state_memory.get_macro_memory)
+            strategy_future = executor.submit(self.memory_assets.get_latest_strategy)
+            risk_state_future = executor.submit(self.memory_assets.get_asset, "risk_brake_state")
+            macro_memory_future = executor.submit(self.memory_assets.get_macro_memory)
             market = market_future.result()
             news = news_future.result()
             latest_strategy_asset = strategy_future.result()
@@ -174,8 +174,8 @@ class RuntimeBridgeMonitor:
 
     def _persist_portfolio_snapshot(self, *, trace_id: str, market: DataIngestBundle, reason: str) -> None:
         portfolio_payload = market.portfolio.model_dump(mode="json")
-        self.state_memory.save_portfolio(trace_id, portfolio_payload)
-        self.state_memory.save_asset(
+        self.memory_assets.save_portfolio(trace_id, portfolio_payload)
+        self.memory_assets.save_asset(
             asset_type="portfolio_snapshot",
             payload=portfolio_payload,
             trace_id=trace_id,

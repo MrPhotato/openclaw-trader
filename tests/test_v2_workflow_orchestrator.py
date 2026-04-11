@@ -122,7 +122,7 @@ def _build_monitor(harness, *, provider: MutableMarketDataProvider | None = None
     runner = FakeCronRunner()
     market_data = DataIngestService(provider or MutableMarketDataProvider())
     monitor = RTTriggerMonitor(
-        state_memory=harness.container.state_memory,
+        memory_assets=harness.container.memory_assets,
         market_data=market_data,
         event_bus=harness.event_bus,
         config=config
@@ -141,7 +141,7 @@ def _build_monitor(harness, *, provider: MutableMarketDataProvider | None = None
 
 
 def _seed_trigger_state(harness, payload: dict) -> None:
-    harness.container.state_memory.save_asset(
+    harness.container.memory_assets.save_asset(
         asset_type="rt_trigger_state",
         asset_id="rt_trigger_state",
         actor_role="system",
@@ -155,7 +155,7 @@ def _strategy_key(strategy_asset: dict) -> str:
 
 
 def _seed_strategy(harness, *, gross_band: list[float] | None = None, targets: list[dict] | None = None) -> dict:
-    return harness.container.state_memory.materialize_strategy_asset(
+    return harness.container.memory_assets.materialize_strategy_asset(
         trace_id="trace-seed-strategy",
         authored_payload={
             "portfolio_mode": "normal",
@@ -181,7 +181,7 @@ def _seed_strategy(harness, *, gross_band: list[float] | None = None, targets: l
 
 
 def _seed_risk_brake_state(harness, payload: dict) -> None:
-    harness.container.state_memory.save_asset(
+    harness.container.memory_assets.save_asset(
         asset_type="risk_brake_state",
         asset_id="risk_brake_state",
         actor_role="system",
@@ -192,7 +192,7 @@ def _seed_risk_brake_state(harness, payload: dict) -> None:
 def _build_risk_brake_monitor(harness, *, provider: MutableMarketDataProvider | None = None):
     runner = FakeCronRunner()
     monitor = RiskBrakeMonitor(
-        state_memory=harness.container.state_memory,
+        memory_assets=harness.container.memory_assets,
         market_data=DataIngestService(provider or MutableMarketDataProvider()),
         policy_risk=harness.container.policy_risk,
         trade_execution=harness.container.trade_execution,
@@ -212,7 +212,7 @@ def _build_risk_brake_monitor(harness, *, provider: MutableMarketDataProvider | 
 def _build_pm_recheck_monitor(harness, *, config: PMRecheckConfig | None = None):
     runner = FakeCronRunner()
     monitor = PMRecheckMonitor(
-        state_memory=harness.container.state_memory,
+        memory_assets=harness.container.memory_assets,
         event_bus=harness.event_bus,
         config=config
         or PMRecheckConfig(
@@ -246,7 +246,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
     def test_path_4_chief_retro_emits_summary_without_resetting_sessions(self) -> None:
         harness = build_test_harness(news_severity="high")
         try:
-            harness.container.state_memory.materialize_strategy_asset(
+            harness.container.memory_assets.materialize_strategy_asset(
                 trace_id="trace-seed-strategy",
                 authored_payload={
                     "portfolio_mode": "defensive",
@@ -265,16 +265,16 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertTrue(receipt.accepted)
             workflow = harness.wait_for_workflow(receipt.trace_id)
             self.assertEqual(workflow.state, "completed")
-            projection_assets = harness.container.state_memory.recent_assets(asset_type="memory_projection", limit=10)
-            self.assertIsNone(harness.container.state_memory.latest_asset(asset_type="chief_retro"))
+            projection_assets = harness.container.memory_assets.recent_assets(asset_type="memory_projection", limit=10)
+            self.assertIsNone(harness.container.memory_assets.latest_asset(asset_type="chief_retro"))
             self.assertEqual(len(projection_assets), 0)
             self.assertEqual(len(harness.fake_session_controller.resets), 0)
-            agent_sessions = harness.container.state_memory.list_agent_sessions()
+            agent_sessions = harness.container.memory_assets.list_agent_sessions()
             self.assertEqual(
                 {session["agent_role"] for session in agent_sessions},
                 {"crypto_chief"},
             )
-            transcript_events = harness.container.state_memory.query_events(
+            transcript_events = harness.container.memory_assets.query_events(
                 trace_id=receipt.trace_id,
                 module="agent_gateway",
                 limit=50,
@@ -313,7 +313,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             workflow = harness.wait_for_workflow(receipt.trace_id)
             self.assertEqual(workflow.state, "completed")
             self.assertEqual(len(harness.fake_session_controller.resets), 4)
-            agent_sessions = harness.container.state_memory.list_agent_sessions()
+            agent_sessions = harness.container.memory_assets.list_agent_sessions()
             self.assertTrue(
                 all(session["last_reset_command"] == "/new" for session in agent_sessions if session["agent_role"] != "system")
             )
@@ -339,7 +339,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(workflow.state, "completed")
             pm_session = next(
                 session
-                for session in harness.container.state_memory.list_agent_sessions()
+                for session in harness.container.memory_assets.list_agent_sessions()
                 if session["agent_role"] == "pm"
             )
             self.assertEqual(pm_session["session_id"], "pm-new-session")
@@ -354,7 +354,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             )
             self.assertFalse(receipt.accepted)
             self.assertEqual(receipt.reason, "legacy_market_workflow_disabled_use_agent_cron")
-            self.assertIsNone(harness.container.state_memory.get_workflow_by_command("cmd-invalid-pm"))
+            self.assertIsNone(harness.container.memory_assets.get_workflow_by_command("cmd-invalid-pm"))
         finally:
             harness.cleanup()
 
@@ -370,7 +370,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         try:
             fake_monitor = FakeRTTriggerMonitor()
             orchestrator = type(harness.container.workflow_orchestrator)(
-                state_memory=harness.container.state_memory,
+                memory_assets=harness.container.memory_assets,
                 event_bus=harness.event_bus,
                 executor=harness.container.workflow_orchestrator.executor,
                 rt_trigger_monitor=fake_monitor,  # type: ignore[arg-type]
@@ -389,7 +389,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 harness,
                 targets=[],
             )
-            latest = harness.container.state_memory.get_latest_strategy()
+            latest = harness.container.memory_assets.get_latest_strategy()
             payload = dict((latest or {}).get("payload") or {})
             payload["scheduled_rechecks"] = [
                 {
@@ -398,8 +398,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "reason": "Asia session recheck",
                 }
             ]
-            harness.container.state_memory.save_strategy(payload["strategy_id"], "trace-seed-strategy", payload)
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_strategy(payload["strategy_id"], "trace-seed-strategy", payload)
+            harness.container.memory_assets.save_asset(
                 asset_type="strategy",
                 asset_id="strategy-current",
                 payload=payload,
@@ -412,7 +412,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(result["reason"], "scheduled_recheck")
             self.assertTrue(result["dispatched"])
             self.assertEqual(runner.runs, ["pm-job"])
-            event_asset = harness.container.state_memory.latest_asset(asset_type="pm_trigger_event", actor_role="system")
+            event_asset = harness.container.memory_assets.latest_asset(asset_type="pm_trigger_event", actor_role="system")
             self.assertIsNotNone(event_asset)
             self.assertEqual(event_asset["payload"]["trigger_type"], "scheduled_recheck")
         finally:
@@ -423,7 +423,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         try:
             now = datetime(2026, 4, 10, 3, 0, tzinfo=UTC)
             _seed_strategy(harness, targets=[])
-            latest = harness.container.state_memory.get_latest_strategy()
+            latest = harness.container.memory_assets.get_latest_strategy()
             payload = dict((latest or {}).get("payload") or {})
             recheck = {
                 "recheck_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
@@ -431,8 +431,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 "reason": "Asia session recheck",
             }
             payload["scheduled_rechecks"] = [recheck]
-            harness.container.state_memory.save_strategy(payload["strategy_id"], "trace-seed-strategy", payload)
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_strategy(payload["strategy_id"], "trace-seed-strategy", payload)
+            harness.container.memory_assets.save_asset(
                 asset_type="strategy",
                 asset_id="strategy-current",
                 payload=payload,
@@ -440,7 +440,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 actor_role="pm",
             )
             recheck_key = f"{payload['strategy_id']}|{recheck['recheck_at_utc']}|portfolio|{recheck['reason']}"
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="pm_recheck_state",
                 asset_id="pm_recheck_state",
                 actor_role="system",
@@ -501,7 +501,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         try:
             now = datetime(2026, 4, 7, 1, 0, tzinfo=UTC)
             _seed_trigger_state(harness, {"last_trigger_at_utc": now.isoformat()})
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="news_submission",
                 actor_role="macro_event_analyst",
                 payload={"events": [{"event_id": "evt-high", "impact_level": "high", "summary": "High risk."}]},
@@ -512,7 +512,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(high_result["skipped_reason"], "global_cooldown")
             self.assertEqual(runner.runs, [])
 
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="news_submission",
                 actor_role="macro_event_analyst",
                 payload={"events": [{"event_id": "evt-critical", "impact_level": "critical", "summary": "Critical risk."}]},
@@ -529,7 +529,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         try:
             now = datetime(2026, 4, 7, 1, 0, tzinfo=UTC)
             _seed_trigger_state(harness, {"last_trigger_at_utc": (now - timedelta(minutes=10)).isoformat()})
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="news_submission",
                 actor_role="macro_event_analyst",
                 payload={"events": [{"event_id": "evt-medium", "impact_level": "medium", "summary": "Medium event."}]},
@@ -662,7 +662,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         try:
             now = datetime(2026, 4, 7, 1, 0, tzinfo=UTC)
             _seed_trigger_state(harness, {"last_trigger_at_utc": (now - timedelta(minutes=10)).isoformat()})
-            harness.container.state_memory.save_asset(
+            harness.container.memory_assets.save_asset(
                 asset_type="execution_result",
                 actor_role="risk_trader",
                 payload={
@@ -787,12 +787,12 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(harness.fake_broker.executed[0].coin, "BTC")
             self.assertEqual(harness.fake_broker.executed[0].notional_usd, "100")
 
-            state_asset = harness.container.state_memory.get_asset("risk_brake_state")
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
             self.assertEqual(state_asset["payload"]["portfolio_lock"]["mode"], "reduce_only")
-            batch_asset = harness.container.state_memory.latest_asset(asset_type="execution_batch", actor_role="system")
+            batch_asset = harness.container.memory_assets.latest_asset(asset_type="execution_batch", actor_role="system")
             self.assertIsNotNone(batch_asset)
             self.assertTrue(str(batch_asset["payload"]["decision_id"]).startswith("risk_reduce_"))
-            pm_trigger_asset = harness.container.state_memory.latest_asset(asset_type="pm_trigger_event", actor_role="system")
+            pm_trigger_asset = harness.container.memory_assets.latest_asset(asset_type="pm_trigger_event", actor_role="system")
             self.assertIsNotNone(pm_trigger_asset)
             self.assertEqual(pm_trigger_asset["payload"]["trigger_type"], "risk_brake")
             self.assertEqual(pm_trigger_asset["payload"]["reason"], "portfolio_peak_reduce")
@@ -832,9 +832,9 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(runner.runs, ["rt-job", "pm-job"])
             self.assertEqual(len(harness.fake_broker.executed), 1)
             self.assertEqual(harness.fake_broker.executed[0].action, "close")
-            state_asset = harness.container.state_memory.get_asset("risk_brake_state")
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
             self.assertEqual(state_asset["payload"]["position_locks"]["BTC"]["mode"], "flat_only")
-            pm_trigger_asset = harness.container.state_memory.latest_asset(asset_type="pm_trigger_event", actor_role="system")
+            pm_trigger_asset = harness.container.memory_assets.latest_asset(asset_type="pm_trigger_event", actor_role="system")
             self.assertIsNotNone(pm_trigger_asset)
             self.assertEqual(pm_trigger_asset["payload"]["reason"], "position_peak_exit")
             self.assertEqual(pm_trigger_asset["payload"]["lock_mode"], "flat_only")

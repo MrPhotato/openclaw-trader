@@ -34,7 +34,7 @@
 
 - [x] T017 固化 Macro & Event Analyst 的“低频巡检 + 事件驱动唤醒”工作模式
 - [x] T018 固化 Macro & Event Analyst 的精简输出要求：每条事件 `1-2` 句话，移除 `alert` 字段，正式提交只保留结构化事件列表
-- [x] T019 固化 PM 以 `state_memory` 为正式事件记忆来源，同时允许 `MEA` 直接向 `PM` 发送策略影响提醒
+- [x] T019 固化 PM 以 `memory_assets` 为正式事件记忆来源，同时允许 `MEA` 直接向 `PM` 发送策略影响提醒
 - [x] T020 固化 Agent 双通道：Agent 间直接沟通默认自由，只有正式提交通道才要求结构化，JSON 仅约束角色特定的正式提交契约
-- [ ] T021 第二批接入 OpenClaw 原生记忆搜索，使 `Macro & Event Analyst` 可通过语义召回读取 `state_memory` 投影出的事件记忆
-- [ ] T022 第二批明确 `Macro & Event Analyst` 的记忆读取契约，要求 `memory_view_id` 和 `memory_recall_mode` 与 `state_memory` 投影保持一致
+- [ ] T021 第二批接入 OpenClaw 原生记忆搜索，使 `Macro & Event Analyst` 可通过语义召回读取 `memory_assets` 投影出的事件记忆
+- [ ] T022 第二批明确 `Macro & Event Analyst` 的记忆读取契约，要求 `memory_view_id` 和 `memory_recall_mode` 与 `memory_assets` 投影保持一致

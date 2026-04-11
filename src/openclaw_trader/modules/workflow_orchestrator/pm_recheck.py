@@ -7,7 +7,7 @@ from typing import Any
 
 from ...shared.infra import EventBus
 from ...shared.utils import new_id
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.service import MemoryAssetsService
 from .pm_trigger import record_pm_trigger_event
 from .risk_brake import DEFAULT_PM_JOB_ID
 from .rt_trigger import CronRunResult, OpenClawCronRunner
@@ -26,12 +26,12 @@ class PMRecheckMonitor:
     def __init__(
         self,
         *,
-        state_memory: StateMemoryService,
+        memory_assets: MemoryAssetsService,
         event_bus: EventBus | None = None,
         config: PMRecheckConfig | None = None,
         cron_runner: OpenClawCronRunner | None = None,
     ) -> None:
-        self.state_memory = state_memory
+        self.memory_assets = memory_assets
         self.event_bus = event_bus
         self.config = config or PMRecheckConfig()
         self.cron_runner = cron_runner or OpenClawCronRunner(
@@ -56,7 +56,7 @@ class PMRecheckMonitor:
     def scan_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         current = _as_utc(now or datetime.now(UTC))
         state = self._load_state()
-        due = self.state_memory.get_due_scheduled_rechecks(now=current)
+        due = self.memory_assets.get_due_scheduled_rechecks(now=current)
         current_key = self._current_strategy_key()
         due_keys = [self._recheck_key(item) for item in due]
         if due:
@@ -139,7 +139,7 @@ class PMRecheckMonitor:
             "pm_cron_stderr": _truncate(run_result.stderr if run_result else "", 800),
         }
         record_pm_trigger_event(
-            state_memory=self.state_memory,
+            memory_assets=self.memory_assets,
             event_bus=self.event_bus,
             trace_id=trace_id,
             payload=payload,
@@ -161,7 +161,7 @@ class PMRecheckMonitor:
         return payload
 
     def _current_strategy_key(self) -> str | None:
-        latest_strategy = self.state_memory.get_latest_strategy()
+        latest_strategy = self.memory_assets.get_latest_strategy()
         payload = dict((latest_strategy or {}).get("payload") or {})
         strategy_id = str(payload.get("strategy_id") or "").strip()
         revision = payload.get("revision_number")
@@ -170,11 +170,11 @@ class PMRecheckMonitor:
         return f"{strategy_id}:{revision}"
 
     def _load_state(self) -> dict[str, Any]:
-        asset = self.state_memory.get_asset("pm_recheck_state")
+        asset = self.memory_assets.get_asset("pm_recheck_state")
         return dict((asset or {}).get("payload") or {})
 
     def _save_state(self, payload: dict[str, Any]) -> None:
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="pm_recheck_state",
             asset_id="pm_recheck_state",
             payload=payload,

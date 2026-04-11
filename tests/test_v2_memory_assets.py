@@ -5,16 +5,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from openclaw_trader.modules.state_memory import StateMemoryRepository, StateMemoryService
-from openclaw_trader.modules.state_memory.models import WorkflowStateRef
+from openclaw_trader.modules.memory_assets import MemoryAssetsRepository, MemoryAssetsService
+from openclaw_trader.modules.memory_assets.models import WorkflowStateRef
 from openclaw_trader.shared.infra import SqliteDatabase
 from openclaw_trader.shared.protocols import EventFactory
 
 
-class StateMemoryServiceTests(unittest.TestCase):
+class MemoryAssetsServiceTests(unittest.TestCase):
     def test_workflow_event_and_parameter_roundtrip(self) -> None:
         with TemporaryDirectory() as tmp:
-            service = StateMemoryService(StateMemoryRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))
             workflow = WorkflowStateRef(
                 workflow_id="wf-1",
                 trace_id="trace-1",
@@ -39,7 +39,7 @@ class StateMemoryServiceTests(unittest.TestCase):
 
     def test_materialize_strategy_asset_adds_system_fields_and_revision_chain(self) -> None:
         with TemporaryDirectory() as tmp:
-            service = StateMemoryService(StateMemoryRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))
             first = service.materialize_strategy_asset(
                 trace_id="trace-1",
                 authored_payload={
@@ -78,7 +78,7 @@ class StateMemoryServiceTests(unittest.TestCase):
 
     def test_materialize_news_submission_adds_system_fields(self) -> None:
         with TemporaryDirectory() as tmp:
-            service = StateMemoryService(StateMemoryRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))
             canonical = service.materialize_news_submission(
                 trace_id="trace-news",
                 authored_payload={
@@ -100,7 +100,7 @@ class StateMemoryServiceTests(unittest.TestCase):
 
     def test_build_overview_includes_portfolio_risk_overlay(self) -> None:
         with TemporaryDirectory() as tmp:
-            service = StateMemoryService(StateMemoryRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))
             service.save_asset(
                 asset_type="policy_guard",
                 payload={

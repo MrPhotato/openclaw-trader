@@ -19,7 +19,7 @@ from ..policy_risk.models import GuardDecision
 from ..policy_risk.service import PolicyRiskService
 from ..quant_intelligence.models import CoinForecast
 from ..quant_intelligence.service import QuantIntelligenceService
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.service import MemoryAssetsService
 from ..trade_gateway.execution.service import ExecutionGatewayService
 from ..trade_gateway.execution.models import ExecutionDecision
 from ..trade_gateway.market_data.models import DataIngestBundle
@@ -118,7 +118,7 @@ class AgentGatewayService:
         session_controller: AgentSessionController | None = None,
         agent_name_by_role: dict[str, str] | None = None,
         learning_path_by_role: dict[str, str] | None = None,
-        state_memory: StateMemoryService | None = None,
+        memory_assets: MemoryAssetsService | None = None,
         market_data: DataIngestService | None = None,
         news_events: NewsEventService | None = None,
         quant_intelligence: QuantIntelligenceService | None = None,
@@ -138,7 +138,7 @@ class AgentGatewayService:
         self.session_controller = session_controller
         self.agent_name_by_role = dict(agent_name_by_role or self._DEFAULT_AGENT_NAME_BY_ROLE)
         self.learning_path_by_role = dict(learning_path_by_role or self._DEFAULT_LEARNING_PATH_BY_ROLE)
-        self.state_memory = state_memory
+        self.memory_assets = memory_assets
         self.market_data = market_data
         self.news_events = news_events
         self.quant_intelligence = quant_intelligence
@@ -216,7 +216,7 @@ class AgentGatewayService:
             trace_id=lease.pack.trace_id,
             payload=payload,
         )
-        strategy_payload = self.state_memory.materialize_strategy_asset(
+        strategy_payload = self.memory_assets.materialize_strategy_asset(
             trace_id=lease.pack.trace_id,
             authored_payload=envelope.payload,
             trigger_type=lease.pack.trigger_type,
@@ -262,7 +262,7 @@ class AgentGatewayService:
                 ),
             ]
         )
-        self.state_memory.save_agent_session(
+        self.memory_assets.save_agent_session(
             agent_role="pm",
             session_id=self.session_id_for_role("pm"),
             last_task_kind="strategy",
@@ -323,13 +323,13 @@ class AgentGatewayService:
                 ),
             ]
         )
-        self.state_memory.save_agent_session(
+        self.memory_assets.save_agent_session(
             agent_role="risk_trader",
             session_id=self.session_id_for_role("risk_trader"),
             last_task_kind="execution",
             last_submission_kind="execution",
         )
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="execution_batch",
             payload=submission.model_dump(mode="json"),
             trace_id=lease.pack.trace_id,
@@ -343,7 +343,7 @@ class AgentGatewayService:
         )
         current_lock_mode = self._rt_lock_mode_from_payload(lease.pack.payload)
         if submission.tactical_map_update is not None:
-            self.state_memory.materialize_rt_tactical_map(
+            self.memory_assets.materialize_rt_tactical_map(
                 trace_id=lease.pack.trace_id,
                 strategy_key=strategy_key,
                 lock_mode=current_lock_mode,
@@ -402,7 +402,7 @@ class AgentGatewayService:
                 authorization=authorization,
             )
         )
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="execution_authorization",
             payload=authorization.model_dump(mode="json"),
             trace_id=lease.pack.trace_id,
@@ -430,7 +430,7 @@ class AgentGatewayService:
         results = self.trade_execution.execute(plans, live=live)
         self._record_events(self.trade_execution.build_result_events(trace_id=lease.pack.trace_id, results=results))
         for result in results:
-            self.state_memory.save_asset(
+            self.memory_assets.save_asset(
                 asset_type="execution_result",
                 payload={"result_id": new_id("execution_result"), **result.model_dump(mode="json")},
                 trace_id=lease.pack.trace_id,
@@ -465,7 +465,7 @@ class AgentGatewayService:
             payload=payload,
         )
         submission = NewsSubmission.model_validate(envelope.payload)
-        canonical_news = self.state_memory.materialize_news_submission(
+        canonical_news = self.memory_assets.materialize_news_submission(
             trace_id=lease.pack.trace_id,
             authored_payload=submission.model_dump(mode="json"),
             actor_role="macro_event_analyst",
@@ -488,14 +488,14 @@ class AgentGatewayService:
                 ),
             ]
         )
-        self.state_memory.save_agent_session(
+        self.memory_assets.save_agent_session(
             agent_role="macro_event_analyst",
             session_id=self.session_id_for_role("macro_event_analyst"),
             last_task_kind="event_summary",
             last_submission_kind="news",
         )
         for item in canonical_news["events"]:
-            self.state_memory.save_asset(
+            self.memory_assets.save_asset(
                 asset_type="macro_event",
                 payload=item,
                 trace_id=lease.pack.trace_id,
@@ -503,7 +503,7 @@ class AgentGatewayService:
                 group_key=str(item["event_id"]),
                 source_ref=str(canonical_news["submission_id"]),
             )
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="macro_daily_memory",
             payload={
                 "memory_day_utc": new_id("memory_day"),
@@ -517,7 +517,7 @@ class AgentGatewayService:
         )
         reminder_events = []
         for reminder in self._build_direct_reminders_from_news(canonical_news):
-            self.state_memory.save_asset(
+            self.memory_assets.save_asset(
                 asset_type="direct_reminder",
                 payload=reminder.model_dump(mode="json"),
                 trace_id=lease.pack.trace_id,
@@ -587,7 +587,7 @@ class AgentGatewayService:
             "reset_command": reset_command,
             "learning_completed": learning_completed,
         }
-        retro_asset = self.state_memory.save_asset(
+        retro_asset = self.memory_assets.save_asset(
             asset_type="chief_retro",
             payload=retro_payload,
             trace_id=lease.pack.trace_id,
@@ -623,7 +623,7 @@ class AgentGatewayService:
                 )
             ]
         )
-        self.state_memory.save_agent_session(
+        self.memory_assets.save_agent_session(
             agent_role="crypto_chief",
             session_id=self.session_id_for_role("crypto_chief"),
             last_task_kind="retro",
@@ -661,7 +661,7 @@ class AgentGatewayService:
                 trigger_type=trigger_type,
                 params=resolved_params,
             )
-            latest_pm_trigger_event = self.state_memory.claim_pending_pm_trigger_event(claim_ref=trace_id)
+            latest_pm_trigger_event = self.memory_assets.claim_pending_pm_trigger_event(claim_ref=trace_id)
             if latest_pm_trigger_event is not None:
                 resolved_trigger_type = str(latest_pm_trigger_event.get("trigger_type") or resolved_trigger_type).strip() or resolved_trigger_type
             else:
@@ -705,8 +705,8 @@ class AgentGatewayService:
                     "news_events": runtime_inputs["crypto_chief"].payload.get("news_events", []),
                     "execution_contexts": runtime_inputs["crypto_chief"].payload.get("execution_contexts", []),
                     "macro_memory": runtime_inputs["crypto_chief"].payload.get("macro_memory", []),
-                    "recent_execution_results": self.state_memory.get_recent_execution_results(limit=10),
-                    "recent_news_submissions": self.state_memory.get_recent_news_submissions(limit=10),
+                    "recent_execution_results": self.memory_assets.get_recent_execution_results(limit=10),
+                    "recent_news_submissions": self.memory_assets.get_recent_news_submissions(limit=10),
                     "learning_targets": learning_targets,
                 },
                 "learning_targets": learning_targets,
@@ -729,7 +729,7 @@ class AgentGatewayService:
             if latest_risk_brake_event is not None and agent_role in {"pm", "risk_trader"}:
                 payload["latest_risk_brake_event"] = latest_risk_brake_event
             if agent_role == "risk_trader":
-                payload["recent_execution_thoughts"] = self.state_memory.get_recent_execution_thoughts(limit=5)
+                payload["recent_execution_thoughts"] = self.memory_assets.get_recent_execution_thoughts(limit=5)
                 latest_trigger_event = self._latest_rt_trigger_event()
                 if latest_trigger_event is not None:
                     payload["latest_rt_trigger_event"] = latest_trigger_event
@@ -776,12 +776,12 @@ class AgentGatewayService:
             trigger_context=trigger_context,
             hidden_payload=hidden_payload,
         )
-        self.state_memory.save_agent_session(
+        self.memory_assets.save_agent_session(
             agent_role=agent_role,
             session_id=self.session_id_for_role(agent_role),
             last_task_kind=task_kind,
         )
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="agent_runtime_lease",
             asset_id=pack.input_id,
             payload=lease.model_dump(mode="json"),
@@ -812,7 +812,7 @@ class AgentGatewayService:
         trigger_type: str,
     ) -> dict[str, Any]:
         max_age_seconds = self.runtime_bridge_max_age_seconds
-        bridge_asset = self.state_memory.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
+        bridge_asset = self.memory_assets.get_runtime_bridge_state_asset(max_age_seconds=max_age_seconds)
         snapshot_source = "cache"
         if bridge_asset is None and self.runtime_bridge_monitor is not None:
             try:
@@ -824,12 +824,12 @@ class AgentGatewayService:
             except Exception:
                 bridge_asset = None
             if bridge_asset is None:
-                stale_asset = self.state_memory.latest_runtime_bridge_state_asset()
+                stale_asset = self.memory_assets.latest_runtime_bridge_state_asset()
                 if stale_asset is not None:
                     bridge_asset = stale_asset
                     snapshot_source = "stale_cache"
         elif bridge_asset is None:
-            stale_asset = self.state_memory.latest_runtime_bridge_state_asset()
+            stale_asset = self.memory_assets.latest_runtime_bridge_state_asset()
             if stale_asset is not None:
                 bridge_asset = stale_asset
                 snapshot_source = "stale_cache"
@@ -1001,7 +1001,7 @@ class AgentGatewayService:
             "claimed_ref": trace_id,
             "dispatched": True,
         }
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="pm_trigger_event",
             asset_id=str(normalized["event_id"]),
             payload=normalized,
@@ -1022,7 +1022,7 @@ class AgentGatewayService:
             entity_id=str(normalized["event_id"]),
             payload=normalized,
         )
-        self.state_memory.append_event(envelope)
+        self.memory_assets.append_event(envelope)
         if self.event_bus is not None:
             try:
                 self.event_bus.publish(envelope)
@@ -1041,7 +1041,7 @@ class AgentGatewayService:
         payload = dict(params or {})
         if not self._pm_pull_request_lacks_provenance(payload):
             return None
-        recent_event = self.state_memory.find_recent_pm_trigger_event(
+        recent_event = self.memory_assets.find_recent_pm_trigger_event(
             trigger_category="message",
             max_age_minutes=10,
         )
@@ -1111,9 +1111,9 @@ class AgentGatewayService:
         )
         news = self.news_events.get_latest_news_batch(force_sync=force_sync_news)
         forecasts = self.quant_intelligence.get_latest_forecasts(market)
-        latest_strategy_asset = self.state_memory.get_latest_strategy()
+        latest_strategy_asset = self.memory_assets.get_latest_strategy()
         latest_strategy = latest_strategy_asset["payload"] if latest_strategy_asset and "payload" in latest_strategy_asset else latest_strategy_asset
-        prior_risk_state = self.state_memory.get_asset("risk_brake_state")
+        prior_risk_state = self.memory_assets.get_asset("risk_brake_state")
         policies = self.policy_risk.evaluate(
             market=market,
             forecasts=forecasts,
@@ -1121,7 +1121,7 @@ class AgentGatewayService:
             prior_risk_state=dict((prior_risk_state or {}).get("payload") or {}),
             latest_strategy=latest_strategy or {},
         )
-        macro_memory = self.state_memory.get_macro_memory()
+        macro_memory = self.memory_assets.get_macro_memory()
         return {
             "market": market,
             "news": news,
@@ -1140,8 +1140,8 @@ class AgentGatewayService:
         market: DataIngestBundle,
     ) -> None:
         portfolio_payload = market.portfolio.model_dump(mode="json")
-        self.state_memory.save_portfolio(trace_id, portfolio_payload)
-        self.state_memory.save_asset(
+        self.memory_assets.save_portfolio(trace_id, portfolio_payload)
+        self.memory_assets.save_asset(
             asset_type="portfolio_snapshot",
             payload=portfolio_payload,
             trace_id=trace_id,
@@ -1158,7 +1158,7 @@ class AgentGatewayService:
         missing = [
             name
             for name, value in (
-                ("state_memory", self.state_memory),
+                ("memory_assets", self.memory_assets),
                 ("market_data", self.market_data),
                 ("news_events", self.news_events),
                 ("quant_intelligence", self.quant_intelligence),
@@ -1173,7 +1173,7 @@ class AgentGatewayService:
 
     def _validate_runtime_lease(self, *, input_id: str, agent_role: str) -> AgentRuntimeLease:
         self._require_runtime_bridge_dependencies()
-        asset = self.state_memory.get_asset(input_id)
+        asset = self.memory_assets.get_asset(input_id)
         if asset is None or asset.get("asset_type") != "agent_runtime_lease":
             raise RuntimeInputLeaseError(reason="unknown_input_id", input_id=input_id, agent_role=agent_role)
         lease = AgentRuntimeLease.model_validate(asset.get("payload") or {})
@@ -1192,7 +1192,7 @@ class AgentGatewayService:
 
     def _consume_runtime_lease(self, *, lease: AgentRuntimeLease, submission_kind: str) -> None:
         updated = lease.model_copy(update={"status": "consumed", "consumed_at_utc": datetime.now(UTC)})
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="agent_runtime_lease",
             asset_id=lease.pack.input_id,
             payload=updated.model_dump(mode="json"),
@@ -1218,7 +1218,7 @@ class AgentGatewayService:
         pending = list(events)
         while pending:
             event = pending.pop(0)
-            self.state_memory.append_event(event)
+            self.memory_assets.append_event(event)
             self._publish_best_effort(event)
             if self.notification_service is not None:
                 pending.extend(self.notification_service.handle_event(event))
@@ -1232,7 +1232,7 @@ class AgentGatewayService:
             return None
 
     def _latest_rt_trigger_event(self, *, max_age_minutes: int = 30) -> dict[str, Any] | None:
-        asset = self.state_memory.latest_asset(asset_type="rt_trigger_event", actor_role="system")
+        asset = self.memory_assets.latest_asset(asset_type="rt_trigger_event", actor_role="system")
         if asset is None:
             return None
         payload = dict(asset.get("payload") or {})
@@ -1265,7 +1265,7 @@ class AgentGatewayService:
         }
 
     def _latest_risk_brake_event(self, *, max_age_minutes: int = 120) -> dict[str, Any] | None:
-        asset = self.state_memory.latest_asset(asset_type="risk_brake_event", actor_role="system")
+        asset = self.memory_assets.latest_asset(asset_type="risk_brake_event", actor_role="system")
         if asset is None:
             return None
         payload = dict(asset.get("payload") or {})
@@ -1457,7 +1457,7 @@ class AgentGatewayService:
         strategy_key: str,
         lock_mode: str | None,
     ) -> dict[str, Any] | None:
-        asset = self.state_memory.latest_rt_tactical_map(
+        asset = self.memory_assets.latest_rt_tactical_map(
             strategy_key=strategy_key,
             lock_mode=lock_mode,
             require_coins=True,
@@ -1479,9 +1479,9 @@ class AgentGatewayService:
     ) -> dict[str, Any]:
         latest_trigger_event = dict(payload.get("latest_rt_trigger_event") or {})
         latest_risk_brake_event = dict(payload.get("latest_risk_brake_event") or {})
-        latest_map_asset = self.state_memory.latest_asset(asset_type="rt_tactical_map", actor_role="risk_trader")
+        latest_map_asset = self.memory_assets.latest_asset(asset_type="rt_tactical_map", actor_role="risk_trader")
         latest_map_payload = dict((latest_map_asset or {}).get("payload") or {})
-        compatible_map_asset = self.state_memory.latest_rt_tactical_map(
+        compatible_map_asset = self.memory_assets.latest_rt_tactical_map(
             strategy_key=strategy_key,
             lock_mode=lock_mode,
             require_coins=True,

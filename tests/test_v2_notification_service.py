@@ -7,7 +7,7 @@ from unittest.mock import patch
 from openclaw_trader.modules.notification_service import NotificationService
 from openclaw_trader.modules.notification_service.adapters.openclaw import OpenClawNotificationProvider
 from openclaw_trader.modules.notification_service.models import NotificationCommand
-from openclaw_trader.modules.state_memory import StateMemoryRepository, StateMemoryService
+from openclaw_trader.modules.memory_assets import MemoryAssetsRepository, MemoryAssetsService
 from openclaw_trader.shared.protocols import EventFactory
 from openclaw_trader.shared.infra import SqliteDatabase
 
@@ -18,9 +18,9 @@ class NotificationServiceTests(unittest.TestCase):
     def test_send_records_notification(self) -> None:
         tempdir = TemporaryDirectory()
         try:
-            state_memory = StateMemoryService(StateMemoryRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
+            memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
             notifier = FakeNotificationProvider()
-            service = NotificationService(notifier, state_memory)
+            service = NotificationService(notifier, memory_assets)
             commands = service.build_workflow_notifications(trace_id="trace-1", strategy={"version": "v1"}, execution_results=[])
             self.assertEqual(len(commands), 2)
             self.assertIn("trace_id: trace-1", commands[0].message)
@@ -28,16 +28,16 @@ class NotificationServiceTests(unittest.TestCase):
                 result = service.send(command)
                 self.assertTrue(result.delivered)
             self.assertEqual(len(notifier.commands), 2)
-            self.assertEqual(len(state_memory.query_events()), 2)
+            self.assertEqual(len(memory_assets.query_events()), 2)
         finally:
             tempdir.cleanup()
 
     def test_notify_owner_summary_targets_owner_only(self) -> None:
         tempdir = TemporaryDirectory()
         try:
-            state_memory = StateMemoryService(StateMemoryRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
+            memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
             notifier = FakeNotificationProvider()
-            service = NotificationService(notifier, state_memory)
+            service = NotificationService(notifier, memory_assets)
 
             events = service.notify_owner_summary(trace_id="trace-chief", owner_summary="Retro summary ready.")
 
@@ -53,9 +53,9 @@ class NotificationServiceTests(unittest.TestCase):
     def test_handle_event_ignores_execution_completed(self) -> None:
         tempdir = TemporaryDirectory()
         try:
-            state_memory = StateMemoryService(StateMemoryRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
+            memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
             notifier = FakeNotificationProvider()
-            service = NotificationService(notifier, state_memory)
+            service = NotificationService(notifier, memory_assets)
 
             envelope = EventFactory.build(
                 trace_id="trace-exec",
@@ -76,9 +76,9 @@ class NotificationServiceTests(unittest.TestCase):
     def test_handle_event_includes_strategy_trigger_reason_in_message(self) -> None:
         tempdir = TemporaryDirectory()
         try:
-            state_memory = StateMemoryService(StateMemoryRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
+            memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(__import__("pathlib").Path(tempdir.name) / "db.sqlite")))
             notifier = FakeNotificationProvider()
-            service = NotificationService(notifier, state_memory)
+            service = NotificationService(notifier, memory_assets)
 
             envelope = EventFactory.build(
                 trace_id="trace-strategy",

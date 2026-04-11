@@ -7,7 +7,7 @@
 ## 1. 执行摘要
 
 这次实现分三层推进：
-- 在 `state_memory` 中增加 RT 专属的 `standing_tactical_map`
+- 在 `memory_assets` 中增加 RT 专属的 `standing_tactical_map`
   中文：当班战术地图
 - 在 `agent_gateway pull/rt` 中增加 `trigger_delta`
   中文：本次触发增量
@@ -18,7 +18,7 @@
 
 - **现有系统事实**：RT 已通过 `workflow_orchestrator -> openclaw cron run` 实现条件触发与 heartbeat 兜底；`pull/rt` 已有 `rt_decision_digest`、`latest_rt_trigger_event`、`latest_risk_brake_event`。
 - **目标边界**：不改 RT 的标准自动入口，不把机器事件改成写入 RT `main` 会话，不替 RT 自动生成主观战术结论。
-- **主要依赖**：`state_memory`、`agent_gateway`、`workflow_orchestrator`、RT skill / workspace 文档。
+- **主要依赖**：`memory_assets`、`agent_gateway`、`workflow_orchestrator`、RT skill / workspace 文档。
 - **未知项 / 待确认项**：第一版不做单独 UI，不做人工编辑器；地图的正式持久化入口优先沿用现有 RT 提交流程中的附加更新，而不是引入新的人机接口。
 
 ## 3. 宪法检查（Constitution Check）
@@ -35,7 +35,7 @@
 
 ## 5. 第 1 阶段：设计与契约
 
-- 为 `state_memory` 增加 `RTTacticalMap`
+- 为 `memory_assets` 增加 `RTTacticalMap`
   中文：RT 当班战术地图
 - 为 `pull/rt` 增加 `TriggerDelta`
   中文：本次触发增量
@@ -46,7 +46,7 @@
 ## 6. 第 2 阶段：任务分解与迁移路径
 
 - 先在 spec 中固化地图字段和刷新规则
-- 再实现 `state_memory` 资产与 `agent_gateway pull/rt` 聚合逻辑
+- 再实现 `memory_assets` 资产与 `agent_gateway pull/rt` 聚合逻辑
 - 再更新 RT skill / runtime-inputs / workspace AGENTS
 - 最后补回归测试，验证地图、增量和既有 trigger/risk brake 能共存
 

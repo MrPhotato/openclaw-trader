@@ -5,17 +5,17 @@ from collections.abc import Iterable
 from ...shared.protocols import EventEnvelope, EventFactory
 from ...config.loader import load_system_settings
 from ...shared.utils import new_id
-from ..state_memory.models import NotificationResult as StoredNotificationResult
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.models import NotificationResult as StoredNotificationResult
+from ..memory_assets.service import MemoryAssetsService
 from .events import EVENT_NOTIFICATION_SENT, MODULE_NAME
 from .models import NotificationCommand
 from .ports import NotificationProvider
 
 
 class NotificationService:
-    def __init__(self, provider: NotificationProvider, state_memory: StateMemoryService) -> None:
+    def __init__(self, provider: NotificationProvider, memory_assets: MemoryAssetsService) -> None:
         self.provider = provider
-        self.state_memory = state_memory
+        self.memory_assets = memory_assets
         self.settings = load_system_settings()
 
     def build_workflow_notifications(self, *, trace_id: str, strategy: dict, execution_results: list[dict]) -> list[NotificationCommand]:
@@ -38,7 +38,7 @@ class NotificationService:
 
     def send(self, command: NotificationCommand):
         result = self.provider.send(command)
-        self.state_memory.save_notification_result(
+        self.memory_assets.save_notification_result(
             result=StoredNotificationResult(
                 notification_id=result.notification_id,
                 delivered=result.delivered,

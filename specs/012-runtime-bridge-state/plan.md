@@ -28,7 +28,7 @@
   - 动态字段仍由热路径补齐
 
 ### 第二步：状态资产与刷新器
-- 在 `state_memory` 中增加 `RuntimeBridgeState`
+- 在 `memory_assets` 中增加 `RuntimeBridgeState`
 - 新增后台 `RuntimeBridgeMonitor`
 - 周期性刷新 market/news/forecast/strategy/risk/macro，并写入状态资产
 

@@ -31,4 +31,4 @@
 - [x] T015 将 `event_action`、`portfolio_risk`、`model_uncertainty` 收敛为诊断信息或硬阻断，不再生成复杂软建议
 - [x] T016 用新配置层承接上述硬风控参数，并补齐对应单元测试与联调测试
 - [x] T017 在 `Trade Gateway.market_data` 增加多尺度价格序列、形态摘要、关键价位、突破/回踩、波动状态、最近订单/成交历史等采集入口
-- [ ] T018 第二批再决定上述新增市场上下文字段如何进入 `state_memory`、`agent_gateway` 运行时输入层和 Agent 视图
+- [ ] T018 第二批再决定上述新增市场上下文字段如何进入 `memory_assets`、`agent_gateway` 运行时输入层和 Agent 视图

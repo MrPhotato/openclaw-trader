@@ -25,10 +25,10 @@
 
 ## 第四波：Macro 事件记忆
 
-- [x] T012 固化 `Macro & Event Analyst` 事件记忆的唯一真相源为 `state_memory`
+- [x] T012 固化 `Macro & Event Analyst` 事件记忆的唯一真相源为 `memory_assets`
 - [x] T013 定义 `MacroEventRecord` 与 `MacroDailyMemory` 的最简记忆模型
 - [x] T014 固化“只存结构化事件，不存原始新闻”的边界
-- [x] T015 固化除 `learning` 外所有真实资产统一由 `state_memory` 书写和管理
-- [x] T016 固化 Agent 间直接沟通不直接形成系统真相，正式决定必须经模块接收后写入 `state_memory`
-- [ ] T017 第二批定义 `state_memory -> OpenClaw memory` 的只读记忆投影模型，避免双写
+- [x] T015 固化除 `learning` 外所有真实资产统一由 `memory_assets` 书写和管理
+- [x] T016 固化 Agent 间直接沟通不直接形成系统真相，正式决定必须经模块接收后写入 `memory_assets`
+- [ ] T017 第二批定义 `memory_assets -> OpenClaw memory` 的只读记忆投影模型，避免双写
 - [ ] T018 第二批接入 OpenClaw 原生语义检索，明确 `autoRecall` 开启、`autoCapture` 关闭

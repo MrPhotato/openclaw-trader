@@ -43,9 +43,9 @@ class ApiIntegrationTests(unittest.TestCase):
                 patch.object(harness.container.market_data, "get_market_overview", side_effect=AssertionError("market_data should not be called")),
                 patch.object(harness.container.news_events, "get_latest_news_batch", side_effect=AssertionError("news_events should not be called")),
                 patch.object(harness.container.quant_intelligence, "get_latest_forecasts", side_effect=AssertionError("quant should not be called")),
-                patch.object(harness.container.state_memory, "get_latest_strategy", side_effect=AssertionError("strategy should not be called")),
-                patch.object(harness.container.state_memory, "get_asset", side_effect=AssertionError("get_asset should not be called")),
-                patch.object(harness.container.state_memory, "get_macro_memory", side_effect=AssertionError("macro memory should not be called")),
+                patch.object(harness.container.memory_assets, "get_latest_strategy", side_effect=AssertionError("strategy should not be called")),
+                patch.object(harness.container.memory_assets, "get_asset", side_effect=AssertionError("get_asset should not be called")),
+                patch.object(harness.container.memory_assets, "get_macro_memory", side_effect=AssertionError("macro memory should not be called")),
             ):
                 with TestClient(app) as client:
                     pm_pack = client.post("/api/agent/pull/pm", json={"trigger_type": "pm_main_cron"})
