@@ -22,7 +22,7 @@ from _quant_history_bundle import prepare_history_bundle
 def build_settings(runtime_root: Path) -> SystemSettings:
     return SystemSettings(
         runtime_root=runtime_root,
-        bus=BusSettings(rabbitmq_url="amqp://guest:guest@127.0.0.1:5672/%2F", exchange_name="history.topic"),
+        bus=BusSettings(mode="inmemory"),
         storage=StorageSettings(sqlite_path=runtime_root / "state" / "history.db"),
         quant=QuantSettings(bootstrap_snapshot_exchange="binance_usdm"),
         execution=ExecutionSettings(

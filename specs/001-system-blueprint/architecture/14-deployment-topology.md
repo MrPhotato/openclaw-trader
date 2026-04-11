@@ -108,7 +108,7 @@ LaunchAgent：
 
 ## 7. 与未来架构兼容方式
 
-未来即使引入 RabbitMQ 与更多模块，仍建议保留：
+未来即使引入 事件总线 与更多模块，仍建议保留：
 
 - trader API / control 面
 - dispatcher / workflow worker

@@ -1,4 +1,4 @@
-# 任务分解：事件协议与总线骨架
+# 任务分解：事件协议与进程内总线骨架
 
 **功能分支**：`codex/002-event-envelope-bus`  
 **规格文档**：`specs/002-event-envelope-bus/spec.md`
@@ -6,7 +6,7 @@
 ## 第一波：规格与基础约束
 
 - [x] T001 明确 `EventEnvelope` 顶层字段、命名规则和版本策略，写入 `specs/002-event-envelope-bus/spec.md`
-- [x] T002 明确 RabbitMQ exchange / routing key / queue 最小规则，写入 `specs/002-event-envelope-bus/contracts/rabbitmq-routing.md`
+- [x] T002 明确进程内事件总线的事件类型与交付最小规则，写入 `specs/002-event-envelope-bus/contracts/event-routing.md`
 
 ## 第二波：设计与契约
 

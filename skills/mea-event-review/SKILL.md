@@ -1,6 +1,6 @@
 ---
 name: mea-event-review
-description: Macro Event Analyst workflow for openclaw-trader. Use when MEA needs to review news batches, optionally search the web via /gemini, produce structured news JSON, and directly notify PM and RT about high-importance events.
+description: Macro Event Analyst workflow for openclaw-trader. Use when MEA needs to review news batches, optionally search the web via /gemini, produce structured news JSON, and directly notify PM and RT only when a high-importance event changes the current trading state.
 ---
 
 # MEA Event Review
@@ -18,7 +18,7 @@ Use this skill for `MEA` work only.
 - Produce exactly one pure JSON `news` submission when making a formal submit.
 - Submit against the current `input_id`.
 - Only author `events`; the system will add `submission_id` and `generated_at_utc`.
-- Directly notify `PM` and `RT` when importance is `high`.
+- Directly notify `PM` and `RT` only when a high-importance event changes the current trading state.
 
 ## Workflow
 1. Read [runtime-inputs.md](references/runtime-inputs.md).
@@ -29,6 +29,9 @@ Use this skill for `MEA` work only.
 - Default to Chinese for all non-JSON commentary unless a downstream contract explicitly requires another language.
 - Do not hold strategy authority.
 - Do not wait for WO to track high-priority events.
+- High importance alone is not enough to wake `PM`. Wake `PM` only when the new fact changes the current state: it weakens or invalidates the latest `PM` thesis, changes the likely exposure regime, or clearly hits or clears a threshold `PM` already named.
+- Do not wake `PM` again for the same geopolitical or macro theme if the new item only reinforces the same direction without changing the action implication.
+- If the event is important but does not change state, capture it in the formal `news` submission and keep monitoring; do not use `sessions_send` to push `PM`.
 - Formal `news` submission must be JSON only, with no markdown fence or prose wrapper.
 - Do not store personal memory in `memory_assets`.
 

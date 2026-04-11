@@ -1,4 +1,4 @@
-# 数据模型：事件协议与总线骨架
+# 数据模型：事件协议与进程内总线骨架
 
 ## 1. EventEnvelope
 
@@ -17,15 +17,14 @@
 | `payload` | object | 业务载荷 |
 | `human_summary` | string | 面向回放和 UI 的简述 |
 
-## 2. BusRouteDescriptor
+## 2. EventRouteDescriptor
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `exchange` | string | RabbitMQ exchange 名称 |
-| `routing_key` | string | topic routing key |
+| `event_type_pattern` | string | 事件类型匹配规则，例如 `workflow.*` |
 | `publisher_module` | string | 发布模块 |
-| `consumer_modules` | string[] | 订阅模块 |
-| `delivery_mode` | enum | `fire_and_forget` / `durable` |
+| `observer_modules` | string[] | 观察或消费该事件的模块 |
+| `delivery_mode` | enum | `inline` / `persisted` / `best_effort_mirror` |
 | `idempotency_key_source` | string | 幂等键来源 |
 
 ## 3. ParameterChangeRecord

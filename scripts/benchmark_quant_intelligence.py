@@ -154,7 +154,7 @@ def build_benchmark_settings(
         quant_kwargs["probability_calibration_mode_by_coin_horizon"] = probability_calibration_mode_by_coin_horizon
     settings = SystemSettings(
         runtime_root=runtime_root,
-        bus=BusSettings(rabbitmq_url="amqp://guest:guest@127.0.0.1:5672/%2F", exchange_name="benchmark.topic"),
+        bus=BusSettings(mode="inmemory"),
         storage=StorageSettings(sqlite_path=runtime_root / "state" / "benchmark.db"),
         quant=QuantSettings(**quant_kwargs),
         execution=ExecutionSettings(

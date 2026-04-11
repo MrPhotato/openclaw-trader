@@ -108,7 +108,7 @@ Source of truth in code:
 ## Target contract
 Target formal chain is:
 
-`RT -> AG submit bridge (+ input_id) -> MQ -> policy_risk -> MQ -> Trade Gateway.execution`
+`RT -> AG submit bridge (+ input_id) -> policy_risk -> Trade Gateway.execution`
 
 RT remains a decision agent, not a market-data requester.
 RT also remains a decision agent, not an order router.

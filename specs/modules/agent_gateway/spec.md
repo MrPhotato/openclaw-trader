@@ -12,7 +12,7 @@
 
 - 管理 Agent 的运行时拉取桥、正式回执和升级契约
 - 维护 `news`、`strategy`、`execution` 三类正式提交模板
-- 对正式提交执行共享 schema 准入校验并发布到消息总线
+- 对正式提交执行共享 schema 准入校验，并交给 `memory_assets` / `workflow_orchestrator` / 执行域继续处理
 - 在运行时按 Agent 角色编译单次 runtime pack
 - 发放 `input_id + trace_id + expires_at` 单次租约
 - 校验 formal submit 带回的 `input_id`

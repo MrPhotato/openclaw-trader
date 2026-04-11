@@ -5,7 +5,7 @@
 
 ## 1. 执行摘要
 
-本计划把 PM 固化为组合经理角色：读结构化事实，形成目标组合，提交 `strategy` JSON，由 `agent_gateway` 校验后进入消息总线，再由 `memory_assets` 和 `workflow_orchestrator` 分别消费。
+本计划把 PM 固化为组合经理角色：读结构化事实，形成目标组合，提交 `strategy` JSON，由 `agent_gateway` 校验后进入正式处理链，再由 `memory_assets` 和 `workflow_orchestrator` 分别消费。
 
 ## 2. 技术背景（Technical Context）
 

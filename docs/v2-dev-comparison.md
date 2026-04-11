@@ -24,10 +24,10 @@
 
 - 新闻仍进入上下文视图与事件模块，不再作为单独的硬阻断入口。
 - `workflow_orchestrator` 是唯一主动触发入口。
-- 所有跨模块活动都要求产出结构化事件，便于 RabbitMQ、回放和前端动画消费。
+- 所有跨模块活动都要求产出结构化事件，便于进程内事件总线、回放和前端动画消费。
 
 ## 当前实现差异
 
 - 生产适配器仍复用旧 Coinbase / 量化模型实现作为第一版底层适配器。
-- RabbitMQ 已落真实适配器，但集成测试依赖外部 broker；本地未配置 `OPENCLAW_TEST_RABBITMQ_URL` 时会跳过该测试。
+- 进程内事件总线已经落地，主链正确性依赖 `memory_assets` 与进程内调用，不依赖外部 broker。
 - 通知默认已切到真实 `OpenClawNotificationProvider`，由 `openclaw message send` 负责统一外发。

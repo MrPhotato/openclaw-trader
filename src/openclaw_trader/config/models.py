@@ -19,9 +19,7 @@ class AppSettings(BaseModel):
 
 
 class BusSettings(BaseModel):
-    rabbitmq_url: str = "amqp://guest:guest@127.0.0.1:5672/%2F"
-    exchange_name: str = "openclaw.topic"
-    durable_exchange: bool = True
+    mode: str = "inmemory"
 
 
 class RuntimePaths(BaseModel):
