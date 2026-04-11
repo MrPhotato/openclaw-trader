@@ -50,7 +50,7 @@ class ControlWorkflowHandler(WorkflowEventRecorder):
                 )
                 effective_session_id = str(reset_result.get("effective_session_id") or requested_session_id)
                 reset_results.append(reset_result)
-                self.services.state_memory.save_agent_session(
+                self.services.memory_assets.save_agent_session(
                     agent_role=agent_role,
                     session_id=effective_session_id,
                     status="active",

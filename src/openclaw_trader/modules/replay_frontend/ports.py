@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ..state_memory.models import ReplayQueryView
+from ..memory_assets.models import ReplayQueryView
 
 
 class ReplayReadPort(Protocol):

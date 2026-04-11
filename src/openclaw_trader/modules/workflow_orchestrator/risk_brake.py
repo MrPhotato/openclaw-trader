@@ -11,7 +11,7 @@ from ...shared.protocols import EventFactory
 from ...shared.utils import new_id, notional_to_pct_of_exposure_budget
 from ..policy_risk.models import GuardDecision
 from ..policy_risk.service import PolicyRiskService
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.service import MemoryAssetsService
 from ..trade_gateway.execution.models import ExecutionDecision
 from ..trade_gateway.execution.service import ExecutionGatewayService
 from ..trade_gateway.market_data.models import DataIngestBundle
@@ -40,7 +40,7 @@ class RiskBrakeMonitor:
     def __init__(
         self,
         *,
-        state_memory: StateMemoryService,
+        memory_assets: MemoryAssetsService,
         market_data: DataIngestService,
         policy_risk: PolicyRiskService,
         trade_execution: ExecutionGatewayService,
@@ -48,7 +48,7 @@ class RiskBrakeMonitor:
         config: RiskBrakeConfig | None = None,
         cron_runner: OpenClawCronRunner | None = None,
     ) -> None:
-        self.state_memory = state_memory
+        self.memory_assets = memory_assets
         self.market_data = market_data
         self.policy_risk = policy_risk
         self.trade_execution = trade_execution
@@ -77,7 +77,7 @@ class RiskBrakeMonitor:
         current = _as_utc(now or datetime.now(UTC))
         trace_id = new_id("trace")
         state = self._normalize_state(self._load_state(), now=current)
-        latest_strategy_asset = self.state_memory.get_latest_strategy()
+        latest_strategy_asset = self.memory_assets.get_latest_strategy()
         strategy_payload = dict((latest_strategy_asset or {}).get("payload") or {})
         current_strategy_key = self._strategy_key(strategy_payload)
         state = self._release_locks_for_strategy(state=state, current_strategy_key=current_strategy_key, now=current)
@@ -177,7 +177,7 @@ class RiskBrakeMonitor:
                 coins=sorted(plan["actions"].keys()),
             )
             payload.update(dispatch_summary)
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="risk_brake_event",
             asset_id=event_id,
             payload=payload,
@@ -194,7 +194,7 @@ class RiskBrakeMonitor:
             entity_id=event_id,
             payload=payload,
         )
-        self.state_memory.append_event(envelope)
+        self.memory_assets.append_event(envelope)
         self._publish_best_effort(envelope)
         payload["triggered"] = True
         return payload
@@ -382,7 +382,7 @@ class RiskBrakeMonitor:
                 "execution_result_ids": [],
             }
 
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="execution_batch",
             payload={
                 "decision_id": decision_id,
@@ -402,7 +402,7 @@ class RiskBrakeMonitor:
             market=market,
             policies=policies,
         )
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="execution_authorization",
             payload=authorization.model_dump(mode="json"),
             trace_id=trace_id,
@@ -434,7 +434,7 @@ class RiskBrakeMonitor:
         self._record_events(self.trade_execution.build_result_events(trace_id=trace_id, results=results))
         result_asset_ids: list[str] = []
         for result in results:
-            asset = self.state_memory.save_asset(
+            asset = self.memory_assets.save_asset(
                 asset_type="execution_result",
                 payload={"result_id": new_id("execution_result"), **result.model_dump(mode="json")},
                 trace_id=trace_id,
@@ -484,7 +484,7 @@ class RiskBrakeMonitor:
             if not pm_dispatched:
                 pm_skip_reason = "cron_run_failed"
         pm_event = record_pm_trigger_event(
-            state_memory=self.state_memory,
+            memory_assets=self.memory_assets,
             event_bus=self.event_bus,
             trace_id=trace_id,
             payload={
@@ -522,7 +522,7 @@ class RiskBrakeMonitor:
         }
 
     def _record_rt_dispatch(self, *, now: datetime, trace_id: str, reason: str) -> None:
-        asset = self.state_memory.get_asset("rt_trigger_state")
+        asset = self.memory_assets.get_asset("rt_trigger_state")
         payload = dict((asset or {}).get("payload") or {})
         recent = [
             item
@@ -539,7 +539,7 @@ class RiskBrakeMonitor:
                 "last_trigger_by_key": by_key,
             }
         )
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="rt_trigger_state",
             asset_id="rt_trigger_state",
             payload=payload,
@@ -613,14 +613,14 @@ class RiskBrakeMonitor:
         return references
 
     def _load_state(self) -> dict[str, Any]:
-        asset = self.state_memory.get_asset("risk_brake_state")
+        asset = self.memory_assets.get_asset("risk_brake_state")
         if asset is None:
             return {}
         payload = asset.get("payload")
         return dict(payload or {}) if isinstance(payload, dict) else {}
 
     def _save_state(self, payload: dict[str, Any], *, trace_id: str) -> None:
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="risk_brake_state",
             asset_id="risk_brake_state",
             payload=payload,
@@ -685,7 +685,7 @@ class RiskBrakeMonitor:
 
     def _record_events(self, events) -> None:
         for event in list(events):
-            self.state_memory.append_event(event)
+            self.memory_assets.append_event(event)
             self._publish_best_effort(event)
 
     def _publish_best_effort(self, event) -> None:

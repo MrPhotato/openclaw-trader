@@ -7,8 +7,8 @@ from threading import Event, Lock, Thread
 from ...shared.infra import EventBus
 from ...shared.protocols import EventFactory
 from ...shared.utils import new_id
-from ..state_memory.models import WorkflowStateRef
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.models import WorkflowStateRef
+from ..memory_assets.service import MemoryAssetsService
 from .events import (
     EVENT_COMMAND_ACCEPTED,
     EVENT_EXTERNAL_CADENCE_DELIVERED,
@@ -38,7 +38,7 @@ class WorkflowOrchestratorService:
     def __init__(
         self,
         *,
-        state_memory: StateMemoryService,
+        memory_assets: MemoryAssetsService,
         event_bus: EventBus,
         executor: WorkflowCommandExecutor,
         run_in_background: bool = True,
@@ -50,7 +50,7 @@ class WorkflowOrchestratorService:
         pm_recheck_monitor: PMRecheckMonitor | None = None,
         risk_brake_monitor: RiskBrakeMonitor | None = None,
     ) -> None:
-        self.state_memory = state_memory
+        self.memory_assets = memory_assets
         self.event_bus = event_bus
         self.executor = executor
         self.run_in_background = run_in_background
@@ -90,7 +90,7 @@ class WorkflowOrchestratorService:
                 accepted=False,
                 reason=blocked_reason,
             )
-        existing = self.state_memory.get_workflow_by_command(command.command_id)
+        existing = self.memory_assets.get_workflow_by_command(command.command_id)
         if existing is not None:
             return WorkflowCommandReceipt(
                 command_id=command.command_id,
@@ -108,7 +108,7 @@ class WorkflowOrchestratorService:
             reason=command.command_type.value,
             last_transition_at=datetime.now(UTC),
         )
-        self.state_memory.save_workflow(command.command_id, workflow, command.model_dump(mode="json"))
+        self.memory_assets.save_workflow(command.command_id, workflow, command.model_dump(mode="json"))
         accepted = EventFactory.build(
             trace_id=trace_id,
             workflow_id=workflow_id,
@@ -118,11 +118,11 @@ class WorkflowOrchestratorService:
             entity_id=command.command_id,
             payload=command.model_dump(mode="json"),
         )
-        self.state_memory.append_event(accepted)
+        self.memory_assets.append_event(accepted)
         self._publish_best_effort(accepted)
         cadence_event = self._record_external_cadence(command=command, workflow_id=workflow_id, trace_id=trace_id)
         if cadence_event is not None:
-            self.state_memory.append_event(cadence_event)
+            self.memory_assets.append_event(cadence_event)
             self._publish_best_effort(cadence_event)
         if self.run_in_background:
             future = self._background_executor.submit(
@@ -160,7 +160,7 @@ class WorkflowOrchestratorService:
             source=cadence_source,
             cadence_label=cadence_label,
         )
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="external_cadence_wakeup",
             payload=wakeup.model_dump(mode="json"),
             trace_id=trace_id,
@@ -186,7 +186,7 @@ class WorkflowOrchestratorService:
             reason=reason,
             last_transition_at=datetime.now(UTC),
         )
-        self.state_memory.save_workflow(command_id, workflow, payload)
+        self.memory_assets.save_workflow(command_id, workflow, payload)
 
     def _run(self, *, command: ManualTriggerCommand, workflow_id: str, trace_id: str) -> None:
         running = EventFactory.build(
@@ -198,7 +198,7 @@ class WorkflowOrchestratorService:
             entity_id=workflow_id,
             payload={"state": "running", "command_type": command.command_type.value},
         )
-        self.state_memory.append_event(running)
+        self.memory_assets.append_event(running)
         self._publish_best_effort(running)
         self._transition(
             command_id=command.command_id,
@@ -220,7 +220,7 @@ class WorkflowOrchestratorService:
                 entity_id=workflow_id,
                 payload={"state": "failed", "error": str(exc)},
             )
-            self.state_memory.append_event(failed)
+            self.memory_assets.append_event(failed)
             self._publish_best_effort(failed)
             self._transition(
                 command_id=command.command_id,
@@ -242,7 +242,7 @@ class WorkflowOrchestratorService:
             entity_id=workflow_id,
             payload={"state": final_state, "result": result},
         )
-        self.state_memory.append_event(completed)
+        self.memory_assets.append_event(completed)
         self._publish_best_effort(completed)
         self._transition(
             command_id=command.command_id,
@@ -260,7 +260,7 @@ class WorkflowOrchestratorService:
             return None
 
     def get_workflow(self, trace_id: str) -> WorkflowStateRecord | None:
-        workflow = self.state_memory.get_workflow(trace_id)
+        workflow = self.memory_assets.get_workflow(trace_id)
         if workflow is None:
             return None
         return WorkflowStateRecord(

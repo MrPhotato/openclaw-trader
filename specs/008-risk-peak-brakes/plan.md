@@ -15,7 +15,7 @@
 
 - **现有系统事实**：RT 条件触发监控器已经存在；PM 固定班次复用 OpenClaw cron；执行链与状态回写链已统一。
 - **目标边界**：不新增第二套订单体系，不绕回旧 WO-first runtime push 路径，不修改单笔上限。
-- **主要依赖**：`policy_risk`、`workflow_orchestrator`、`agent_gateway`、`trade_gateway.execution`、`state_memory`
+- **主要依赖**：`policy_risk`、`workflow_orchestrator`、`agent_gateway`、`trade_gateway.execution`、`memory_assets`
 - **未知项 / 待确认项**：无，数值、口径和触发顺序已锁定。
 
 ## 3. 宪法检查（Constitution Check）

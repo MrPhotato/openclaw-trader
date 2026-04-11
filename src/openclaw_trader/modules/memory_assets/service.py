@@ -17,11 +17,11 @@ from .models import (
     StrategyAsset,
     WorkflowStateRef,
 )
-from .repository import StateMemoryRepository
+from .repository import MemoryAssetsRepository
 
 
-class StateMemoryService:
-    def __init__(self, repository: StateMemoryRepository) -> None:
+class MemoryAssetsService:
+    def __init__(self, repository: MemoryAssetsRepository) -> None:
         self.repository = repository
 
     def save_workflow(self, command_id: str, workflow: WorkflowStateRef, payload: dict) -> None:

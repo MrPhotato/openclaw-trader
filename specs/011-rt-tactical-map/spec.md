@@ -29,7 +29,7 @@
   - `recent_execution_thoughts`
   - `news_events`
 - RT 已有 digest-first 提示链，但还没有一份长期存在的战术地图来承接“上一轮已经想明白的东西”。
-- `state_memory` 当前能保存 strategy、execution、macro、risk brake 等资产，但没有 RT 专属的战术地图资产。
+- `memory_assets` 当前能保存 strategy、execution、macro、risk brake 等资产，但没有 RT 专属的战术地图资产。
 - RT 的自动触发仍应继续复用标准 cron job，不应把机器事件直接发到 RT `main` 会话。
 
 ## 3. 用户场景与验收
@@ -56,7 +56,7 @@
 
 - **FR-001**：系统必须为 RT 新增 `standing_tactical_map`
   中文：当班战术地图
-  作为长期资产，并通过 `state_memory` 持久化保存。
+  作为长期资产，并通过 `memory_assets` 持久化保存。
 - **FR-002**：`standing_tactical_map` 必须至少包含：
   - 当前组合打法姿态
   - 当前 desk 关注点

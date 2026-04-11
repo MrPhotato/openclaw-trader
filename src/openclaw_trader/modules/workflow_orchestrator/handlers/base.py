@@ -13,12 +13,12 @@ from ...notification_service.service import NotificationService
 from ...policy_risk.service import PolicyRiskService
 from ...quant_intelligence.service import QuantIntelligenceService
 from ...replay_frontend.service import ReplayFrontendService
-from ...state_memory.service import StateMemoryService
+from ...memory_assets.service import MemoryAssetsService
 
 
 @dataclass
 class WorkflowModuleServices:
-    state_memory: StateMemoryService
+    memory_assets: MemoryAssetsService
     event_bus: EventBus
     market_data: DataIngestService
     news_events: NewsEventService
@@ -38,7 +38,7 @@ class WorkflowEventRecorder:
         pending = list(events)
         while pending:
             event = pending.pop(0)
-            self.services.state_memory.append_event(event)
+            self.services.memory_assets.append_event(event)
             self._publish_best_effort(event)
             pending.extend(self.services.notification_service.handle_event(event))
 

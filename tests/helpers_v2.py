@@ -28,7 +28,7 @@ from openclaw_trader.modules.notification_service import NotificationResult, Not
 from openclaw_trader.modules.policy_risk import PolicyRiskService
 from openclaw_trader.modules.quant_intelligence import CoinForecast, HorizonSignal, QuantIntelligenceService
 from openclaw_trader.modules.replay_frontend import ReplayFrontendService
-from openclaw_trader.modules.state_memory import StateMemoryRepository, StateMemoryService
+from openclaw_trader.modules.memory_assets import MemoryAssetsRepository, MemoryAssetsService
 from openclaw_trader.modules.workflow_orchestrator import WorkflowOrchestratorService
 from openclaw_trader.modules.workflow_orchestrator.trigger_bridge import WorkflowTriggerBridge
 from openclaw_trader.modules.workflow_orchestrator.handlers import WorkflowCommandExecutor
@@ -301,9 +301,9 @@ def build_test_harness(*, news_severity: str = "low", side_12h: str = "long", si
     sqlite_path = Path(tempdir.name) / "state" / "test.db"
     settings = build_test_settings(sqlite_path)
     event_bus = InMemoryEventBus()
-    state_memory = StateMemoryService(StateMemoryRepository(SqliteDatabase(sqlite_path)))
-    trigger_bridge = WorkflowTriggerBridge(state_memory)
-    state_memory.ensure_bootstrap_parameter(
+    memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(sqlite_path)))
+    trigger_bridge = WorkflowTriggerBridge(memory_assets)
+    memory_assets.ensure_bootstrap_parameter(
         "quant_defaults",
         "global",
         {
@@ -334,7 +334,7 @@ def build_test_harness(*, news_severity: str = "low", side_12h: str = "long", si
         chief_runner=DeterministicAgentRunner(),
         session_controller=fake_session_controller,
         learning_path_by_role=learning_paths,
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         market_data=market_data,
         news_events=news_events,
         quant_intelligence=quant_intelligence,
@@ -344,11 +344,11 @@ def build_test_harness(*, news_severity: str = "low", side_12h: str = "long", si
         event_bus=event_bus,
     )
     fake_notifier = FakeNotificationProvider()
-    notification_service = NotificationService(fake_notifier, state_memory)
+    notification_service = NotificationService(fake_notifier, memory_assets)
     agent_gateway.notification_service = notification_service
-    replay_frontend = ReplayFrontendService(state_memory, settings)
+    replay_frontend = ReplayFrontendService(memory_assets, settings)
     executor = WorkflowCommandExecutor(
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         event_bus=event_bus,
         market_data=market_data,
         news_events=news_events,
@@ -360,14 +360,14 @@ def build_test_harness(*, news_severity: str = "low", side_12h: str = "long", si
         replay_frontend=replay_frontend,
     )
     orchestrator = WorkflowOrchestratorService(
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         event_bus=event_bus,
         executor=executor,
     )
     container = ServiceContainer(
         settings=settings,
         event_bus=event_bus,  # type: ignore[arg-type]
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         market_data=market_data,
         news_events=news_events,
         quant_intelligence=quant_intelligence,

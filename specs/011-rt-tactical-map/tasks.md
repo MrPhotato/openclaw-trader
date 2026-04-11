@@ -10,8 +10,8 @@
 
 ## 第二波：主真相层与运行包接入
 
-- [X] T003 [US1] 在 `src/openclaw_trader/modules/state_memory/models.py` 中增加 RT 战术地图模型
-- [X] T004 [US1] 在 `src/openclaw_trader/modules/state_memory/service.py` 中增加 RT 战术地图读写入口
+- [X] T003 [US1] 在 `src/openclaw_trader/modules/memory_assets/models.py` 中增加 RT 战术地图模型
+- [X] T004 [US1] 在 `src/openclaw_trader/modules/memory_assets/service.py` 中增加 RT 战术地图读写入口
 - [X] T005 [US1] 在 `src/openclaw_trader/modules/agent_gateway/service.py` 中为 `pull/rt` 增加 `standing_tactical_map`
 - [X] T006 [US1] 在 `src/openclaw_trader/modules/agent_gateway/service.py` 中构建 `trigger_delta`
 

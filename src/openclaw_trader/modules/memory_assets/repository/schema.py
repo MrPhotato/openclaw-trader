@@ -3,7 +3,7 @@ from __future__ import annotations
 from ....shared.infra import SqliteDatabase
 
 
-def initialize_state_memory_schema(database: SqliteDatabase) -> None:
+def initialize_memory_assets_schema(database: SqliteDatabase) -> None:
     ddl = """
     CREATE TABLE IF NOT EXISTS workflows (
         workflow_id TEXT PRIMARY KEY,

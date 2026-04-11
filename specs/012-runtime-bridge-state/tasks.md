@@ -10,7 +10,7 @@
 
 ## 第二波：主真相层与后台刷新器
 
-- [X] T003 在 `state_memory` 中增加 `RuntimeBridgeState` 模型与读写入口
+- [X] T003 在 `memory_assets` 中增加 `RuntimeBridgeState` 模型与读写入口
 - [X] T004 新增后台 `RuntimeBridgeMonitor`，持续刷新聚合状态
 - [X] T005 为运行配置增加聚合层开关、刷新间隔和允许年龄
 

@@ -1,7 +1,7 @@
 # 模块规格说明：Memory Assets
 
 **状态**：主真相层草案  
-**对应实现**：`src/openclaw_trader/modules/state_memory/`  
+**对应实现**：`src/openclaw_trader/modules/memory_assets/`
 **来源承接**：`001`、`007`
 
 ## 1. 背景与目标

@@ -9,7 +9,7 @@ from ...notification_service.service import NotificationService
 from ...policy_risk.service import PolicyRiskService
 from ...quant_intelligence.service import QuantIntelligenceService
 from ...replay_frontend.service import ReplayFrontendService
-from ...state_memory.service import StateMemoryService
+from ...memory_assets.service import MemoryAssetsService
 from ..models import ManualTriggerCommand
 from .base import WorkflowModuleServices
 from .control import ControlWorkflowHandler
@@ -20,7 +20,7 @@ class WorkflowCommandExecutor:
     def __init__(
         self,
         *,
-        state_memory: StateMemoryService,
+        memory_assets: MemoryAssetsService,
         event_bus: EventBus,
         market_data: DataIngestService,
         news_events: NewsEventService,
@@ -32,7 +32,7 @@ class WorkflowCommandExecutor:
         replay_frontend: ReplayFrontendService,
     ) -> None:
         services = WorkflowModuleServices(
-            state_memory=state_memory,
+            memory_assets=memory_assets,
             event_bus=event_bus,
             market_data=market_data,
             news_events=news_events,

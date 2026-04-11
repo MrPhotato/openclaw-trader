@@ -5,13 +5,13 @@ from typing import Any
 from ...shared.infra import EventBus
 from ...shared.protocols import EventFactory
 from ...shared.utils import new_id
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.service import MemoryAssetsService
 from .events import EVENT_PM_TRIGGER_DETECTED, MODULE_NAME
 
 
 def record_pm_trigger_event(
     *,
-    state_memory: StateMemoryService,
+    memory_assets: MemoryAssetsService,
     event_bus: EventBus | None,
     trace_id: str,
     payload: dict[str, Any],
@@ -27,7 +27,7 @@ def record_pm_trigger_event(
         normalized.get("wake_source")
         or ("workflow_orchestrator" if normalized["trigger_category"] == "workflow" else "unknown")
     ).strip() or "unknown"
-    state_memory.save_asset(
+    memory_assets.save_asset(
         asset_type="pm_trigger_event",
         asset_id=str(normalized["event_id"]),
         payload=normalized,
@@ -44,7 +44,7 @@ def record_pm_trigger_event(
         entity_id=str(normalized["event_id"]),
         payload=normalized,
     )
-    state_memory.append_event(envelope)
+    memory_assets.append_event(envelope)
     if event_bus is not None:
         try:
             event_bus.publish(envelope)

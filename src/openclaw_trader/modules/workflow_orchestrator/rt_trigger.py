@@ -11,7 +11,7 @@ from typing import Any
 from ...shared.infra import EventBus
 from ...shared.protocols import EventFactory
 from ...shared.utils import new_id
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.service import MemoryAssetsService
 from ..trade_gateway.market_data.models import DataIngestBundle, MarketContextNormalized
 from ..trade_gateway.market_data.service import DataIngestService
 from .events import EVENT_RT_TRIGGER_DETECTED, MODULE_NAME
@@ -163,13 +163,13 @@ class RTTriggerMonitor:
     def __init__(
         self,
         *,
-        state_memory: StateMemoryService,
+        memory_assets: MemoryAssetsService,
         market_data: DataIngestService,
         event_bus: EventBus | None = None,
         config: RTTriggerConfig | None = None,
         cron_runner: OpenClawCronRunner | None = None,
     ) -> None:
-        self.state_memory = state_memory
+        self.memory_assets = memory_assets
         self.market_data = market_data
         self.event_bus = event_bus
         self.config = config or RTTriggerConfig()
@@ -252,7 +252,7 @@ class RTTriggerMonitor:
         market: DataIngestBundle,
         now: datetime,
     ) -> RTTriggerDecision | None:
-        latest = self.state_memory.get_latest_strategy()
+        latest = self.memory_assets.get_latest_strategy()
         if latest is None:
             return None
         payload = dict(latest.get("payload") or {})
@@ -277,7 +277,7 @@ class RTTriggerMonitor:
     ) -> RTTriggerDecision | None:
         seen = set(state.get("last_seen_event_ids") or [])
         for asset_type in ("macro_event", "news_submission"):
-            for asset in self.state_memory.recent_assets(asset_type=asset_type, limit=20):
+            for asset in self.memory_assets.recent_assets(asset_type=asset_type, limit=20):
                 asset_id = str(asset.get("asset_id") or "")
                 if not asset_id or asset_id in seen:
                     continue
@@ -302,7 +302,7 @@ class RTTriggerMonitor:
         now: datetime,
     ) -> RTTriggerDecision | None:
         seen = set(state.get("last_seen_execution_result_ids") or [])
-        for asset in self.state_memory.recent_assets(asset_type="execution_result", actor_role="risk_trader", limit=20):
+        for asset in self.memory_assets.recent_assets(asset_type="execution_result", actor_role="risk_trader", limit=20):
             asset_id = str(asset.get("asset_id") or "")
             payload = dict(asset.get("payload") or {})
             if not asset_id or asset_id in seen:
@@ -383,7 +383,7 @@ class RTTriggerMonitor:
         market: DataIngestBundle,
         now: datetime,
     ) -> RTTriggerDecision | None:
-        latest = self.state_memory.get_latest_strategy()
+        latest = self.memory_assets.get_latest_strategy()
         payload = dict((latest or {}).get("payload") or {})
         threshold = float(self.config.exposure_drift_pct_of_exposure_budget)
         gross_band = self._numeric_band(payload.get("target_gross_exposure_band_pct"))
@@ -530,7 +530,7 @@ class RTTriggerMonitor:
             "cron_stderr": _truncate(run_result.stderr if run_result else "", 800),
             "cron_returncode": run_result.returncode if run_result else None,
         }
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="rt_trigger_event",
             asset_id=event_id,
             payload=payload,
@@ -547,7 +547,7 @@ class RTTriggerMonitor:
             entity_id=event_id,
             payload=payload,
         )
-        self.state_memory.append_event(envelope)
+        self.memory_assets.append_event(envelope)
         if self.event_bus is not None:
             try:
                 self.event_bus.publish(envelope)
@@ -570,14 +570,14 @@ class RTTriggerMonitor:
         return None
 
     def _load_state(self) -> dict[str, Any]:
-        asset = self.state_memory.get_asset("rt_trigger_state")
+        asset = self.memory_assets.get_asset("rt_trigger_state")
         if asset is None:
             return {}
         payload = asset.get("payload")
         return dict(payload or {}) if isinstance(payload, dict) else {}
 
     def _save_state(self, payload: dict[str, Any], *, trace_id: str) -> None:
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="rt_trigger_state",
             asset_id="rt_trigger_state",
             payload=payload,
@@ -595,18 +595,18 @@ class RTTriggerMonitor:
     ) -> dict[str, Any]:
         updated = dict(state)
         updated["last_scan_at_utc"] = now.isoformat()
-        latest_strategy = self.state_memory.get_latest_strategy()
+        latest_strategy = self.memory_assets.get_latest_strategy()
         if latest_strategy is not None:
             updated["last_seen_strategy_key"] = self._strategy_key(dict(latest_strategy.get("payload") or {}))
         event_ids = set(updated.get("last_seen_event_ids") or [])
         for asset_type in ("macro_event", "news_submission"):
-            for asset in self.state_memory.recent_assets(asset_type=asset_type, limit=50):
+            for asset in self.memory_assets.recent_assets(asset_type=asset_type, limit=50):
                 asset_id = str(asset.get("asset_id") or "")
                 if asset_id:
                     event_ids.add(asset_id)
         updated["last_seen_event_ids"] = sorted(event_ids)[-200:]
         execution_ids = set(updated.get("last_seen_execution_result_ids") or [])
-        for asset in self.state_memory.recent_assets(asset_type="execution_result", actor_role="risk_trader", limit=50):
+        for asset in self.memory_assets.recent_assets(asset_type="execution_result", actor_role="risk_trader", limit=50):
             asset_id = str(asset.get("asset_id") or "")
             if asset_id and self._execution_result_ready_for_followup(asset, now=now):
                 execution_ids.add(asset_id)
@@ -630,7 +630,7 @@ class RTTriggerMonitor:
 
     def _eligible_coins(self, market: DataIngestBundle) -> set[str]:
         eligible = {str(position.coin).upper() for position in market.portfolio.positions}
-        latest = self.state_memory.get_latest_strategy()
+        latest = self.memory_assets.get_latest_strategy()
         payload = dict((latest or {}).get("payload") or {})
         for target in list(payload.get("targets") or []):
             if not isinstance(target, dict):

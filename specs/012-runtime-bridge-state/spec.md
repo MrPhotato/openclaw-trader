@@ -94,7 +94,7 @@ Runtime pack 本身不适合做成“实时变动对象”。Agent 一旦拿到 
 - **NFR-001**：runtime pack 继续保持不可变快照语义，不得变成“实时自更新对象”。
 - **NFR-002**：正常热路径下，`pull/rt` / `pull/pm` 的主要工作应退化为“读聚合状态 + 生成 lease + 补动态字段”。
 - **NFR-003**：后台聚合刷新失败时不得让 `pull/*` 整体不可用。
-- **NFR-004**：聚合层设计必须与现有 `state_memory`、`workflow_orchestrator` 和 `agent_gateway` 共存，不能破坏现有触发链和风控链。
+- **NFR-004**：聚合层设计必须与现有 `memory_assets`、`workflow_orchestrator` 和 `agent_gateway` 共存，不能破坏现有触发链和风控链。
 
 ## 6. 关键实体
 

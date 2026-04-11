@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 from ...config.models import SystemSettings
-from ..state_memory.models import ReplayQueryView
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.models import ReplayQueryView
+from ..memory_assets.service import MemoryAssetsService
 
 
 class ReplayFrontendService:
-    def __init__(self, state_memory: StateMemoryService, settings: SystemSettings | None = None) -> None:
-        self.state_memory = state_memory
+    def __init__(self, memory_assets: MemoryAssetsService, settings: SystemSettings | None = None) -> None:
+        self.memory_assets = memory_assets
         self.settings = settings
 
     def query(self, *, trace_id: str | None = None, module: str | None = None) -> ReplayQueryView:
-        return self.state_memory.query_replay(trace_id=trace_id, module=module)
+        return self.memory_assets.query_replay(trace_id=trace_id, module=module)
 
     def overview(self) -> dict:
-        overview = self.state_memory.build_overview().model_dump(mode="json")
+        overview = self.memory_assets.build_overview().model_dump(mode="json")
         if overview.get("risk_overlay") is None:
             fallback = self._fallback_risk_overlay(overview)
             if fallback is not None:
@@ -23,43 +23,43 @@ class ReplayFrontendService:
 
     def current_news(self) -> dict:
         return {
-            "latest_batch": self.state_memory.latest_asset(asset_type="news_batch"),
-            "macro_events": self.state_memory.recent_assets(asset_type="macro_event", limit=20),
-            "macro_daily_memory": self.state_memory.latest_asset(asset_type="macro_daily_memory"),
+            "latest_batch": self.memory_assets.latest_asset(asset_type="news_batch"),
+            "macro_events": self.memory_assets.recent_assets(asset_type="macro_event", limit=20),
+            "macro_daily_memory": self.memory_assets.latest_asset(asset_type="macro_daily_memory"),
         }
 
     def recent_executions(self) -> dict:
         return {
-            "latest_execution_batch": self.state_memory.latest_asset(asset_type="execution_batch"),
-            "results": self.state_memory.recent_assets(asset_type="execution_result", limit=20),
+            "latest_execution_batch": self.memory_assets.latest_asset(asset_type="execution_batch"),
+            "results": self.memory_assets.recent_assets(asset_type="execution_result", limit=20),
         }
 
     def latest_agent_state(self, agent_role: str) -> dict:
         latest_asset = self._latest_agent_asset(agent_role)
-        recent_assets = self.state_memory.recent_assets(actor_role=agent_role, limit=10)
+        recent_assets = self.memory_assets.recent_assets(actor_role=agent_role, limit=10)
         response = {
-            "session": self.state_memory.get_agent_session(agent_role).model_dump(mode="json")
-            if self.state_memory.get_agent_session(agent_role)
+            "session": self.memory_assets.get_agent_session(agent_role).model_dump(mode="json")
+            if self.memory_assets.get_agent_session(agent_role)
             else None,
             "latest_asset": latest_asset,
             "recent_assets": recent_assets,
         }
         if agent_role == "pm":
-            response["latest_strategy"] = self.state_memory.latest_asset(asset_type="strategy", actor_role="pm") or self.state_memory.latest_asset(asset_type="strategy")
+            response["latest_strategy"] = self.memory_assets.latest_asset(asset_type="strategy", actor_role="pm") or self.memory_assets.latest_asset(asset_type="strategy")
         elif agent_role == "risk_trader":
-            recent_rt_tactical_maps = self.state_memory.recent_assets(asset_type="rt_tactical_map", actor_role="risk_trader", limit=8)
+            recent_rt_tactical_maps = self.memory_assets.recent_assets(asset_type="rt_tactical_map", actor_role="risk_trader", limit=8)
             latest_rt_tactical_map = recent_rt_tactical_maps[0] if recent_rt_tactical_maps else None
             display_rt_tactical_map = self._display_rt_tactical_map(
                 latest_rt_tactical_map=latest_rt_tactical_map,
                 recent_rt_tactical_maps=recent_rt_tactical_maps,
             )
-            response["latest_execution_batch"] = self.state_memory.latest_asset(asset_type="execution_batch", actor_role="risk_trader")
-            response["latest_rt_trigger_event"] = self.state_memory.latest_asset(asset_type="rt_trigger_event", actor_role="system")
-            response["latest_risk_brake_event"] = self.state_memory.latest_asset(asset_type="risk_brake_event", actor_role="system")
-            response["recent_execution_thoughts"] = self.state_memory.get_recent_execution_thoughts(limit=6)
+            response["latest_execution_batch"] = self.memory_assets.latest_asset(asset_type="execution_batch", actor_role="risk_trader")
+            response["latest_rt_trigger_event"] = self.memory_assets.latest_asset(asset_type="rt_trigger_event", actor_role="system")
+            response["latest_risk_brake_event"] = self.memory_assets.latest_asset(asset_type="risk_brake_event", actor_role="system")
+            response["recent_execution_thoughts"] = self.memory_assets.get_recent_execution_thoughts(limit=6)
             response["latest_rt_tactical_map"] = latest_rt_tactical_map
             response["tactical_brief"] = self._build_rt_tactical_brief(
-                latest_strategy=self.state_memory.latest_asset(asset_type="strategy") or self.state_memory.latest_strategy(),
+                latest_strategy=self.memory_assets.latest_asset(asset_type="strategy") or self.memory_assets.latest_strategy(),
                 latest_execution_batch=response["latest_execution_batch"],
                 latest_rt_tactical_map=display_rt_tactical_map,
                 latest_rt_tactical_map_status=self._rt_tactical_map_status(
@@ -71,22 +71,22 @@ class ReplayFrontendService:
                 recent_execution_thoughts=response["recent_execution_thoughts"],
             )
         elif agent_role == "macro_event_analyst":
-            response["latest_macro_daily_memory"] = self.state_memory.latest_asset(asset_type="macro_daily_memory", actor_role="macro_event_analyst") or self.state_memory.latest_asset(asset_type="macro_daily_memory")
-            response["recent_macro_events"] = self.state_memory.recent_assets(asset_type="macro_event", actor_role="macro_event_analyst", limit=8) or self.state_memory.recent_assets(asset_type="macro_event", limit=8)
+            response["latest_macro_daily_memory"] = self.memory_assets.latest_asset(asset_type="macro_daily_memory", actor_role="macro_event_analyst") or self.memory_assets.latest_asset(asset_type="macro_daily_memory")
+            response["recent_macro_events"] = self.memory_assets.recent_assets(asset_type="macro_event", actor_role="macro_event_analyst", limit=8) or self.memory_assets.recent_assets(asset_type="macro_event", limit=8)
         elif agent_role == "crypto_chief":
-            response["latest_chief_retro"] = self.state_memory.latest_asset(asset_type="chief_retro", actor_role="crypto_chief")
-            response["recent_notifications"] = self.state_memory.recent_assets(asset_type="notification_result", limit=6)
+            response["latest_chief_retro"] = self.memory_assets.latest_asset(asset_type="chief_retro", actor_role="crypto_chief")
+            response["recent_notifications"] = self.memory_assets.recent_assets(asset_type="notification_result", limit=6)
         return response
 
     def _latest_agent_asset(self, agent_role: str) -> dict | None:
         if agent_role == "pm":
-            return self.state_memory.latest_asset(asset_type="strategy", actor_role=agent_role) or self.state_memory.latest_asset(asset_type="strategy")
+            return self.memory_assets.latest_asset(asset_type="strategy", actor_role=agent_role) or self.memory_assets.latest_asset(asset_type="strategy")
         if agent_role == "risk_trader":
-            return self.state_memory.latest_asset(asset_type="execution_batch", actor_role=agent_role) or self.state_memory.latest_asset(asset_type="execution_result", actor_role=agent_role)
+            return self.memory_assets.latest_asset(asset_type="execution_batch", actor_role=agent_role) or self.memory_assets.latest_asset(asset_type="execution_result", actor_role=agent_role)
         if agent_role == "macro_event_analyst":
-            return self.state_memory.latest_asset(asset_type="macro_daily_memory", actor_role=agent_role) or self.state_memory.latest_asset(asset_type="macro_event", actor_role=agent_role)
+            return self.memory_assets.latest_asset(asset_type="macro_daily_memory", actor_role=agent_role) or self.memory_assets.latest_asset(asset_type="macro_event", actor_role=agent_role)
         if agent_role == "crypto_chief":
-            return self.state_memory.latest_asset(asset_type="chief_retro", actor_role=agent_role)
+            return self.memory_assets.latest_asset(asset_type="chief_retro", actor_role=agent_role)
         return None
 
     def _build_rt_tactical_brief(
@@ -314,13 +314,13 @@ class ReplayFrontendService:
         return ""
 
     def build_daily_report(self) -> dict:
-        latest_strategy = self.state_memory.latest_asset(asset_type="strategy") or self.state_memory.latest_strategy()
-        latest_portfolio = self.state_memory.latest_asset(asset_type="portfolio_snapshot") or self.state_memory.latest_portfolio()
+        latest_strategy = self.memory_assets.latest_asset(asset_type="strategy") or self.memory_assets.latest_strategy()
+        latest_portfolio = self.memory_assets.latest_asset(asset_type="portfolio_snapshot") or self.memory_assets.latest_portfolio()
         return {
             "overview": self.overview(),
             "strategy": latest_strategy,
             "portfolio": latest_portfolio,
-            "events": self.state_memory.query_events(limit=20),
+            "events": self.memory_assets.query_events(limit=20),
         }
 
     def _fallback_risk_overlay(self, overview: dict) -> dict | None:

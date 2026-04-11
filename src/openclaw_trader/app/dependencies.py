@@ -19,7 +19,7 @@ from ..modules.policy_risk import PolicyRiskService
 from ..modules.quant_intelligence import QuantIntelligenceService
 from ..modules.quant_intelligence.adapters import DirectArtifactQuantProvider, DirectQuantTrainer
 from ..modules.replay_frontend import ReplayFrontendService
-from ..modules.state_memory import StateMemoryRepository, StateMemoryService
+from ..modules.memory_assets import MemoryAssetsRepository, MemoryAssetsService
 from ..modules.trade_gateway.execution import ExecutionGatewayService
 from ..modules.trade_gateway.execution.adapters import CoinbaseIntxBroker
 from ..modules.trade_gateway.market_data import DataIngestService
@@ -37,7 +37,7 @@ from ..shared.infra import RabbitMQEventBus, SqliteDatabase
 class ServiceContainer:
     settings: object
     event_bus: RabbitMQEventBus
-    state_memory: StateMemoryService
+    memory_assets: MemoryAssetsService
     market_data: DataIngestService
     news_events: NewsEventService
     quant_intelligence: QuantIntelligenceService
@@ -48,10 +48,6 @@ class ServiceContainer:
     replay_frontend: ReplayFrontendService
     workflow_orchestrator: WorkflowOrchestratorService
     runtime_bridge_monitor: RuntimeBridgeMonitor | None = None
-
-    @property
-    def memory_assets(self) -> StateMemoryService:
-        return self.state_memory
 
     def close(self) -> None:
         self.workflow_orchestrator.close()
@@ -91,9 +87,9 @@ def build_container() -> ServiceContainer:
     settings = load_system_settings()
     event_bus = RabbitMQEventBus()
     database = SqliteDatabase(settings.storage.sqlite_path)
-    state_memory = StateMemoryService(StateMemoryRepository(database))
-    trigger_bridge = WorkflowTriggerBridge(state_memory)
-    state_memory.ensure_bootstrap_parameter(
+    memory_assets = MemoryAssetsService(MemoryAssetsRepository(database))
+    trigger_bridge = WorkflowTriggerBridge(memory_assets)
+    memory_assets.ensure_bootstrap_parameter(
         "quant_defaults",
         "global",
         {
@@ -152,7 +148,7 @@ def build_container() -> ServiceContainer:
             "macro_event_analyst": settings.agents.macro_event_analyst_agent,
             "crypto_chief": settings.agents.crypto_chief_agent,
         },
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         market_data=market_data,
         news_events=news_events,
         quant_intelligence=quant_intelligence,
@@ -162,13 +158,13 @@ def build_container() -> ServiceContainer:
         trigger_bridge=trigger_bridge,
         event_bus=event_bus,
     )
-    notification_service = NotificationService(OpenClawNotificationProvider(), state_memory)
+    notification_service = NotificationService(OpenClawNotificationProvider(), memory_assets)
     agent_gateway.notification_service = notification_service
-    replay_frontend = ReplayFrontendService(state_memory, settings)
+    replay_frontend = ReplayFrontendService(memory_assets, settings)
     runtime_bridge_monitor = None
     if bool(settings.orchestrator.runtime_bridge_enabled):
         runtime_bridge_monitor = RuntimeBridgeMonitor(
-            state_memory=state_memory,
+            memory_assets=memory_assets,
             market_data=market_data,
             news_events=news_events,
             quant_intelligence=quant_intelligence,
@@ -190,7 +186,7 @@ def build_container() -> ServiceContainer:
             pass
         runtime_bridge_monitor.start()
     executor = WorkflowCommandExecutor(
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         event_bus=event_bus,
         market_data=market_data,
         news_events=news_events,
@@ -204,7 +200,7 @@ def build_container() -> ServiceContainer:
     rt_trigger_monitor = None
     if bool(settings.orchestrator.rt_event_trigger_enabled):
         rt_trigger_monitor = RTTriggerMonitor(
-            state_memory=state_memory,
+            memory_assets=memory_assets,
             market_data=market_data,
             event_bus=event_bus,
             config=RTTriggerConfig(
@@ -232,7 +228,7 @@ def build_container() -> ServiceContainer:
     pm_recheck_monitor = None
     if bool(settings.orchestrator.pm_scheduled_recheck_enabled):
         pm_recheck_monitor = PMRecheckMonitor(
-            state_memory=state_memory,
+            memory_assets=memory_assets,
             event_bus=event_bus,
             config=PMRecheckConfig(
                 enabled=True,
@@ -247,7 +243,7 @@ def build_container() -> ServiceContainer:
     risk_brake_monitor = None
     if bool(settings.orchestrator.risk_brake_enabled):
         risk_brake_monitor = RiskBrakeMonitor(
-            state_memory=state_memory,
+            memory_assets=memory_assets,
             market_data=market_data,
             policy_risk=policy_risk,
             trade_execution=trade_execution,
@@ -264,7 +260,7 @@ def build_container() -> ServiceContainer:
             ),
         )
     workflow_orchestrator = WorkflowOrchestratorService(
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         event_bus=event_bus,
         executor=executor,
         enable_daily_session_reset=True,
@@ -275,7 +271,7 @@ def build_container() -> ServiceContainer:
     return ServiceContainer(
         settings=settings,
         event_bus=event_bus,
-        state_memory=state_memory,
+        memory_assets=memory_assets,
         market_data=market_data,
         news_events=news_events,
         quant_intelligence=quant_intelligence,

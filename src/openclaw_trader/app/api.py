@@ -228,19 +228,19 @@ def build_router() -> APIRouter:
     @router.get("/api/query/strategy/current")
     def query_strategy(request: Request):
         container = request.app.state.container
-        latest_strategy = container.state_memory.latest_asset(asset_type="strategy")
+        latest_strategy = container.memory_assets.latest_asset(asset_type="strategy")
         if latest_strategy:
             return latest_strategy["payload"]
-        stored_strategy = container.state_memory.latest_strategy()
+        stored_strategy = container.memory_assets.latest_strategy()
         return stored_strategy["payload"] if stored_strategy else {}
 
     @router.get("/api/query/portfolio/current")
     def query_portfolio(request: Request):
         container = request.app.state.container
-        latest_portfolio = container.state_memory.latest_asset(asset_type="portfolio_snapshot")
+        latest_portfolio = container.memory_assets.latest_asset(asset_type="portfolio_snapshot")
         if latest_portfolio:
             return latest_portfolio["payload"]
-        return container.state_memory.latest_portfolio() or {}
+        return container.memory_assets.latest_portfolio() or {}
 
     @router.get("/api/query/overview")
     def query_overview(request: Request):
@@ -280,12 +280,12 @@ def build_router() -> APIRouter:
     @router.get("/api/query/events")
     def query_events(request: Request, trace_id: str | None = None, module: str | None = None, limit: int = 200):
         container = request.app.state.container
-        return container.state_memory.query_events(trace_id=trace_id, module=module, limit=limit)
+        return container.memory_assets.query_events(trace_id=trace_id, module=module, limit=limit)
 
     @router.get("/api/query/parameters")
     def query_parameters(request: Request):
         container = request.app.state.container
-        return container.state_memory.list_parameters()
+        return container.memory_assets.list_parameters()
 
     @router.websocket("/api/stream/events")
     async def stream_events(websocket: WebSocket):
@@ -295,7 +295,7 @@ def build_router() -> APIRouter:
         last_event_id: str | None = None
         try:
             while True:
-                events = container.state_memory.query_events(limit=50)
+                events = container.memory_assets.query_events(limit=50)
                 current_event_id = events[0]["event_id"] if events else None
                 if not initialized or current_event_id != last_event_id:
                     await websocket.send_json(

@@ -4,12 +4,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ...shared.utils import new_id
-from ..state_memory.service import StateMemoryService
+from ..memory_assets.service import MemoryAssetsService
 
 
 class WorkflowTriggerBridge:
-    def __init__(self, state_memory: StateMemoryService) -> None:
-        self.state_memory = state_memory
+    def __init__(self, memory_assets: MemoryAssetsService) -> None:
+        self.memory_assets = memory_assets
 
     def get_trigger_context(
         self,
@@ -38,7 +38,7 @@ class WorkflowTriggerBridge:
         trigger_context: dict[str, object],
         expires_at_utc: str,
     ) -> None:
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="runtime_pack_issue",
             asset_id=new_id("runtime_pack_issue"),
             payload={
@@ -61,7 +61,7 @@ class WorkflowTriggerBridge:
         agent_role: str,
         submission_kind: str,
     ) -> None:
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="runtime_pack_consumed",
             asset_id=new_id("runtime_pack_consumed"),
             payload={
@@ -83,7 +83,7 @@ class WorkflowTriggerBridge:
         strategy_id: str,
         rechecks: list[dict[str, object]],
     ) -> None:
-        self.state_memory.save_asset(
+        self.memory_assets.save_asset(
             asset_type="scheduled_recheck_state",
             asset_id=new_id("scheduled_recheck_state"),
             payload={

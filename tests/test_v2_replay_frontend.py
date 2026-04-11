@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from openclaw_trader.modules.replay_frontend import ReplayFrontendService
-from openclaw_trader.modules.state_memory import StateMemoryRepository, StateMemoryService
+from openclaw_trader.modules.memory_assets import MemoryAssetsRepository, MemoryAssetsService
 from openclaw_trader.shared.infra import SqliteDatabase
 
 from .helpers_v2 import build_test_harness, build_test_settings
@@ -15,7 +15,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
     def test_query_returns_timeline(self) -> None:
         harness = build_test_harness()
         try:
-            service = ReplayFrontendService(harness.container.state_memory, harness.container.settings)
+            service = ReplayFrontendService(harness.container.memory_assets, harness.container.settings)
             view = service.query()
             self.assertEqual(view.render_hints["mode"], "timeline")
         finally:
@@ -25,8 +25,8 @@ class ReplayFrontendServiceTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "state" / "test.db"
             settings = build_test_settings(sqlite_path)
-            state_memory = StateMemoryService(StateMemoryRepository(SqliteDatabase(sqlite_path)))
-            state_memory.save_asset(
+            memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(sqlite_path)))
+            memory_assets.save_asset(
                 asset_type="portfolio_snapshot",
                 payload={
                     "starting_equity_usd": "1000",
@@ -38,7 +38,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                 trace_id="trace-portfolio",
                 actor_role="system",
             )
-            service = ReplayFrontendService(state_memory, settings)
+            service = ReplayFrontendService(memory_assets, settings)
             overview = service.overview()
             self.assertIsNotNone(overview["risk_overlay"])
             self.assertEqual(overview["risk_overlay"]["state"], "fallback")
@@ -80,6 +80,27 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                     "strategy_id": strategy["strategy"]["strategy_id"],
                     "generated_at_utc": "2026-03-21T00:00:00Z",
                     "trigger_type": "cadence",
+                    "tactical_map_update": {
+                        "map_refresh_reason": "pm_strategy_revision",
+                        "portfolio_posture": "常规推进",
+                        "desk_focus": "先沿着 BTC 逐步推进。",
+                        "risk_bias": "风险状态正常，可按策略节奏推进。",
+                        "next_review_hint": "等待下一轮 RT cadence。",
+                        "coins": [
+                            {
+                                "coin": "BTC",
+                                "working_posture": "先观察再推进",
+                                "base_case": "沿主趋势推进。",
+                                "preferred_add_condition": "回踩站稳后继续加仓。",
+                                "preferred_reduce_condition": "若结构转弱则减仓。",
+                                "reference_take_profit_condition": "冲高分批止盈。",
+                                "reference_stop_loss_condition": "跌破关键结构止损。",
+                                "no_trade_zone": "震荡中段不开新仓。",
+                                "force_pm_recheck_condition": "若宏观冲击升级，要求 PM 重评。",
+                                "next_focus": "观察 BTC 领涨是否持续。",
+                            }
+                        ],
+                    },
                     "decisions": [
                         {
                             "symbol": "BTC",
@@ -96,13 +117,13 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                     ],
                 },
             )
-            service = ReplayFrontendService(harness.container.state_memory, harness.container.settings)
+            service = ReplayFrontendService(harness.container.memory_assets, harness.container.settings)
             latest = service.latest_agent_state("risk_trader")
             self.assertIn("recent_execution_thoughts", latest)
             self.assertTrue(latest["recent_execution_thoughts"])
             self.assertIn("tactical_brief", latest)
             self.assertIsNotNone(latest["tactical_brief"])
-            self.assertEqual(latest["tactical_brief"]["state"], "derived_brief")
+            self.assertEqual(latest["tactical_brief"]["state"], "materialized_map")
             self.assertEqual(latest["tactical_brief"]["coins"][0]["coin"], "BTC")
         finally:
             harness.cleanup()
@@ -110,8 +131,8 @@ class ReplayFrontendServiceTests(unittest.TestCase):
     def test_latest_agent_state_falls_back_to_last_populated_rt_tactical_map(self) -> None:
         harness = build_test_harness()
         try:
-            state_memory = harness.container.state_memory
-            state_memory.save_asset(
+            memory_assets = harness.container.memory_assets
+            memory_assets.save_asset(
                 asset_type="rt_tactical_map",
                 actor_role="risk_trader",
                 trace_id="trace-rt-map-1",
@@ -139,7 +160,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                     ],
                 },
             )
-            state_memory.save_asset(
+            memory_assets.save_asset(
                 asset_type="rt_tactical_map",
                 actor_role="risk_trader",
                 trace_id="trace-rt-map-2",
@@ -154,7 +175,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                     "coins": [],
                 },
             )
-            service = ReplayFrontendService(harness.container.state_memory, harness.container.settings)
+            service = ReplayFrontendService(harness.container.memory_assets, harness.container.settings)
             latest = service.latest_agent_state("risk_trader")
             self.assertEqual(latest["latest_rt_tactical_map"]["payload"]["refresh_reason"], "execution_followup")
             self.assertEqual(latest["tactical_brief"]["state"], "materialized_map")

@@ -9,16 +9,16 @@ from .notifications import NotificationRepository
 from .parameters import ParameterRepository
 from .portfolio import PortfolioRepository
 from .replay import ReplayRepository
-from .schema import initialize_state_memory_schema
+from .schema import initialize_memory_assets_schema
 from .sessions import AgentSessionRepository
 from .strategies import StrategyRepository
 from .workflows import WorkflowRepository
 
 
-class StateMemoryRepository:
+class MemoryAssetsRepository:
     def __init__(self, database: SqliteDatabase) -> None:
         self.database = database
-        initialize_state_memory_schema(database)
+        initialize_memory_assets_schema(database)
         self.workflows = WorkflowRepository(database)
         self.events = EventRepository(database)
         self.strategies = StrategyRepository(database)
