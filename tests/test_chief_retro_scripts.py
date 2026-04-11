@@ -49,6 +49,7 @@ class ChiefRetroScriptTests(unittest.TestCase):
         self.assertIsNone(scaffold["meeting_id"])
         self.assertEqual(scaffold["_retro_pack_snapshot"]["news_event_count"], 1)
         self.assertEqual(scaffold["_retro_pack_snapshot"]["execution_context_count"], 1)
+        self.assertEqual(scaffold["_retro_pack_snapshot"]["learning_target_count"], 0)
 
     def test_pull_chief_retro_summary_reports_counts(self) -> None:
         pack = {
@@ -64,6 +65,7 @@ class ChiefRetroScriptTests(unittest.TestCase):
                     "macro_memory": [{"headline": "memo"}],
                     "recent_execution_results": [{"result_id": "res-1"}],
                     "recent_news_submissions": [{"submission_id": "news-1"}, {"submission_id": "news-2"}],
+                    "learning_targets": [{"agent_role": "pm", "session_key": "agent:pm:main"}],
                     "strategy": {"strategy_id": "strategy-1"},
                 },
             },
@@ -76,6 +78,7 @@ class ChiefRetroScriptTests(unittest.TestCase):
         self.assertEqual(summary["runtime_bridge_state"]["source"], "cache")
         self.assertEqual(summary["retro_pack_summary"]["news_event_count"], 2)
         self.assertEqual(summary["retro_pack_summary"]["macro_memory_count"], 1)
+        self.assertEqual(summary["retro_pack_summary"]["learning_target_count"], 1)
         self.assertEqual(summary["retro_pack_summary"]["strategy_id"], "strategy-1")
 
     def test_submit_chief_retro_preflight_rejects_wrapper_fields(self) -> None:

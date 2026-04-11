@@ -27,6 +27,7 @@ def build_submission_scaffold(pack: dict) -> dict:
             "execution_context_count": len(retro_pack.get("execution_contexts") or []),
             "recent_execution_result_count": len(retro_pack.get("recent_execution_results") or []),
             "recent_news_submission_count": len(retro_pack.get("recent_news_submissions") or []),
+            "learning_target_count": len(retro_pack.get("learning_targets") or payload.get("learning_targets") or []),
         },
     }
 
@@ -48,6 +49,7 @@ def summarize_pack(pack: dict, output_path: Path, submission_scaffold_path: Path
             "macro_memory_count": len(retro_pack.get("macro_memory") or []),
             "recent_execution_result_count": len(retro_pack.get("recent_execution_results") or []),
             "recent_news_submission_count": len(retro_pack.get("recent_news_submissions") or []),
+            "learning_target_count": len(retro_pack.get("learning_targets") or payload.get("learning_targets") or []),
             "strategy_id": dict(retro_pack.get("strategy") or {}).get("strategy_id"),
         },
         "operator_hint": "Edit the scaffold file instead of hand-writing a long POST body on the command line.",

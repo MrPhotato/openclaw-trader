@@ -37,6 +37,8 @@ Use this skill for `Crypto Chief` work only.
 - Do not write PM / RT / MEA learning files yourself.
 - Do not wait for learning confirmation before sending the owner summary.
 - If cross-session delivery is forbidden or fails, do not work around it by editing another agent's file yourself.
+- Do not fall back to `sessions_list` or guessed session names for learning delivery. Use only the exact `learning_targets[].session_key` values provided in the Chief pack.
+- If `learning_targets[]` is unexpectedly missing, state that the learning delivery metadata is missing, skip cross-session delivery, and still complete the retro submit and owner summary.
 - When referring to future checks from the PM strategy, describe them as PM-authored plans.
 - Do not imply a future review is already system-scheduled unless the runtime payload explicitly confirms scheduler state.
 - Prefer wording like `PM scheduled next review at ...` over `next recheck at ...`.
