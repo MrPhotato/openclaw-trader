@@ -22,3 +22,5 @@
 - 后续讨论模块边界时，优先更新本目录，再决定是否回写旧 feature specs。
 - 模块 `spec.md` 统一记录：职责、拥有资产、输入、输出、直接协作边界、不负责什么、当前已定、待后续讨论。
 - 重点 full-suite 模块的 `plan/data-model/tasks/contracts` 必须与 `spec.md` 保持一致。
+- 当前实现里的 Python 包 `state_memory` 对应模块名 `Memory Assets`；后续模块命名以 `Memory Assets` 为准，不再把 `state_memory` 当作对外模块名。
+- `strategy_intent` 与 `context_builder` 属于历史迁移残留，不再视为活跃模块边界。

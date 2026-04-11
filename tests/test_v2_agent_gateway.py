@@ -17,8 +17,6 @@ from openclaw_trader.modules.agent_gateway.adapters.openclaw import _CommandResu
 from openclaw_trader.modules.agent_gateway.models import AgentReply, AgentTask
 from openclaw_trader.modules.policy_risk.service import PolicyRiskService
 from openclaw_trader.modules.quant_intelligence.service import QuantIntelligenceService
-from openclaw_trader.modules.strategy_intent.models import ExecutionContext
-from openclaw_trader.modules.strategy_intent.service import StrategyIntentService
 from openclaw_trader.modules.trade_gateway.market_data.service import DataIngestService
 from openclaw_trader.modules.news_events.models import NewsDigestEvent
 
@@ -46,6 +44,46 @@ def _write_learning_targets(learning_targets: list[dict[str, object]]) -> list[d
             }
         )
     return results
+
+
+def _test_strategy_payload() -> dict[str, object]:
+    return {
+        "strategy_id": "strategy-test-1",
+        "strategy_version": "strategy-v1",
+        "portfolio_mode": "normal",
+        "portfolio_thesis": "test thesis",
+        "portfolio_invalidation": "test invalidation",
+        "change_summary": "test summary",
+        "targets": [
+            {
+                "symbol": "BTC",
+                "state": "active",
+                "direction": "long",
+                "target_exposure_band_pct": [0.0, 5.0],
+                "rt_discretion_band_pct": 2.0,
+                "priority": 1,
+            }
+        ],
+    }
+
+
+def _test_execution_context() -> dict[str, object]:
+    return {
+        "context_id": "execctx-1",
+        "strategy_version": "strategy-v1",
+        "coin": "BTC",
+        "product_id": "BTC-PERP-INTX",
+        "target_bias": "long",
+        "target_position_pct_of_exposure_budget": 15.0,
+        "max_position_pct_of_exposure_budget": 25.0,
+        "rationale": "test",
+        "account_snapshot": {
+            "current_position_share_pct_of_exposure_budget": 4.0,
+        },
+        "execution_summary": {
+            "state": "flat",
+        },
+    }
 
 
 def _seed_runtime_bridge_state(harness, *, trace_id: str = "trace-runtime-bridge") -> dict[str, object]:
@@ -98,17 +136,11 @@ class AgentGatewayServiceTests(unittest.TestCase):
             session_controller=DeterministicSessionController(),
         )
         runtime_input = AgentRuntimeInput(input_id="input-1", agent_role="risk_trader", task_kind="execution")
-        context = ExecutionContext(
-            context_id="execctx-1",
-            strategy_version="v1",
-            coin="BTC",
-            product_id="BTC-PERP-INTX",
-            target_position_pct_of_exposure_budget=15,
-            max_position_pct_of_exposure_budget=25,
-            target_bias="long",
-            rationale="test",
+        decisions = gateway.request_execution_decisions(
+            trace_id="trace-1",
+            runtime_input=runtime_input,
+            execution_contexts=[_test_execution_context()],
         )
-        decisions = gateway.request_execution_decisions(trace_id="trace-1", runtime_input=runtime_input, execution_contexts=[context])
         self.assertEqual(len(decisions), 1)
         self.assertEqual(decisions[0].coin, "BTC")
         self.assertEqual(decisions[0].action, "wait")
@@ -128,14 +160,8 @@ class AgentGatewayServiceTests(unittest.TestCase):
             forecasts=forecasts,
             news_events=FakeNewsProvider().latest(),
         )
-        strategy_service = StrategyIntentService()
-        strategy = strategy_service.ensure_strategy(trace_id="trace-1", reason="dispatch_once", policies=policies)
-        execution_contexts = strategy_service.build_execution_contexts(
-            strategy=strategy,
-            policies=policies,
-            market=market,
-            forecasts=forecasts,
-        )
+        strategy = _test_strategy_payload()
+        execution_contexts = [_test_execution_context()]
         inputs = gateway.build_runtime_inputs(
             trace_id="trace-1",
             market=market,
@@ -164,7 +190,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
         mea_series = inputs["macro_event_analyst"].payload["market"]["market_context"]["BTC"]["compressed_price_series"]["24h"]["points"]
         self.assertLessEqual(len(pm_series), 12)
         self.assertLessEqual(len(mea_series), 8)
-        self.assertEqual(inputs["risk_trader"].payload["strategy"]["strategy_version"], strategy.strategy_version)
+        self.assertEqual(inputs["risk_trader"].payload["strategy"]["strategy_version"], strategy["strategy_version"])
         self.assertIn("1h", str(inputs["risk_trader"].payload))
         rt_context = inputs["risk_trader"].payload["execution_contexts"][0]
         self.assertIn("execution_summary", rt_context)
@@ -215,8 +241,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
             forecasts=forecasts,
             news_events=[],
         )
-        strategy_service = StrategyIntentService()
-        strategy = strategy_service.ensure_strategy(trace_id="trace-1", reason="dispatch_once", policies=policies)
+        strategy = _test_strategy_payload()
         now = datetime.now(UTC)
         events = [
             NewsDigestEvent(
@@ -255,7 +280,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
             policies=policies,
             forecasts=forecasts,
             strategy=strategy,
-            execution_contexts=[],
+            execution_contexts=[_test_execution_context()],
             news_events=events,
         )
         pm_news = inputs["pm"].payload["news_events"]
