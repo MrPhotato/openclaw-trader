@@ -695,6 +695,7 @@ class AgentGatewayService:
         runtime_input = runtime_inputs[agent_role]
         expires_at = datetime.now(UTC) + timedelta(seconds=self.runtime_pack_ttl_seconds)
         if agent_role == "crypto_chief":
+            learning_targets = self._capture_retro_learning_targets()
             payload = {
                 "retro_pack": {
                     "market": runtime_inputs["crypto_chief"].payload.get("market", {}),
@@ -706,7 +707,9 @@ class AgentGatewayService:
                     "macro_memory": runtime_inputs["crypto_chief"].payload.get("macro_memory", []),
                     "recent_execution_results": self.state_memory.get_recent_execution_results(limit=10),
                     "recent_news_submissions": self.state_memory.get_recent_news_submissions(limit=10),
+                    "learning_targets": learning_targets,
                 },
+                "learning_targets": learning_targets,
                 "trigger_context": trigger_context,
                 "runtime_bridge_state": snapshot_meta,
             }

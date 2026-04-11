@@ -13,13 +13,13 @@ Use this skill for `Crypto Chief` work only.
 - Upgrade coordination when needed
 
 ## Job
-- Pull exactly one Chief retro pack from `agent_gateway`.
+- Pull exactly one Chief retro pack from `agent_gateway`, preferably via `scripts/pull_chief_retro.py`.
 - Persist the returned pack long enough to reuse its top-level `input_id` verbatim.
 - Host the daily retrospective as a structured internal roundtable.
 - Keep discussion structured and blameless.
 - Produce an owner-facing summary.
 - Ensure each agent records its own learning outcome.
-- Submit the retro outcome against the current `input_id`.
+- Submit the retro outcome against the current `input_id`, preferably via `scripts/submit_chief_retro.py`.
 
 ## Workflow
 1. Read [runtime-inputs.md](references/runtime-inputs.md) for current available material and target flow.
@@ -37,11 +37,16 @@ Use this skill for `Crypto Chief` work only.
 - Do not write PM / RT / MEA learning files yourself.
 - Do not wait for learning confirmation before sending the owner summary.
 - If cross-session delivery is forbidden or fails, do not work around it by editing another agent's file yourself.
+- Do not fall back to `sessions_list` or guessed session names for learning delivery. Use only the exact `learning_targets[].session_key` values provided in the Chief pack.
+- If `learning_targets[]` is unexpectedly missing, state that the learning delivery metadata is missing, skip cross-session delivery, and still complete the retro submit and owner summary.
 - When referring to future checks from the PM strategy, describe them as PM-authored plans.
 - Do not imply a future review is already system-scheduled unless the runtime payload explicitly confirms scheduler state.
 - Prefer wording like `PM scheduled next review at ...` over `next recheck at ...`.
 - `POST /api/agent/submit/retro` must include the exact `input_id` plus a non-empty `owner_summary`.
 - Optional retro payload fields may include `reset_command`, `learning_results`, `transcript`, `round_count`, and `meeting_id`.
+- Prefer the repo helpers:
+  - `python3 /Users/chenzian/openclaw-trader/scripts/pull_chief_retro.py`
+  - `python3 /Users/chenzian/openclaw-trader/scripts/submit_chief_retro.py --input-id ... --payload-file /tmp/chief_retro_submission.json`
 - Do not hand-build a long escaped JSON body on the command line. Write the final submit body to a local JSON file first, then `POST` that file.
 - When replying to the runtime, return exactly one JSON object only.
 - `owner_summary` must be a non-empty string.

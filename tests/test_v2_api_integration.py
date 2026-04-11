@@ -218,6 +218,11 @@ class ApiIntegrationTests(unittest.TestCase):
 
                 chief_pack = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
                 self.assertEqual(chief_pack.status_code, 200)
+                chief_payload = chief_pack.json()["payload"]
+                self.assertTrue(chief_payload["learning_targets"])
+                self.assertEqual(chief_payload["learning_targets"][0]["session_key"], "agent:pm:main")
+                self.assertTrue(chief_payload["retro_pack"]["learning_targets"])
+                self.assertEqual(chief_payload["retro_pack"]["learning_targets"][0]["session_key"], "agent:pm:main")
                 submit_retro = client.post(
                     "/api/agent/submit/retro",
                     json={
