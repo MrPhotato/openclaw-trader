@@ -435,6 +435,7 @@ export default function App() {
                   <Headline label="组合模式" value={portfolioModeLabel(latestStrategy["portfolio_mode"])} />
                   <Headline label="策略重点" value={strategyFocusText(latestStrategy)} />
                   <Headline label="变更摘要" value={nonEmptyText(latestStrategy["change_summary"], "当前还没有显式写出的变更摘要。")} />
+                  <Headline label="翻向条件" value={nonEmptyText(latestStrategy["flip_triggers"], "当前还没有写明翻向条件。")} />
                   <Headline label="失效条件" value={nonEmptyText(latestStrategy["portfolio_invalidation"], "暂无明确失效条件。")} />
                 </div>
               </Panel>

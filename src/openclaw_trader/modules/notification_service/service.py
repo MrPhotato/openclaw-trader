@@ -202,6 +202,9 @@ class NotificationService:
         thesis = str(strategy.get("thesis") or strategy.get("portfolio_thesis") or "").strip()
         if thesis:
             lines.append(f"thesis: {thesis}")
+        flip_triggers = str(strategy.get("flip_triggers") or "").strip()
+        if flip_triggers:
+            lines.append(f"flip_triggers: {flip_triggers}")
         targets = strategy.get("targets") if isinstance(strategy.get("targets"), list) else []
         if targets:
             lines.append("targets:")

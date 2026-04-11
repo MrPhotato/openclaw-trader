@@ -116,6 +116,7 @@ class DeterministicAgentRunner:
                     "target_gross_exposure_band_pct": [0.0, round(target_total, 2)],
                     "portfolio_thesis": "deterministic_pm_strategy",
                     "portfolio_invalidation": "invalidated_on_policy_breaker",
+                    "flip_triggers": "flip_to_short_on_multi_horizon_breakdown_or_hard_macro_regime_shift",
                     "change_summary": "deterministic_strategy_refresh",
                     "targets": targets,
                     "scheduled_rechecks": [

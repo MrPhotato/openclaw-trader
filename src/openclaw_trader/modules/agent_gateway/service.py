@@ -1439,6 +1439,7 @@ class AgentGatewayService:
                 "portfolio_mode": strategy.get("portfolio_mode"),
                 "target_gross_exposure_band_pct": list(strategy.get("target_gross_exposure_band_pct") or []),
                 "change_summary": self._truncate_retro_text(str(strategy.get("change_summary") or ""), 180),
+                "flip_triggers": self._truncate_retro_text(str(strategy.get("flip_triggers") or ""), 180),
                 "portfolio_invalidation": self._truncate_retro_text(
                     str(strategy.get("portfolio_invalidation") or ""),
                     160,
@@ -1622,6 +1623,7 @@ class AgentGatewayService:
             "trace_id": trace_id,
             "market": pm_market_payload,
             "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
+            "risk_brake_policy": self._risk_brake_policy_payload(),
             "forecasts": self._forecast_payload(forecasts),
             "news_events": self._compact_news_events(news_events, limit=8),
             "previous_strategy": strategy_payload or {},
@@ -1721,6 +1723,27 @@ class AgentGatewayService:
                 }
             )
         return contexts
+
+    def _risk_brake_policy_payload(self) -> dict[str, Any]:
+        risk = self.policy_risk.settings.risk if self.policy_risk is not None else None
+        return {
+            "position_peak_drawdown_pct": {
+                "observe": float(getattr(risk, "position_observe_drawdown_pct", 0.8)),
+                "reduce": float(getattr(risk, "position_reduce_drawdown_pct", 1.4)),
+                "exit": float(getattr(risk, "position_exit_drawdown_pct", 2.2)),
+            },
+            "portfolio_peak_drawdown_pct": {
+                "observe": float(getattr(risk, "portfolio_peak_observe_drawdown_pct", 0.6)),
+                "reduce": float(getattr(risk, "portfolio_peak_reduce_drawdown_pct", 1.0)),
+                "exit": float(getattr(risk, "portfolio_peak_exit_drawdown_pct", 1.8)),
+            },
+            "system_actions": {
+                "observe": "record_only",
+                "reduce": "system_auto_reduce_then_wake_pm_rt",
+                "exit": "system_auto_exit_then_wake_pm_rt",
+            },
+            "lock_release": "new_pm_strategy_revision",
+        }
 
     def run_pm_submission(self, *, trace_id: str, runtime_input: AgentRuntimeInput) -> ValidatedSubmissionEnvelope:
         return self._run_submission_with_retry(
@@ -2086,6 +2109,7 @@ class AgentGatewayService:
             "target_gross_exposure_band_pct": list(payload.get("target_gross_exposure_band_pct") or []),
             "portfolio_thesis": self._truncate_retro_text(str(payload.get("portfolio_thesis") or ""), 360),
             "portfolio_invalidation": self._truncate_retro_text(str(payload.get("portfolio_invalidation") or ""), 240),
+            "flip_triggers": self._truncate_retro_text(str(payload.get("flip_triggers") or ""), 240),
             "change_summary": self._truncate_retro_text(str(payload.get("change_summary") or ""), 240),
             "targets": [
                 {
@@ -2817,6 +2841,7 @@ class AgentGatewayService:
                 "target_gross_exposure_band_pct",
                 "portfolio_thesis",
                 "portfolio_invalidation",
+                "flip_triggers",
                 "change_summary",
                 "targets",
             },
@@ -2831,6 +2856,7 @@ class AgentGatewayService:
                 "target_gross_exposure_band_pct",
                 "portfolio_thesis",
                 "portfolio_invalidation",
+                "flip_triggers",
                 "change_summary",
                 "targets",
                 "scheduled_rechecks",

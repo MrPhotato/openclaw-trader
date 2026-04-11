@@ -53,6 +53,7 @@ def _test_strategy_payload() -> dict[str, object]:
         "portfolio_mode": "normal",
         "portfolio_thesis": "test thesis",
         "portfolio_invalidation": "test invalidation",
+        "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
         "change_summary": "test summary",
         "targets": [
             {
@@ -317,6 +318,10 @@ class AgentGatewayServiceTests(unittest.TestCase):
             rt_pack = harness.container.agent_gateway.pull_rt_runtime_input()
 
             self.assertEqual(pm_pack.payload["latest_risk_brake_event"]["scope"], "portfolio")
+            self.assertIn("risk_brake_policy", pm_pack.payload)
+            self.assertEqual(pm_pack.payload["risk_brake_policy"]["position_peak_drawdown_pct"]["reduce"], 1.4)
+            self.assertEqual(pm_pack.payload["risk_brake_policy"]["portfolio_peak_drawdown_pct"]["exit"], 1.8)
+            self.assertEqual(pm_pack.payload["risk_brake_policy"]["system_actions"]["reduce"], "system_auto_reduce_then_wake_pm_rt")
             self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["state"], "reduce")
             self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["coins"], ["BTC"])
             self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["lock_mode"], "reduce_only")
@@ -502,6 +507,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 "target_gross_exposure_band_pct": [0.0, 5.0],
                 "portfolio_thesis": "test thesis",
                 "portfolio_invalidation": "test invalidation",
+                "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                 "change_summary": "test summary",
                 "targets": [
                     {
@@ -769,6 +775,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [20.0, 30.0],
                     "portfolio_thesis": "test strategy",
                     "portfolio_invalidation": "test invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "test summary",
                     "targets": [],
                     "scheduled_rechecks": [],
@@ -823,6 +830,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [10.0, 20.0],
                     "portfolio_thesis": "old strategy",
                     "portfolio_invalidation": "old invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "old summary",
                     "targets": [],
                     "scheduled_rechecks": [],
@@ -861,6 +869,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [0.0, 10.0],
                     "portfolio_thesis": "new strategy",
                     "portfolio_invalidation": "new invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "new summary",
                     "targets": [],
                     "scheduled_rechecks": [],
@@ -886,6 +895,10 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertTrue(pack.payload["trigger_delta"]["strategy_changed"])
             self.assertTrue(pack.payload["trigger_delta"]["requires_tactical_map_refresh"])
             self.assertEqual(pack.payload["trigger_delta"]["tactical_map_refresh_reason"], "pm_strategy_revision")
+            self.assertEqual(
+                pack.payload["rt_decision_digest"]["strategy_summary"]["flip_triggers"],
+                "flip when multi-horizon structure and macro regime both reverse",
+            )
         finally:
             harness.cleanup()
 
@@ -902,6 +915,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [0.0, 5.0],
                     "portfolio_thesis": "agent first thesis",
                     "portfolio_invalidation": "agent first invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "agent first update",
                     "targets": [],
                     "scheduled_rechecks": [],
@@ -918,6 +932,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         "target_gross_exposure_band_pct": [0.0, 5.0],
                         "portfolio_thesis": "duplicate",
                         "portfolio_invalidation": "duplicate",
+                        "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                         "change_summary": "duplicate",
                         "targets": [],
                         "scheduled_rechecks": [],
@@ -948,6 +963,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [0.0, 5.0],
                     "portfolio_thesis": "agent first thesis",
                     "portfolio_invalidation": "agent first invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "agent first update",
                     "targets": [],
                     "scheduled_rechecks": [],
@@ -1035,6 +1051,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [15.0, 25.0],
                     "portfolio_thesis": "current strategy",
                     "portfolio_invalidation": "current invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "current summary",
                     "targets": [],
                     "scheduled_rechecks": [],
@@ -1084,6 +1101,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [15.0, 25.0],
                     "portfolio_thesis": "current strategy",
                     "portfolio_invalidation": "current invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "current summary",
                     "targets": [],
                     "scheduled_rechecks": [],
@@ -1233,6 +1251,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         "target_gross_exposure_band_pct": [0.0, 5.0],
                         "portfolio_thesis": "repaired thesis",
                         "portfolio_invalidation": "repaired invalidation",
+                        "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                         "change_summary": "repaired summary",
                         "targets": [],
                         "scheduled_rechecks": [],
@@ -1430,6 +1449,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                                 "portfolio_mode": "defensive",
                                 "portfolio_thesis": "Stay defensive.",
                                 "portfolio_invalidation": "Break higher.",
+                                "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                                 "change_summary": "No change.",
                                 "targets": [{"symbol": "BTC", "state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0, "priority": 1}],
                             },

@@ -58,6 +58,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                     "target_gross_exposure_band_pct": [0.0, 5.0],
                     "portfolio_thesis": "Replay frontend test strategy",
                     "portfolio_invalidation": "Replay frontend test invalidation",
+                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "Replay frontend test summary",
                     "targets": [
                         {
