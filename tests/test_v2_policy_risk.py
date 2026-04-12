@@ -171,14 +171,14 @@ class PolicyRiskServiceTests(unittest.TestCase):
             news_events=[],
             prior_risk_state={
                 "portfolio_day_utc": datetime.now(UTC).date().isoformat(),
-                "portfolio_day_peak_equity_usd": "1015",
+                "portfolio_day_peak_equity_usd": "1030",
             },
             latest_strategy={},
         )
 
         portfolio_risk_state = policies["BTC"].portfolio_risk_state
         self.assertEqual(portfolio_risk_state.state, "reduce")
-        self.assertAlmostEqual(portfolio_risk_state.drawdown_pct, 1.4778, places=3)
+        self.assertAlmostEqual(portfolio_risk_state.drawdown_pct, 2.9126, places=3)
 
     def test_reduce_only_lock_blocks_add_until_new_strategy_revision(self) -> None:
         market = DataIngestService(FakeMarketDataProvider()).collect(trace_id="trace-1", coins=["BTC"])

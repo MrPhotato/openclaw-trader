@@ -769,7 +769,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 harness,
                 {
                     "portfolio_day_utc": now.date().isoformat(),
-                    "portfolio_day_peak_equity_usd": "1015",
+                    "portfolio_day_peak_equity_usd": "1025",
                     "last_portfolio_state": "normal",
                     "last_position_state_by_coin": {"BTC": "normal"},
                 },

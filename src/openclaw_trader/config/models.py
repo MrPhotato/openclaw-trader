@@ -281,12 +281,12 @@ class RiskSettings(BaseModel):
     )
     daily_loss_limit_pct_of_equity: float = 10.0
     emergency_exit_enabled: bool = True
-    position_observe_drawdown_pct: float = 0.8
-    position_reduce_drawdown_pct: float = 1.4
-    position_exit_drawdown_pct: float = 2.2
-    portfolio_peak_observe_drawdown_pct: float = 0.6
-    portfolio_peak_reduce_drawdown_pct: float = 1.0
-    portfolio_peak_exit_drawdown_pct: float = 1.8
+    position_observe_drawdown_pct: float = 1.6
+    position_reduce_drawdown_pct: float = 2.8
+    position_exit_drawdown_pct: float = 4.0
+    portfolio_peak_observe_drawdown_pct: float = 1.2
+    portfolio_peak_reduce_drawdown_pct: float = 2.0
+    portfolio_peak_exit_drawdown_pct: float = 3.2
     emergency_exit_on_exchange_status: bool = True
     max_live_orders_per_day: int = 5
     max_leverage: float = 5.0

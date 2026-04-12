@@ -42,9 +42,9 @@ class ReplayFrontendServiceTests(unittest.TestCase):
             overview = service.overview()
             self.assertIsNotNone(overview["risk_overlay"])
             self.assertEqual(overview["risk_overlay"]["state"], "fallback")
-            self.assertEqual(overview["risk_overlay"]["observe"]["equity_usd"], "994.0")
-            self.assertEqual(overview["risk_overlay"]["reduce"]["equity_usd"], "990.0")
-            self.assertEqual(overview["risk_overlay"]["exit"]["equity_usd"], "982.0")
+            self.assertEqual(overview["risk_overlay"]["observe"]["equity_usd"], "988.0")
+            self.assertEqual(overview["risk_overlay"]["reduce"]["equity_usd"], "980.0")
+            self.assertEqual(overview["risk_overlay"]["exit"]["equity_usd"], "968.0")
 
     def test_latest_agent_state_exposes_rt_public_brief(self) -> None:
         harness = build_test_harness()
