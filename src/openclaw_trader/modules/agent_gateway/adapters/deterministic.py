@@ -83,8 +83,16 @@ class DeterministicAgentRunner:
             targets: list[dict] = []
             target_total = 0.0
             portfolio_mode = "normal"
-            if any(str(item.get("severity") or item.get("impact_level") or "").lower() == "high" for item in news_events if isinstance(item, dict)):
+            high_count = sum(
+                1
+                for item in news_events
+                if isinstance(item, dict)
+                and str(item.get("severity") or item.get("impact_level") or "").lower() == "high"
+            )
+            if high_count >= 3:
                 portfolio_mode = "defensive"
+            elif high_count >= 1:
+                portfolio_mode = "cautious"
             for index, coin in enumerate(sorted((market.get("market") or {}).keys()), start=1):
                 horizons = forecasts.get(coin, {})
                 four_hour = str((horizons.get("4h") or {}).get("side") or "flat")
@@ -92,10 +100,16 @@ class DeterministicAgentRunner:
                 state = "watch"
                 direction = "flat"
                 band = [0.0, 0.0]
-                if portfolio_mode != "defensive" and four_hour == "long" and twelve_hour == "long":
+                if portfolio_mode == "defensive":
+                    pass
+                elif four_hour in {"long", "short"} and twelve_hour == four_hour:
                     state = "active"
-                    direction = "long"
+                    direction = four_hour
                     band = [1.0, 3.0] if coin == "BTC" else [0.0, 2.0]
+                elif four_hour in {"long", "short"} and twelve_hour != ("short" if four_hour == "long" else "long"):
+                    state = "active"
+                    direction = four_hour
+                    band = [0.0, 2.0] if coin == "BTC" else [0.0, 1.0]
                 targets.append(
                     {
                         "symbol": coin,
@@ -130,12 +144,16 @@ class DeterministicAgentRunner:
             )
         if task.agent_role == "macro_event_analyst":
             events = []
+            _structural_keywords = {"rate", "fomc", "cpi", "regulation", "ban", "hack", "exploit", "delist", "halt"}
             for item in task.payload.get("news_events") or []:
                 if not isinstance(item, dict):
                     continue
                 severity = str(item.get("severity") or "low").lower()
-                impact = "high" if severity == "high" else "medium" if severity == "medium" else "low"
                 title = str(item.get("title") or "macro_event")
+                title_lower = title.lower()
+                if severity == "high" and not any(kw in title_lower for kw in _structural_keywords):
+                    severity = "medium"
+                impact = "high" if severity == "high" else "medium" if severity == "medium" else "low"
                 events.append(
                     {
                         "event_id": item.get("news_id") or new_id("macro_event"),

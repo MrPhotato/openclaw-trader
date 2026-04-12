@@ -319,8 +319,8 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
             self.assertEqual(pm_pack.payload["latest_risk_brake_event"]["scope"], "portfolio")
             self.assertIn("risk_brake_policy", pm_pack.payload)
-            self.assertEqual(pm_pack.payload["risk_brake_policy"]["position_peak_drawdown_pct"]["reduce"], 1.4)
-            self.assertEqual(pm_pack.payload["risk_brake_policy"]["portfolio_peak_drawdown_pct"]["exit"], 1.8)
+            self.assertEqual(pm_pack.payload["risk_brake_policy"]["position_peak_drawdown_pct"]["reduce"], 2.8)
+            self.assertEqual(pm_pack.payload["risk_brake_policy"]["portfolio_peak_drawdown_pct"]["exit"], 3.2)
             self.assertEqual(pm_pack.payload["risk_brake_policy"]["system_actions"]["reduce"], "system_auto_reduce_then_wake_pm_rt")
             self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["state"], "reduce")
             self.assertEqual(rt_pack.payload["latest_risk_brake_event"]["coins"], ["BTC"])
