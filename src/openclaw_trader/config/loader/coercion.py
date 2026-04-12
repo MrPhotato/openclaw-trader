@@ -120,7 +120,7 @@ def coerce_system_settings(source: object | None) -> SystemSettings:
             default_recipient=str(getattr(workflow, "owner_to", "user:owner")),
             chief_recipient=str(getattr(workflow, "chief_to", f"agent:{build_agent_settings().crypto_chief_agent}")),
         ),
-        news=NewsConfig.model_validate(getattr(news, "model_dump", lambda mode=None: {})()),
+        news=NewsConfig.model_validate(news.model_dump() if hasattr(news, "model_dump") else {}),
         coinbase=safe_coinbase_credentials(paths),
         paths=paths,
     )

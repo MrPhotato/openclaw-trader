@@ -6,7 +6,7 @@ from ...shared.protocols import EventEnvelope
 from .models import NotificationResult, ReplayQueryView, StateSnapshot, WorkflowStateRef
 
 
-class StateMemoryPort(Protocol):
+class MemoryAssetsPort(Protocol):
     def save_workflow(self, command_id: str, workflow: WorkflowStateRef, payload: dict) -> None: ...
 
     def get_workflow_by_command(self, command_id: str) -> WorkflowStateRef | None: ...

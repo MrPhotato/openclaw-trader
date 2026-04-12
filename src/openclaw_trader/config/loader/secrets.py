@@ -23,8 +23,8 @@ def load_coinbase_credentials(runtime_root_path: Path | None = None) -> Coinbase
     )
 
 
-def safe_coinbase_credentials(paths) -> CoinbaseCredentials | None:
+def safe_coinbase_credentials(paths: object) -> CoinbaseCredentials | None:
     try:
-        return load_coinbase_credentials(paths.runtime_root)
-    except Exception:
+        return load_coinbase_credentials(getattr(paths, "runtime_root", None))
+    except (ValueError, FileNotFoundError, KeyError, OSError):
         return None

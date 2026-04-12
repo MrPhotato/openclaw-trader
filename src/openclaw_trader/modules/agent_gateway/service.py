@@ -2553,10 +2553,10 @@ class AgentGatewayService:
         return [
             {
                 "agent_role": agent_role,
-                "session_key": f"agent:{self.agent_name_by_role.get(agent_role, self._DEFAULT_AGENT_NAME_BY_ROLE[agent_role])}:main",
-                "learning_path": self.learning_path_by_role.get(agent_role, self._DEFAULT_LEARNING_PATH_BY_ROLE[agent_role]),
+                "session_key": f"agent:{self.agent_name_by_role.get(agent_role) or self._DEFAULT_AGENT_NAME_BY_ROLE.get(agent_role, agent_role)}:main",
+                "learning_path": self.learning_path_by_role.get(agent_role) or self._DEFAULT_LEARNING_PATH_BY_ROLE.get(agent_role, ""),
                 "baseline": self._learning_file_fingerprint(
-                    self.learning_path_by_role.get(agent_role, self._DEFAULT_LEARNING_PATH_BY_ROLE[agent_role])
+                    self.learning_path_by_role.get(agent_role) or self._DEFAULT_LEARNING_PATH_BY_ROLE.get(agent_role, "")
                 ),
             }
             for agent_role in self._RETRO_SPEAKER_ORDER
