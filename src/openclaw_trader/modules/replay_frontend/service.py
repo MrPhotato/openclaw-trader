@@ -74,9 +74,42 @@ class ReplayFrontendService:
             response["latest_macro_daily_memory"] = self.memory_assets.latest_asset(asset_type="macro_daily_memory", actor_role="macro_event_analyst") or self.memory_assets.latest_asset(asset_type="macro_daily_memory")
             response["recent_macro_events"] = self.memory_assets.recent_assets(asset_type="macro_event", actor_role="macro_event_analyst", limit=8) or self.memory_assets.recent_assets(asset_type="macro_event", limit=8)
         elif agent_role == "crypto_chief":
-            response["latest_chief_retro"] = self.memory_assets.latest_asset(asset_type="chief_retro", actor_role="crypto_chief")
+            latest_chief_retro = self.memory_assets.latest_asset(asset_type="chief_retro", actor_role="crypto_chief")
+            response["latest_chief_retro"] = latest_chief_retro
             response["recent_notifications"] = self.memory_assets.recent_assets(asset_type="notification_result", limit=6)
+            retro_chain = self._build_retro_chain(latest_chief_retro)
+            if retro_chain:
+                response["retro_chain"] = retro_chain
         return response
+
+    def _build_retro_chain(self, latest_chief_retro: dict | None) -> dict | None:
+        """Build the full retro chain: case → briefs → synthesis → learning directives."""
+        if not latest_chief_retro:
+            return None
+        payload = dict(latest_chief_retro.get("payload") or {})
+        case_id = str(payload.get("case_id") or latest_chief_retro.get("group_key") or "")
+        if not case_id:
+            return None
+        retro_case = self.memory_assets.latest_retro_case()
+        if retro_case:
+            rc_id = str(retro_case.get("case_id") or retro_case.get("asset_id") or "")
+            if rc_id != case_id:
+                retro_case = None
+        briefs_raw = self.memory_assets.get_retro_briefs(case_id=case_id)
+        seen_roles: set[str] = set()
+        briefs: list[dict] = []
+        for brief in briefs_raw:
+            role = str(brief.get("agent_role") or "")
+            if role and role not in seen_roles:
+                seen_roles.add(role)
+                briefs.append(brief)
+        directives = self.memory_assets.get_learning_directives(case_id=case_id)
+        return {
+            "case_id": case_id,
+            "retro_case": retro_case,
+            "briefs": briefs,
+            "learning_directives": directives,
+        }
 
     def _latest_agent_asset(self, agent_role: str) -> dict | None:
         if agent_role == "pm":

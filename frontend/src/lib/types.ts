@@ -66,6 +66,12 @@ export type AgentLatestData = {
   latest_execution_batch?: AssetRecord | null;
   latest_macro_daily_memory?: AssetRecord | null;
   latest_chief_retro?: AssetRecord | null;
+  retro_chain?: {
+    case_id: string;
+    retro_case: Record<string, unknown> | null;
+    briefs: Array<Record<string, unknown>>;
+    learning_directives: Array<Record<string, unknown>>;
+  } | null;
   latest_rt_trigger_event?: AssetRecord | null;
   latest_risk_brake_event?: AssetRecord | null;
   latest_rt_tactical_map?: AssetRecord | null;

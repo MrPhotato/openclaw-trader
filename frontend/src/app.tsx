@@ -561,38 +561,7 @@ export default function App() {
         {activeView === "chief" && (
           <section className="space-y-4 sm:space-y-6" data-testid="chief-view">
             <AgentHero agent={agentPages[3]} data={chiefData} />
-            <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-              <Panel title="Owner Summary">
-                <ChiefRetroPanel data={chiefData} />
-              </Panel>
-              <div className="min-w-0 space-y-4 sm:space-y-6">
-                <Panel title="会后动作">
-                  <div className="space-y-3">
-                    {renderCollection(
-                      readChiefLearnings(chiefData),
-                      (item, index) => (
-                        <div key={`${item.title}-${index}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                          <div className="font-medium text-slate-100">{item.title}</div>
-                          <div className="mt-2 text-sm text-slate-300">{item.detail}</div>
-                        </div>
-                      ),
-                      "本轮复盘还没有写出可展示的会后动作。",
-                    )}
-                  </div>
-                </Panel>
-                <Panel title="席位状态">
-                  <div className="grid gap-3">
-                    {agentPages.map((agent) => (
-                      <AgentPulseCard
-                        key={agent.role}
-                        agent={agent}
-                        data={agentDataByRole[agent.role]}
-                      />
-                    ))}
-                  </div>
-                </Panel>
-              </div>
-            </section>
+            <ChiefRetroTimeline data={chiefData} agentPages={agentPages} agentDataByRole={agentDataByRole} />
           </section>
         )}
       </div>
@@ -977,22 +946,248 @@ function ThoughtCard(props: { thought: Record<string, unknown> }) {
   );
 }
 
-function ChiefRetroPanel(props: { data?: AgentLatestData }) {
-  const retro = props.data?.latest_chief_retro ?? props.data?.latest_asset;
-  const payload = asRecord(retro?.payload);
-  if (!retro) {
-    return <EmptyState message="Chief 还没有提交今天的 owner summary。" />;
+/* ── Chief Retro Timeline ─────────────────────────────────────── */
+
+const ROLE_LABEL: Record<string, string> = { pm: "PM", risk_trader: "RT", macro_event_analyst: "MEA", crypto_chief: "Chief" };
+const GRADE_TONE: Record<string, string> = {
+  A: "text-emerald-300", "A+": "text-emerald-300", "A-": "text-emerald-300",
+  B: "text-sky-300", "B+": "text-sky-300", "B-": "text-sky-300",
+  C: "text-amber-300", "C+": "text-amber-300", "C-": "text-amber-300",
+  D: "text-red-400", "D+": "text-red-400", "D-": "text-red-400",
+  F: "text-red-500",
+};
+
+function ChiefRetroTimeline(props: {
+  data?: AgentLatestData;
+  agentPages: readonly typeof agentPages[number][];
+  agentDataByRole: Record<string, AgentLatestData | undefined>;
+}) {
+  const { data } = props;
+  const chain = data?.retro_chain;
+  const retro = data?.latest_chief_retro ?? data?.latest_asset;
+  const retroPayload = asRecord(retro?.payload);
+
+  if (!retro && !chain) {
+    return (
+      <Panel title="复盘时间线">
+        <EmptyState message="还没有已完成的复盘记录。" />
+      </Panel>
+    );
   }
+
+  const rc = chain?.retro_case ? asRecord(chain.retro_case) : null;
+  const briefs = chain?.briefs ?? [];
+  const directives = chain?.learning_directives ?? [];
+  const learningResults = Array.isArray(retroPayload?.learning_results) ? retroPayload.learning_results as Record<string, unknown>[] : [];
+  const rootCauseRanking = Array.isArray(retroPayload?.root_cause_ranking) ? retroPayload.root_cause_ranking as string[] : [];
+  const roleJudgements = asRecord(retroPayload?.role_judgements);
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-300">
-        {nonEmptyText(payload?.owner_summary, "这次复盘还没有对外可读的 owner summary。")}
+    <div className="space-y-4 sm:space-y-6">
+      {/* ① 复盘准备 */}
+      <RetroPhasePanel
+        step={1}
+        title="复盘准备"
+        timestamp={rc ? formatTime(String(rc.created_at_utc ?? rc.created_at ?? "")) : ""}
+      >
+        {rc ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-3">
+              <HeroMetric label="复盘日期" value={String(rc.case_day_utc ?? "—")} tone="text-slate-100" />
+              <HeroMetric label="目标收益" value={`${rc.target_return_pct ?? 1}%`} tone="text-amber-200" />
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-xs tracking-widest text-slate-500 mb-2">核心问题</div>
+              <div className="text-sm font-medium text-slate-100">{nonEmptyText(rc.primary_question, "—")}</div>
+            </div>
+            {typeof rc.objective_summary === "string" && rc.objective_summary && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-xs tracking-widest text-slate-500 mb-2">客观摘要</div>
+                <div className="text-sm leading-7 text-slate-300 whitespace-pre-line">{String(rc.objective_summary)}</div>
+              </div>
+            )}
+            {Array.isArray(rc.challenge_prompts) && (rc.challenge_prompts as Record<string, unknown>[]).length > 0 && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-xs tracking-widest text-slate-500 mb-3">挑战提示</div>
+                <div className="space-y-2">
+                  {(rc.challenge_prompts as Record<string, unknown>[]).map((prompt, i) => (
+                    <div key={i} className="flex gap-2 text-sm">
+                      <span className="shrink-0 font-medium text-slate-400">{ROLE_LABEL[String(prompt.role ?? "")] ?? String(prompt.role ?? "?")}:</span>
+                      <span className="text-slate-300">{String(prompt.prompt ?? prompt.question ?? "")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <EmptyState message="此次复盘没有关联到 retro case。" />
+        )}
+      </RetroPhasePanel>
+
+      {/* ② 角色自述 */}
+      <RetroPhasePanel step={2} title="角色自述" timestamp="">
+        {briefs.length > 0 ? (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {briefs.map((brief) => {
+              const b = asRecord(brief) ?? {};
+              const role = String(b.agent_role ?? "");
+              return (
+                <div key={`${role}-${b.brief_id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-semibold text-slate-100">{ROLE_LABEL[role] ?? role}</span>
+                    <span className="text-xs text-slate-500">{formatTime(String(b.created_at_utc ?? ""))}</span>
+                  </div>
+                  <BriefField label="根因分析" value={b.root_cause} />
+                  <BriefField label="自我批评" value={b.self_critique} />
+                  <BriefField label="互相挑战" value={b.cross_role_challenge} />
+                  <BriefField label="明日改进" value={b.tomorrow_change} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState message="此次复盘没有收到角色自述 brief。" />
+        )}
+      </RetroPhasePanel>
+
+      {/* ③ Chief 综合 */}
+      <RetroPhasePanel
+        step={3}
+        title="Chief 综合判断"
+        timestamp={retro ? formatTime(retro.created_at) : ""}
+      >
+        {retroPayload ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-300 whitespace-pre-line">
+              {nonEmptyText(retroPayload.owner_summary, "此次复盘还没有 owner summary。")}
+            </div>
+            {rootCauseRanking.length > 0 && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-xs tracking-widest text-slate-500 mb-3">根因排序</div>
+                <ol className="list-decimal list-inside space-y-1 text-sm text-slate-300">
+                  {rootCauseRanking.map((cause, i) => (
+                    <li key={i}>{String(cause)}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {roleJudgements && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-xs tracking-widest text-slate-500 mb-3">角色评分</div>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  {Object.entries(roleJudgements).map(([role, judgement]) => {
+                    const raw = typeof judgement === "string" ? judgement : String((judgement as Record<string, unknown>)?.grade ?? (judgement as Record<string, unknown>)?.score ?? judgement ?? "—");
+                    const pipeIdx = raw.indexOf("|");
+                    const grade = pipeIdx > 0 ? raw.slice(0, pipeIdx).trim() : raw.split(/\s/)[0] || "—";
+                    const comment = pipeIdx > 0 ? raw.slice(pipeIdx + 1).trim() : "";
+                    return (
+                      <div key={role} className="rounded-xl border border-white/5 bg-white/[0.03] p-3">
+                        <div className="text-xs text-slate-500">{ROLE_LABEL[role] ?? role}</div>
+                        <div className={`mt-1 text-2xl font-bold ${GRADE_TONE[grade] ?? "text-slate-200"}`}>{grade}</div>
+                        {comment && <div className="mt-2 text-xs leading-5 text-slate-400">{comment}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <HeroMetric label="综合轮次" value={String(retroPayload.round_count ?? "—")} tone="text-slate-100" />
+              <HeroMetric label="学习完成" value={retroPayload.learning_completed ? "是" : "否"} tone={retroPayload.learning_completed ? "text-emerald-300" : "text-amber-300"} />
+              <HeroMetric label="复盘时间" value={retro ? formatTime(retro.created_at) : "—"} tone="text-slate-200" />
+            </div>
+          </div>
+        ) : (
+          <EmptyState message="Chief 还没有提交综合判断。" />
+        )}
+      </RetroPhasePanel>
+
+      {/* ④ 学习指令 */}
+      <RetroPhasePanel step={4} title="学习指令" timestamp="">
+        {directives.length > 0 ? (
+          <div className="space-y-3">
+            {directives.map((dir) => {
+              const d = asRecord(dir) ?? {};
+              const role = String(d.agent_role ?? "");
+              return (
+                <div key={String(d.directive_id ?? role)} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-200">{ROLE_LABEL[role] ?? role}</span>
+                  </div>
+                  <div className="text-sm text-slate-200 leading-7">{nonEmptyText(d.directive, "无具体指令。")}</div>
+                  {typeof d.rationale === "string" && d.rationale && (
+                    <div className="mt-2 text-xs text-slate-500">依据：{String(d.rationale)}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState message="此次复盘没有生成学习指令。" />
+        )}
+      </RetroPhasePanel>
+
+      {/* ⑤ 学习落实 */}
+      <RetroPhasePanel step={5} title="学习落实" timestamp="">
+        {learningResults.length > 0 ? (
+          <div className="space-y-3">
+            {learningResults.map((item, i) => {
+              const record = asRecord(item) ?? {};
+              const role = String(record.agent_role ?? "agent");
+              return (
+                <div key={`${role}-${i}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="font-medium text-slate-100">{ROLE_LABEL[role] ?? role.toUpperCase()} 学习记录</div>
+                  <div className="mt-2 text-sm text-slate-300 leading-7">{nonEmptyText(record.learning_summary, "本轮没有写出额外的学习摘要。")}</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState message="学习结果尚未回写。" />
+        )}
+      </RetroPhasePanel>
+
+      {/* 席位状态 */}
+      <Panel title="席位状态">
+        <div className="grid gap-3">
+          {props.agentPages.map((agent) => (
+            <AgentPulseCard
+              key={agent.role}
+              agent={agent}
+              data={props.agentDataByRole[agent.role]}
+            />
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function RetroPhasePanel(props: { step: number; title: string; timestamp: string; children: ReactNode }) {
+  return (
+    <article className="glass-panel min-w-0 overflow-hidden rounded-[24px] shadow-glow sm:rounded-[28px]">
+      <div className="flex items-center gap-3 border-b border-white/5 px-4 py-3 sm:px-5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-xs font-bold text-amber-200">
+          {props.step}
+        </span>
+        <h2 className="text-lg font-semibold sm:text-xl">{props.title}</h2>
+        {props.timestamp && (
+          <span className="ml-auto text-xs text-slate-500">{props.timestamp}</span>
+        )}
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <HeroMetric label="轮次" value={String(payload?.round_count ?? "—")} tone="text-slate-100" />
-        <HeroMetric label="学习完成" value={payload?.learning_completed ? "是" : "否"} tone="text-amber-200" />
-        <HeroMetric label="更新时间" value={formatTime(retro.created_at)} tone="text-slate-200" />
-      </div>
+      <div className="p-4 sm:p-5">{props.children}</div>
+    </article>
+  );
+}
+
+function BriefField(props: { label: string; value: unknown }) {
+  const text = typeof props.value === "string" ? props.value.trim() : "";
+  if (!text) return null;
+  return (
+    <div>
+      <div className="text-[11px] tracking-widest text-slate-500 mb-1">{props.label}</div>
+      <div className="text-sm leading-6 text-slate-300 whitespace-pre-line">{text}</div>
     </div>
   );
 }
@@ -1166,18 +1361,7 @@ function executionThoughtResultText(result: Record<string, unknown>) {
   return "后来没有形成明确的执行回执。";
 }
 
-function readChiefLearnings(data?: AgentLatestData) {
-  const latestRetro = data?.latest_chief_retro ?? data?.latest_asset;
-  const payload = asRecord(latestRetro?.payload);
-  const learnings = Array.isArray(payload?.learning_results) ? payload?.learning_results : [];
-  return learnings.slice(0, 8).map((item) => {
-    const record = asRecord(item) ?? {};
-    return {
-      title: `${String(record.agent_role ?? "agent").toUpperCase()} 学习记录`,
-      detail: nonEmptyText(record.learning_summary, "本轮没有写出额外的学习摘要。"),
-    };
-  });
-}
+/* readChiefLearnings has been replaced by inline logic in ChiefRetroTimeline */
 
 function impactTone(impact: string) {
   if (impact === "high") {
