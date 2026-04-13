@@ -23,6 +23,12 @@
     "trigger_type": {
       "type": "string"
     },
+    "pm_recheck_requested": {
+      "type": "boolean"
+    },
+    "pm_recheck_reason": {
+      "type": "string"
+    },
     "tactical_map_update": {
       "type": "object",
       "additionalProperties": false,
@@ -58,6 +64,7 @@
               "coin",
               "working_posture",
               "base_case",
+              "first_entry_plan",
               "preferred_add_condition",
               "preferred_reduce_condition",
               "no_trade_zone",
@@ -73,6 +80,10 @@
               },
               "base_case": {
                 "type": "string"
+              },
+              "first_entry_plan": {
+                "type": "string",
+                "minLength": 1
               },
               "preferred_add_condition": {
                 "type": "string"
@@ -168,5 +179,30 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "pm_recheck_requested": {
+            "const": true
+          }
+        },
+        "required": [
+          "pm_recheck_requested"
+        ]
+      },
+      "then": {
+        "required": [
+          "pm_recheck_reason"
+        ],
+        "properties": {
+          "pm_recheck_reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  ]
 }

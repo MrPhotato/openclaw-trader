@@ -8,6 +8,8 @@
 | `strategy_id` | string? | 关联 PM 策略 ID，可选但建议保留 |
 | `generated_at_utc` | string | 生成时间 |
 | `trigger_type` | string | 触发原因，例如 `scheduled_cycle` / `new_strategy` / `risk_change` / `execution_exception` / `mea_alert` |
+| `pm_recheck_requested` | boolean | 当前 mandate 无法直接执行时，RT 是否要求 PM 重评 |
+| `pm_recheck_reason` | string? | 当 `pm_recheck_requested=true` 时必须给出具体冲突原因 |
 | `decisions` | ExecutionDecisionItem[] | 一次短执行批次，可覆盖多个币 |
 
 ## 2. ExecutionDecisionItem
@@ -29,6 +31,7 @@
 
 - 一次 `ExecutionSubmission` 可以包含多个 symbol 的短执行批次
 - RT 只定义“这轮怎么打”，不直接定义交易所订单细节
+- 如果存在 active unlocked entry gap，`ExecutionSubmission` 不能只是空批次 / 全 `wait`，除非根级显式要求 `pm_recheck`
 - `size_pct_of_exposure_budget`、`direction` 与 `action` 必须受 PM 的 `target_exposure_band_pct` 和 `rt_discretion_band_pct` 约束
 - `size_pct_of_exposure_budget` 的百分比口径统一为 `% of exposure budget`
 - RT 不依赖长期记忆；输入默认来自当前 `ExecutionContext`、`market_data`、`policy_risk` 与 `quant_intelligence`

@@ -21,6 +21,7 @@ from .events import (
 from .handlers import WorkflowCommandExecutor
 from .models import CommandType, ExternalCadenceWakeup, ManualTriggerCommand, WorkflowCommandReceipt, WorkflowStateRecord
 from .pm_recheck import PMRecheckMonitor
+from .retro_prep import RetroPrepMonitor
 from .risk_brake import RiskBrakeMonitor
 from .rt_trigger import RTTriggerMonitor
 
@@ -49,6 +50,7 @@ class WorkflowOrchestratorService:
         rt_trigger_monitor: RTTriggerMonitor | None = None,
         pm_recheck_monitor: PMRecheckMonitor | None = None,
         risk_brake_monitor: RiskBrakeMonitor | None = None,
+        retro_prep_monitor: RetroPrepMonitor | None = None,
     ) -> None:
         self.memory_assets = memory_assets
         self.event_bus = event_bus
@@ -81,6 +83,9 @@ class WorkflowOrchestratorService:
         self._risk_brake_monitor = risk_brake_monitor
         if self._risk_brake_monitor is not None:
             self._risk_brake_monitor.start()
+        self._retro_prep_monitor = retro_prep_monitor
+        if self._retro_prep_monitor is not None:
+            self._retro_prep_monitor.start()
 
     def submit_command(self, command: ManualTriggerCommand) -> WorkflowCommandReceipt:
         blocked_reason = self._blocked_reason(command)
@@ -209,7 +214,12 @@ class WorkflowOrchestratorService:
             payload=command.model_dump(mode="json"),
         )
         try:
-            result = self.executor.handle(command, workflow_id=workflow_id, trace_id=trace_id)
+            if command.command_type == CommandType.run_retro_prep:
+                if self._retro_prep_monitor is None:
+                    raise RuntimeError("retro_prep_monitor_disabled")
+                result = self._retro_prep_monitor.scan_once(force=True)
+            else:
+                result = self.executor.handle(command, workflow_id=workflow_id, trace_id=trace_id)
         except Exception as exc:  # pragma: no cover - defensive
             failed = EventFactory.build(
                 trace_id=trace_id,
@@ -289,6 +299,8 @@ class WorkflowOrchestratorService:
             self._pm_recheck_monitor.stop()
         if self._risk_brake_monitor is not None:
             self._risk_brake_monitor.stop()
+        if self._retro_prep_monitor is not None:
+            self._retro_prep_monitor.stop()
         if self._daily_reset_thread is not None:
             self._daily_reset_thread.join(timeout=1.0)
         self._background_executor.shutdown(wait=False, cancel_futures=False)

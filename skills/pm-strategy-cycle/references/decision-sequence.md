@@ -28,6 +28,7 @@ Then decide:
 - portfolio mode
 - gross exposure band
 - per-symbol direction
+- explicit `BTC / ETH / SOL` target states, even when some are only `watch` or `disabled`
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
 - `flip_triggers`

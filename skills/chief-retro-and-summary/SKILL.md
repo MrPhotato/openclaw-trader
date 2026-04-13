@@ -1,6 +1,6 @@
 ---
 name: chief-retro-and-summary
-description: Crypto Chief retrospective and owner-communication workflow for openclaw-trader. Use when Chief needs to host the daily internal roundtable, ask each agent to record post-meeting learning, and send the owner summary.
+description: Crypto Chief retrospective and owner-communication workflow for openclaw-trader. Use when Chief needs to judge the daily retro case, issue learning directives, and send the owner summary.
 ---
 
 # Chief Retro And Summary
@@ -8,31 +8,30 @@ description: Crypto Chief retrospective and owner-communication workflow for ope
 Use this skill for `Crypto Chief` work only.
 
 ## Use When
-- Daily retrospective around `UTC 23:00`
+- Workflow Orchestrator has prepared a `retro_case` plus all required role briefs
 - Owner communication
 - Upgrade coordination when needed
 
 ## Job
 - Pull exactly one Chief retro pack from `agent_gateway`, preferably via `scripts/pull_chief_retro.py`.
 - Persist the returned pack long enough to reuse its top-level `input_id` verbatim.
-- Host the daily retrospective as a structured internal roundtable.
-- Keep discussion structured and blameless.
+- Read one `retro_case` plus three role briefs, then issue a Chief synthesis.
+- If the pack says briefs are still pending, stop there. Do not synthesize, do not invent missing briefs, and do not turn this pull into a live meeting.
 - Produce an owner-facing summary.
-- Ensure each agent records its own learning outcome.
+- Issue learning directives; each agent records its own learning outcome later via `/self-improving-agent`.
 - Submit the retro outcome against the current `input_id`, preferably via `scripts/submit_chief_retro.py`.
 
 ## Workflow
 1. Read [runtime-inputs.md](references/runtime-inputs.md) for current available material and target flow.
-2. Follow [retro-flow.md](references/retro-flow.md) to run the meeting.
-3. Execute [post-meeting-actions.md](references/post-meeting-actions.md), and carry the current `input_id` through the retro outcome submit.
+2. Follow [retro-flow.md](references/retro-flow.md) to read the case, inspect briefs, and write the Chief synthesis.
+3. Execute [post-retro-actions.md](references/post-retro-actions.md), and carry the current `input_id` through the retro outcome submit.
+4. Assume the pack was made ready by WO. Do not try to re-run prep work from the Chief session.
 
 ## Guardrails
 - Default to Chinese for all non-JSON commentary unless a downstream contract explicitly requires another language.
-- No rigid meeting template is required.
+- Do not re-create a synchronous group meeting in chat.
+- If `pending_retro_brief_roles[]` is non-empty or `retro_ready_for_synthesis=false`, do not continue into synthesis. Report that retro prep is still pending.
 - Do not turn daily discussion transcripts into formal truth assets.
-- Run a maximum of 2 rounds.
-- Every round must follow `PM -> RT -> MEA -> Chief`.
-- Every participant must speak exactly once per round.
 - Learning files stay outside `memory_assets`.
 - Do not write PM / RT / MEA learning files yourself.
 - Do not wait for learning confirmation before sending the owner summary.
@@ -43,7 +42,7 @@ Use this skill for `Crypto Chief` work only.
 - Do not imply a future review is already system-scheduled unless the runtime payload explicitly confirms scheduler state.
 - Prefer wording like `PM scheduled next review at ...` over `next recheck at ...`.
 - `POST /api/agent/submit/retro` must include the exact `input_id` plus a non-empty `owner_summary`.
-- Optional retro payload fields may include `reset_command`, `learning_results`, `transcript`, `round_count`, and `meeting_id`.
+- Optional retro payload fields may include `case_id`, `root_cause_ranking`, `role_judgements`, `learning_directives`, `reset_command`, and `learning_results`.
 - Prefer the repo helpers:
   - `python3 /Users/chenzian/openclaw-trader/scripts/pull_chief_retro.py`
   - `python3 /Users/chenzian/openclaw-trader/scripts/submit_chief_retro.py --input-id ... --payload-file /tmp/chief_retro_submission.json`
@@ -55,4 +54,4 @@ Use this skill for `Crypto Chief` work only.
 ## References
 - [runtime-inputs.md](references/runtime-inputs.md)
 - [retro-flow.md](references/retro-flow.md)
-- [post-meeting-actions.md](references/post-meeting-actions.md)
+- [post-retro-actions.md](references/post-retro-actions.md)

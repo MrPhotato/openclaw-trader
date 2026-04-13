@@ -115,6 +115,7 @@ PM should not assume there is any separate message broker hop in the live path, 
 - Do not paste the full runtime pack back into the conversation after pulling it. Keep the large JSON in a file and only extract the fields you need.
 - If `latest_risk_brake_event` is present, treat it as a hard desk fact: the system has already reduced or exited risk. Your job is to re-evaluate mandate and publish a new strategy revision around that new state.
 - Treat `risk_brake_policy` as a standing house rule, not a suggestion. PM is not the only risk controller now: the system can auto-reduce or auto-exit on both single-position peak drawdown and portfolio peak drawdown, then wake PM to revise mandate.
+- Every formal strategy must explicitly cover `BTC`, `ETH`, and `SOL` in `targets`. Do not omit a coin just because it is inactive; mark it `watch` or `disabled` instead.
 - If you were woken by RT / MEA / Chief / owner directly, classify the wake as `agent_message` and include `source_role`, `wake_source=sessions_send`, and a one-line `reason` in the pull helper args.
 - If submit fails with `unknown_input_id`, do one fresh `pull/pm`, replace the old `input_id`, and retry once. Stop there; repeated retries with guessed ids are always wrong.
 - If runtime facts and later design notes diverge, follow the live pack plus the formal strategy contract.

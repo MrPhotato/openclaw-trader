@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LearningDirectiveAsset",
+  "type": "object",
+  "required": [
+    "directive_id",
+    "cycle_id",
+    "target_role",
+    "directive_text",
+    "learning_path",
+    "baseline_fingerprint",
+    "issued_at_utc",
+    "completion_state"
+  ],
+  "properties": {
+    "directive_id": { "type": "string", "minLength": 1 },
+    "cycle_id": { "type": "string", "minLength": 1 },
+    "target_role": {
+      "type": "string",
+      "enum": ["pm", "risk_trader", "macro_event_analyst", "crypto_chief"]
+    },
+    "directive_text": { "type": "string", "minLength": 1 },
+    "learning_path": { "type": "string", "minLength": 1 },
+    "baseline_fingerprint": { "type": "object" },
+    "issued_at_utc": { "type": "string", "minLength": 1 },
+    "completed_at_utc": { "type": ["string", "null"] },
+    "completion_state": {
+      "type": "string",
+      "enum": ["pending", "completed", "stale"]
+    }
+  },
+  "additionalProperties": false
+}

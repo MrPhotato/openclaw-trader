@@ -346,6 +346,13 @@ class OrchestratorSettings(BaseModel):
     runtime_bridge_enabled: bool = True
     runtime_bridge_refresh_interval_seconds: int = 10
     runtime_bridge_max_age_seconds: int = 30
+    retro_prep_enabled: bool = False
+    retro_prep_scan_interval_seconds: int = 60
+    retro_prep_hour_utc: int = 22
+    retro_prep_minute_utc: int = 40
+    retro_prep_chief_job_id: str = "6b0359fe-f8e4-4f82-9671-3b9c28c49299"
+    retro_prep_cron_subprocess_timeout_seconds: int = 15
+    retro_prep_openclaw_bin: str = "openclaw"
     rt_event_trigger_enabled: bool = False
     rt_event_trigger_job_id: str = "ccbf7286-dba4-4d57-bebe-932340374492"
     rt_event_trigger_scan_interval_seconds: int = 30

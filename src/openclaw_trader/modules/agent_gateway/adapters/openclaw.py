@@ -38,10 +38,6 @@ _TASK_HINTS: dict[str, set[str]] = {
         "reset_command",
         "learning_completed",
     },
-    "retro_turn": {
-        "speaker_role",
-        "statement",
-    },
 }
 
 

@@ -29,7 +29,8 @@ Chief should run retrospectives against a shared daily pack centered on:
 - PM strategy versions
 - RT execution batches
 - MEA high-impact events
-- the live retro transcript that AG is driving across 2 rounds
+- one `retro_case`
+- three `retro_briefs`
 
 ## Use Now
 - Pull once, work from that pack, and submit against the same `input_id`.
@@ -42,12 +43,14 @@ Chief should run retrospectives against a shared daily pack centered on:
 - The submit body must include:
   - `input_id`
   - `owner_summary`
+- Strongly prefer also including:
+  - `case_id`
+  - `root_cause_ranking`
+  - `role_judgements`
+  - `learning_directives`
 - Optional fields:
   - `reset_command`
   - `learning_results`
-  - `transcript`
-  - `round_count`
-  - `meeting_id`
 - Prefer:
   - `python3 /Users/chenzian/openclaw-trader/scripts/submit_chief_retro.py --input-id "$INPUT_ID" --payload-file /tmp/chief_retro_submission.json`
 - Do not hand-escape a long JSON body inline. Write a JSON file first, then `POST` that file.
@@ -58,9 +61,13 @@ Chief should run retrospectives against a shared daily pack centered on:
 - Do not call `sessions_list` to discover or guess alternative session names.
 - If `learning_targets[]` is unexpectedly absent, note the missing metadata in the retro narrative and continue without waiting for learning confirmation.
 - When Chief asks `PM / RT / MEA / Chief` to run `/self-improving-agent`, use the provided `session_key` exactly.
-- In system-driven retro rounds, each participant receives:
-  - a one-time compact retro pack on the first turn
-  - the full transcript so far on the first turn
-  - the current round index
-  - the role-specific speaking instruction
-- On the second turn for the same speaker, AG sends only the new transcript delta plus thin meeting state.
+- Chief is not moderating a live roundtable here.
+- The pack now provides:
+  - `retro_case`
+  - `retro_briefs`
+  - `pending_retro_brief_roles`
+  - `retro_ready_for_synthesis`
+  - `learning_targets`
+  - optional `pending_learning_directives`
+- Your job is to judge the case and those briefs, then emit a concise Chief synthesis.
+- If `retro_ready_for_synthesis` is `false`, stop. Do not synthesize against an incomplete pack.

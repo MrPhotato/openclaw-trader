@@ -10,6 +10,8 @@ from openclaw_trader.modules.memory_assets.models import WorkflowStateRef
 from openclaw_trader.shared.infra import SqliteDatabase
 from openclaw_trader.shared.protocols import EventFactory
 
+from .test_v2_agent_gateway import _valid_strategy_targets
+
 
 class MemoryAssetsServiceTests(unittest.TestCase):
     def test_workflow_event_and_parameter_roundtrip(self) -> None:
@@ -49,7 +51,7 @@ class MemoryAssetsServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "invalid-1",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "summary-1",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="manual",
@@ -63,7 +65,10 @@ class MemoryAssetsServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "invalid-2",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "summary-2",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(
+                        btc_state="watch",
+                        btc_direction="flat",
+                    ),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="scheduled_recheck",
@@ -129,6 +134,52 @@ class MemoryAssetsServiceTests(unittest.TestCase):
             self.assertEqual(overview.risk_overlay["observe"]["equity_usd"], "1019.7")
             self.assertEqual(overview.risk_overlay["reduce"]["equity_usd"], "1009.4")
             self.assertEqual(overview.risk_overlay["exit"]["equity_usd"], "999.1")
+
+    def test_retro_assets_roundtrip(self) -> None:
+        with TemporaryDirectory() as tmp:
+            service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            retro_case = service.materialize_retro_case(
+                trace_id="trace-retro",
+                authored_payload={
+                    "trigger_type": "daily_retro",
+                    "primary_question": "为什么今天没有赚到 1%？",
+                    "objective_summary": "拆解 PM、RT、MEA 三个环节的真实贡献。",
+                    "challenge_prompts": ["PM 是否过度保守？", "RT 是否执行过慢？"],
+                },
+            )
+            retro_brief = service.materialize_retro_brief(
+                trace_id="trace-retro",
+                case_id=retro_case["case_id"],
+                agent_role="pm",
+                authored_payload={
+                    "root_cause": "PM 过度保守。",
+                    "cross_role_challenge": "RT 可以更主动。",
+                    "self_critique": "flip triggers 写得不够清楚。",
+                    "tomorrow_change": "把翻向条件写清楚。",
+                },
+            )
+            directive = service.materialize_learning_directive(
+                trace_id="trace-retro",
+                case_id=retro_case["case_id"],
+                agent_role="pm",
+                session_key="agent:pm:main",
+                learning_path="/tmp/pm.md",
+                authored_payload={
+                    "directive": "把风格切换条件写清楚。",
+                    "rationale": "避免 RT 无法执行。",
+                },
+            )
+            latest_case = service.latest_retro_case(case_day_utc=retro_case["case_day_utc"])
+            self.assertIsNotNone(latest_case)
+            self.assertEqual(latest_case["case_id"], retro_case["case_id"])
+            latest_brief = service.latest_retro_brief(case_id=retro_case["case_id"], agent_role="pm")
+            self.assertIsNotNone(latest_brief)
+            self.assertEqual(latest_brief["brief_id"], retro_brief["brief_id"])
+            self.assertEqual(len(service.get_retro_briefs(case_id=retro_case["case_id"])), 1)
+            latest_directive = service.latest_learning_directive(agent_role="pm")
+            self.assertIsNotNone(latest_directive)
+            self.assertEqual(latest_directive["directive_id"], directive["directive_id"])
+            self.assertEqual(len(service.get_learning_directives(case_id=retro_case["case_id"])), 1)
 
 
 if __name__ == "__main__":

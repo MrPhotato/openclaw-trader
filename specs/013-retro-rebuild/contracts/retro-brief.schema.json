@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RetroBriefSubmission",
+  "type": "object",
+  "required": [
+    "cycle_id",
+    "agent_role",
+    "root_cause_view",
+    "self_critique",
+    "tomorrow_change"
+  ],
+  "properties": {
+    "cycle_id": { "type": "string", "minLength": 1 },
+    "agent_role": {
+      "type": "string",
+      "enum": ["pm", "risk_trader", "macro_event_analyst"]
+    },
+    "root_cause_view": { "type": "string", "minLength": 1 },
+    "peer_challenges": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "self_critique": { "type": "string", "minLength": 1 },
+    "tomorrow_change": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

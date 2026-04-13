@@ -45,6 +45,8 @@
     },
     "targets": {
       "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -94,7 +96,48 @@
             "minimum": 1
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "symbol": {
+                "const": "BTC"
+              }
+            },
+            "required": [
+              "symbol"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "symbol": {
+                "const": "ETH"
+              }
+            },
+            "required": [
+              "symbol"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "symbol": {
+                "const": "SOL"
+              }
+            },
+            "required": [
+              "symbol"
+            ]
+          }
+        }
+      ]
     },
     "scheduled_rechecks": {
       "type": "array",

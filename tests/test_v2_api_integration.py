@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from openclaw_trader.app.factory import create_app
 
 from .helpers_v2 import build_test_harness
-from .test_v2_agent_gateway import _seed_runtime_bridge_state
+from .test_v2_agent_gateway import _seed_runtime_bridge_state, _valid_strategy_targets
 
 
 class ApiIntegrationTests(unittest.TestCase):
@@ -85,7 +85,7 @@ class ApiIntegrationTests(unittest.TestCase):
                         "portfolio_invalidation": "query test invalidation",
                         "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                         "change_summary": "query test summary",
-                        "targets": [],
+                        "targets": _valid_strategy_targets(),
                         "scheduled_rechecks": [],
                     },
                 )
@@ -131,7 +131,7 @@ class ApiIntegrationTests(unittest.TestCase):
                             "portfolio_invalidation": "bridge invalidation",
                             "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                             "change_summary": "bridge summary",
-                            "targets": [],
+                            "targets": _valid_strategy_targets(),
                             "scheduled_rechecks": [],
                         },
                     },
@@ -169,6 +169,7 @@ class ApiIntegrationTests(unittest.TestCase):
                                         "coin": "BTC",
                                         "working_posture": "初始化观察",
                                         "base_case": "先维持观察，再等待更明确结构。",
+                                        "first_entry_plan": "如果当前仍无仓且 BTC 继续 active，就先打 1% 试探仓，不再无限等待。",
                                         "preferred_add_condition": "结构确认后再加。",
                                         "preferred_reduce_condition": "若结构转弱则先减。",
                                         "reference_take_profit_condition": "冲高衰减时部分止盈。",
@@ -218,9 +219,18 @@ class ApiIntegrationTests(unittest.TestCase):
                 self.assertEqual(submit_news.status_code, 200)
                 self.assertEqual(submit_news.json()["high_impact_count"], 1)
 
+                harness.container.agent_gateway.prepare_retro_cycle_from_runtime_bridge(
+                    trace_id="trace-chief-prep",
+                    trigger_type="daily_retro",
+                    force_new_case=True,
+                )
                 chief_pack = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
                 self.assertEqual(chief_pack.status_code, 200)
                 chief_payload = chief_pack.json()["payload"]
+                self.assertTrue(chief_payload["retro_case"])
+                self.assertEqual(len(chief_payload["retro_briefs"]), 3)
+                self.assertEqual(chief_payload["pending_retro_brief_roles"], [])
+                self.assertTrue(chief_payload["retro_ready_for_synthesis"])
                 self.assertTrue(chief_payload["learning_targets"])
                 self.assertEqual(chief_payload["learning_targets"][0]["session_key"], "agent:pm:main")
                 self.assertTrue(chief_payload["retro_pack"]["learning_targets"])
@@ -229,9 +239,19 @@ class ApiIntegrationTests(unittest.TestCase):
                     "/api/agent/submit/retro",
                     json={
                         "input_id": chief_pack.json()["input_id"],
-                        "owner_summary": "Chief retro submitted from API integration test.",
-                        "round_count": 2,
-                        "learning_completed": True,
+                        "payload": {
+                            "case_id": chief_payload["retro_case"]["case_id"],
+                            "owner_summary": "Chief retro submitted from API integration test.",
+                            "round_count": 1,
+                            "root_cause_ranking": ["PM 过度保守"],
+                            "learning_directives": [
+                                {
+                                    "agent_role": "pm",
+                                    "directive": "把翻向条件写清楚。",
+                                    "rationale": "让 RT 有明确翻向边界。",
+                                }
+                            ],
+                        },
                     },
                 )
                 self.assertEqual(submit_retro.status_code, 200)
@@ -239,7 +259,8 @@ class ApiIntegrationTests(unittest.TestCase):
                     submit_retro.json()["owner_summary"],
                     "Chief retro submitted from API integration test.",
                 )
-                self.assertEqual(submit_retro.json()["round_count"], 2)
+                self.assertEqual(submit_retro.json()["round_count"], 1)
+                self.assertEqual(submit_retro.json()["case_id"], chief_payload["retro_case"]["case_id"])
 
                 chief_pack_missing_summary = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
                 self.assertEqual(chief_pack_missing_summary.status_code, 200)
@@ -247,6 +268,9 @@ class ApiIntegrationTests(unittest.TestCase):
                     "/api/agent/submit/retro",
                     json={
                         "input_id": chief_pack_missing_summary.json()["input_id"],
+                        "payload": {
+                            "case_id": chief_pack_missing_summary.json()["payload"]["retro_case"]["case_id"],
+                        },
                     },
                 )
                 self.assertEqual(retro_missing_owner_summary.status_code, 422)
@@ -292,7 +316,7 @@ class ApiIntegrationTests(unittest.TestCase):
                         "portfolio_invalidation": "flat bridge invalidation",
                         "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                         "change_summary": "flat bridge summary",
-                        "targets": [],
+                        "targets": _valid_strategy_targets(),
                         "scheduled_rechecks": [],
                     },
                 )

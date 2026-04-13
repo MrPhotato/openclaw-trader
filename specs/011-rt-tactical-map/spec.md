@@ -63,6 +63,8 @@
   - 当前风险倾向
   - 每个活跃币种的战术 if/then 条件
 - **FR-003**：每个币种的战术地图必须至少包含：
+  - `first_entry_plan`
+    中文：第一笔怎么打
   - `preferred_add_condition`
     中文：优先加仓条件
   - `preferred_reduce_condition`

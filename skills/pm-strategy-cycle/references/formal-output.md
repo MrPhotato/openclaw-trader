@@ -26,6 +26,8 @@ Rules:
 - If judgment is unchanged, still emit a fresh strategy submission.
 - Do not add execution tactics such as order type, order count, or entry path.
 - `flip_triggers` is a dedicated required field. Use it to state the specific conditions that would justify flipping directional bias from long to short, short to long, or from active risk to flat/only_reduce.
+- `targets` must contain exactly 3 entries and must always cover `BTC`, `ETH`, and `SOL`.
+- If a coin is inactive, still include it explicitly with `state = watch` or `disabled` and a flat direction. Do not omit symbols.
 - Treat all exposure percentages as `% of exposure budget`, where exposure budget = `total_equity_usd * max_leverage`.
 - Under this house convention, normalized gross exposure and normalized per-symbol exposure should not exceed `100%`.
 - If you describe current exposure as greater than `100%`, you are almost certainly using the wrong denominator (`raw notional / equity`) instead of the house denominator (`equity * max_leverage`).
@@ -62,6 +64,14 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
         "target_exposure_band_pct": [0, 5],
         "rt_discretion_band_pct": 5,
         "priority": 2
+      },
+      {
+        "symbol": "SOL",
+        "state": "disabled",
+        "direction": "flat",
+        "target_exposure_band_pct": [0, 0],
+        "rt_discretion_band_pct": 0,
+        "priority": 3
       }
     ],
     "scheduled_rechecks": [

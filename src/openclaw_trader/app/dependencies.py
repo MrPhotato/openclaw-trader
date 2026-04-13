@@ -26,10 +26,11 @@ from ..modules.trade_gateway.market_data import DataIngestService
 from ..modules.trade_gateway.market_data.adapters import CoinbaseIntxMarketDataProvider
 from ..modules.workflow_orchestrator import WorkflowOrchestratorService
 from ..modules.workflow_orchestrator.pm_recheck import PMRecheckConfig, PMRecheckMonitor
+from ..modules.workflow_orchestrator.retro_prep import RetroPrepConfig, RetroPrepMonitor
 from ..modules.workflow_orchestrator.trigger_bridge import WorkflowTriggerBridge
 from ..modules.workflow_orchestrator.handlers import WorkflowCommandExecutor
 from ..modules.workflow_orchestrator.risk_brake import RiskBrakeConfig, RiskBrakeMonitor
-from ..modules.workflow_orchestrator.rt_trigger import RTTriggerConfig, RTTriggerMonitor
+from ..modules.workflow_orchestrator.rt_trigger import OpenClawCronRunner, RTTriggerConfig, RTTriggerMonitor
 from ..shared.infra import EventBus, InMemoryEventBus, SqliteDatabase
 
 
@@ -259,6 +260,28 @@ def build_container() -> ServiceContainer:
                 openclaw_bin=str(settings.orchestrator.risk_brake_openclaw_bin),
             ),
         )
+    retro_prep_monitor = None
+    if bool(settings.orchestrator.retro_prep_enabled):
+        retro_prep_monitor = RetroPrepMonitor(
+            memory_assets=memory_assets,
+            agent_gateway=agent_gateway,
+            event_bus=event_bus,
+            config=RetroPrepConfig(
+                enabled=True,
+                scan_interval_seconds=int(settings.orchestrator.retro_prep_scan_interval_seconds),
+                prep_hour_utc=int(settings.orchestrator.retro_prep_hour_utc),
+                prep_minute_utc=int(settings.orchestrator.retro_prep_minute_utc),
+                chief_job_id=str(settings.orchestrator.retro_prep_chief_job_id),
+                cron_subprocess_timeout_seconds=int(
+                    settings.orchestrator.retro_prep_cron_subprocess_timeout_seconds
+                ),
+                openclaw_bin=str(settings.orchestrator.retro_prep_openclaw_bin),
+            ),
+            cron_runner=OpenClawCronRunner(
+                openclaw_bin=str(settings.orchestrator.retro_prep_openclaw_bin),
+                timeout_seconds=int(settings.orchestrator.retro_prep_cron_subprocess_timeout_seconds),
+            ),
+        )
     workflow_orchestrator = WorkflowOrchestratorService(
         memory_assets=memory_assets,
         event_bus=event_bus,
@@ -267,6 +290,7 @@ def build_container() -> ServiceContainer:
         rt_trigger_monitor=rt_trigger_monitor,
         pm_recheck_monitor=pm_recheck_monitor,
         risk_brake_monitor=risk_brake_monitor,
+        retro_prep_monitor=retro_prep_monitor,
     )
     return ServiceContainer(
         settings=settings,

@@ -1,51 +1,41 @@
 # Retro Flow
 
 Preferred retrospective window:
-- around `UTC 23:00`
+- after WO has prepared `retro_case + retro_briefs`
 
-Run the meeting as a structured roundtable.
+Run the retrospective as an async judgement pass, not a live meeting.
 
-Meeting rules:
-- maximum `2` rounds
-- every round follows the same order
-- no free interruption
-- each speaker gets one compact retro pack on their first turn, then only the new transcript delta on their later turn
+Order of work:
 
-Order per round:
+1. Read `retro_case`
+- understand the target:
+  - why did the desk fail to make `1%`
+  - what are the explicit challenge prompts
 
-1. Shared market and execution timeline
-- start with the day as it actually unfolded
+Stop condition:
+- if `retro_case` is missing, or `pending_retro_brief_roles[]` is non-empty, stop immediately
+- do not create replacement briefs yourself
+- do not convert the retro into a synchronous roundtable
 
-2. PM
-- target state
-- thesis
-- what changed
+2. Read all three role briefs
+- `pm_retro_brief`
+- `rt_retro_brief`
+- `mea_retro_brief`
 
-3. RT
-- what was executed
-- where execution deviated
-- whether the deviation was justified
+3. Judge the briefs
+- identify who saw the right thing
+- identify who was too defensive, too slow, or too noisy
+- separate:
+  - signal quality
+  - execution quality
+  - process quality
+  - luck
 
-4. MEA
-- which events mattered
-- whether reminders were timely and relevant
-
-5. Chief
-- attribute outcomes
-- separate signal, execution, process, and luck
-- enforce the round limit and move the room forward
-
-If a speaker has no new objection, they must still state that they are maintaining their prior view.
-
-Round purpose:
-- Round 1:
-  - facts
-  - original judgment
-  - concrete results
-- Round 2:
-  - key objections
-  - responses
-  - final convergence
+4. Write Chief synthesis
+- `owner_summary`
+- `root_cause_ranking`
+- `role_judgements`
+- `learning_directives`
 
 Method:
 - use AAR as the default structure

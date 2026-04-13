@@ -22,6 +22,7 @@ Use this skill for `PM` work only.
 - If judgment is unchanged, still submit a fresh strategy judgment.
 - Treat `input_id` as an opaque lease token. Copy it exactly from the runtime pack; never guess, derive, or rewrite it.
 - Always fill the dedicated `flip_triggers` field: the concrete conditions that would justify flipping directional bias from long to short, short to long, or from active risk to flat/only_reduce.
+- Always submit exactly 3 `targets`, one each for `BTC`, `ETH`, and `SOL`. If a coin is not actionable, mark it `watch` or `disabled` with flat direction instead of omitting it.
 
 ## Workflow
 1. Read [runtime-inputs.md](references/runtime-inputs.md) to see the live pull bridge, real field layout, and a working curl example.

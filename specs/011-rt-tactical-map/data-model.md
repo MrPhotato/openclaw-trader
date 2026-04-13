@@ -22,6 +22,7 @@
 | `coin` | string | 币种 |
 | `working_posture` | string | 当前该币的打法姿态 |
 | `base_case` | string | 当前基本打法摘要 |
+| `first_entry_plan` | string | 第一笔怎么打 |
 | `preferred_add_condition` | string | 优先加仓条件 |
 | `preferred_reduce_condition` | string | 优先减仓条件 |
 | `reference_take_profit_condition` | string | 参考止盈条件 |

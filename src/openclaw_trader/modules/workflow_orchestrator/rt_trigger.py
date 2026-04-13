@@ -46,6 +46,13 @@ class CronRunResult:
 
 
 @dataclass(frozen=True)
+class CronSpawnResult:
+    ok: bool
+    pid: int | None = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class RTTriggerDecision:
     reason: str
     severity: str = "normal"
@@ -144,6 +151,20 @@ class OpenClawCronRunner:
             stderr=completed.stderr or "",
             returncode=completed.returncode,
         )
+
+    def run_now_detached(self, *, job_id: str) -> CronSpawnResult:
+        try:
+            process = subprocess.Popen(
+                [self.openclaw_bin, "cron", "run", job_id],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                text=False,
+            )
+        except Exception as exc:
+            return CronSpawnResult(ok=False, error=str(exc))
+        return CronSpawnResult(ok=True, pid=process.pid)
 
     @staticmethod
     def _iter_jobs(payload: Any) -> list[dict[str, Any]]:

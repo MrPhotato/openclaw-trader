@@ -3,6 +3,7 @@
   "strategy_id": "strat-2026-03-16-main",
   "generated_at_utc": "2026-03-16T01:05:00Z",
   "trigger_type": "new_strategy",
+  "pm_recheck_requested": false,
   "decisions": [
     {
       "symbol": "BTCUSDT",
@@ -22,7 +23,7 @@
       "priority": 2,
       "urgency": "normal",
       "valid_for_minutes": 10,
-      "reason": "Spread and short-term structure make entry unattractive for now."
+      "reason": "ETH remains watch-only this round, so no new entry is required."
     }
   ]
 }

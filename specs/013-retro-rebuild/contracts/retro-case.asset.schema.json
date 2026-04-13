@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RetroCaseAsset",
+  "type": "object",
+  "required": [
+    "retro_case_id",
+    "cycle_id",
+    "trade_day_utc",
+    "goal_return_pct",
+    "actual_return_pct",
+    "core_question",
+    "challenge_prompts"
+  ],
+  "properties": {
+    "retro_case_id": { "type": "string", "minLength": 1 },
+    "cycle_id": { "type": "string", "minLength": 1 },
+    "trade_day_utc": { "type": "string", "minLength": 1 },
+    "goal_return_pct": { "type": "number" },
+    "actual_return_pct": { "type": "number" },
+    "core_question": { "type": "string", "minLength": 1 },
+    "challenge_prompts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "strategy_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "execution_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "event_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "market_summary": { "type": "object" },
+    "risk_summary": { "type": "object" }
+  },
+  "additionalProperties": true
+}

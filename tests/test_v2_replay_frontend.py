@@ -9,6 +9,7 @@ from openclaw_trader.modules.memory_assets import MemoryAssetsRepository, Memory
 from openclaw_trader.shared.infra import SqliteDatabase
 
 from .helpers_v2 import build_test_harness, build_test_settings
+from .test_v2_agent_gateway import _valid_strategy_targets
 
 
 class ReplayFrontendServiceTests(unittest.TestCase):
@@ -60,16 +61,10 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "Replay frontend test invalidation",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "Replay frontend test summary",
-                    "targets": [
-                        {
-                            "symbol": "BTC",
-                            "state": "active",
-                            "direction": "long",
-                            "target_exposure_band_pct": [1.0, 3.0],
-                            "rt_discretion_band_pct": 1.0,
-                            "priority": 1,
-                        }
-                    ],
+                    "targets": _valid_strategy_targets(
+                        btc_band=(1.0, 3.0),
+                        btc_rt=1.0,
+                    ),
                     "scheduled_rechecks": [],
                 },
             )
@@ -92,6 +87,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                                 "coin": "BTC",
                                 "working_posture": "先观察再推进",
                                 "base_case": "沿主趋势推进。",
+                                "first_entry_plan": "若当前仍无仓且 BTC active，就先建立最小试探仓。",
                                 "preferred_add_condition": "回踩站稳后继续加仓。",
                                 "preferred_reduce_condition": "若结构转弱则减仓。",
                                 "reference_take_profit_condition": "冲高分批止盈。",
@@ -150,6 +146,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                             "coin": "BTC",
                             "working_posture": "先观察再推进",
                             "base_case": "沿主趋势推进。",
+                            "first_entry_plan": "若当前仍无仓且 BTC active，就先建立最小试探仓。",
                             "preferred_add_condition": "回踩站稳后继续加仓。",
                             "preferred_reduce_condition": "若结构转弱则减仓。",
                             "reference_take_profit_condition": "冲高分批止盈。",

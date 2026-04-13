@@ -31,6 +31,7 @@ Answer:
 - do I need to act now
 - do I need to refresh the tactical map in this same round
 - which parts of the submission scaffold need to be filled rather than rebuilt
+- if PM has an active unlocked entry gap, do I enter now or explicitly escalate with `pm_recheck_requested`
 
 ## 2. Market timing
 Read second:

@@ -12,6 +12,7 @@ from openclaw_trader.shared.protocols import EventFactory
 from openclaw_trader.shared.infra import SqliteDatabase
 
 from .helpers_v2 import FakeNotificationProvider, TemporaryDirectory
+from .test_v2_agent_gateway import _valid_strategy_targets
 
 
 class NotificationServiceTests(unittest.TestCase):
@@ -90,7 +91,7 @@ class NotificationServiceTests(unittest.TestCase):
                     "strategy": {
                         "strategy_id": "strategy-1",
                         "portfolio_thesis": "macro pressure remains elevated",
-                        "targets": [],
+                        "targets": _valid_strategy_targets(),
                     },
                     "trigger_type": "agent_message",
                     "trigger_reason": "high-impact macro alert",

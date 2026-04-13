@@ -14,7 +14,7 @@ class CommandType(str, Enum):
     run_pm = "run_pm"
     run_rt = "run_rt"
     run_mea = "run_mea"
-    run_chief_retro = "run_chief_retro"
+    run_retro_prep = "run_retro_prep"
     reset_agent_sessions = "reset_agent_sessions"
     sync_news = "sync_news"
     emit_daily_report = "emit_daily_report"

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 
 class WorkflowStateRef(BaseModel):
@@ -86,6 +86,27 @@ class StrategyAsset(BaseModel):
     targets: list[StrategyTargetAsset] = Field(default_factory=list)
     scheduled_rechecks: list[ScheduledRecheck] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_targets_cover_supported_symbols(self) -> "StrategyAsset":
+        symbols = [str(item.symbol or "").strip().upper() for item in self.targets]
+        expected = {"BTC", "ETH", "SOL"}
+        actual = set(symbols)
+        missing = sorted(expected - actual)
+        extras = sorted(actual - expected)
+        duplicates = sorted({symbol for symbol in symbols if symbol and symbols.count(symbol) > 1})
+        if missing or extras or duplicates or len(self.targets) != 3:
+            problems: list[str] = []
+            if missing:
+                problems.append(f"missing targets for {', '.join(missing)}")
+            if extras:
+                problems.append(f"unsupported target symbols {', '.join(extras)}")
+            if duplicates:
+                problems.append(f"duplicate target symbols {', '.join(duplicates)}")
+            if len(self.targets) != 3:
+                problems.append("targets must contain exactly 3 entries (BTC, ETH, SOL)")
+            raise ValueError("; ".join(problems))
+        return self
+
 
 class ExecutionDecisionRecord(BaseModel):
     symbol: str
@@ -111,6 +132,8 @@ class ExecutionBatch(BaseModel):
     strategy_id: str | None = None
     generated_at_utc: datetime
     trigger_type: str
+    pm_recheck_requested: bool = False
+    pm_recheck_reason: str | None = None
     decisions: list[ExecutionDecisionRecord] = Field(default_factory=list)
 
 
@@ -135,6 +158,7 @@ class RTTacticalMapCoinAsset(BaseModel):
     coin: str
     working_posture: str
     base_case: str
+    first_entry_plan: str = Field(min_length=1)
     preferred_add_condition: str
     preferred_reduce_condition: str
     reference_take_profit_condition: str | None = None
@@ -164,6 +188,43 @@ class RuntimeBridgeState(BaseModel):
     source_timestamps: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
     runtime_inputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetroCaseAsset(BaseModel):
+    case_id: str
+    case_day_utc: str
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    trigger_type: str
+    primary_question: str
+    objective_summary: str
+    target_return_pct: float = 1.0
+    challenge_prompts: list[str] = Field(default_factory=list)
+    strategy_ids: list[str] = Field(default_factory=list)
+    execution_batch_ids: list[str] = Field(default_factory=list)
+    macro_event_ids: list[str] = Field(default_factory=list)
+    recent_notification_ids: list[str] = Field(default_factory=list)
+
+
+class RetroBriefAsset(BaseModel):
+    brief_id: str
+    case_id: str
+    agent_role: str
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    root_cause: str
+    cross_role_challenge: str
+    self_critique: str
+    tomorrow_change: str
+
+
+class LearningDirectiveAsset(BaseModel):
+    directive_id: str
+    case_id: str
+    agent_role: str
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    session_key: str
+    learning_path: str
+    directive: str
+    rationale: str
 
 
 class MacroEventRecord(BaseModel):

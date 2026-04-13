@@ -10,19 +10,24 @@ from urllib import request
 def build_submission_scaffold(pack: dict) -> dict:
     payload = dict(pack.get("payload") or {})
     retro_pack = dict(payload.get("retro_pack") or {})
+    retro_case = dict(payload.get("retro_case") or {})
+    retro_briefs = list(payload.get("retro_briefs") or [])
+    pending_retro_brief_roles = list(payload.get("pending_retro_brief_roles") or [])
     return {
         "owner_summary": "",
+        "case_id": str(retro_case.get("case_id") or "") or None,
         "reset_command": "/new",
         "learning_completed": False,
         "learning_results": [],
-        "transcript": [],
-        "round_count": None,
-        "meeting_id": None,
         "_operator_hint": (
             "Fill owner_summary and any optional fields in this file, then submit it with submit_chief_retro.py. "
             "Keep input_id outside the payload file."
         ),
         "_retro_pack_snapshot": {
+            "case_id": str(retro_case.get("case_id") or ""),
+            "retro_brief_count": len(retro_briefs),
+            "pending_retro_brief_roles": pending_retro_brief_roles,
+            "retro_ready_for_synthesis": bool(payload.get("retro_ready_for_synthesis")),
             "news_event_count": len(retro_pack.get("news_events") or []),
             "execution_context_count": len(retro_pack.get("execution_contexts") or []),
             "recent_execution_result_count": len(retro_pack.get("recent_execution_results") or []),
@@ -35,6 +40,9 @@ def build_submission_scaffold(pack: dict) -> dict:
 def summarize_pack(pack: dict, output_path: Path, submission_scaffold_path: Path) -> dict:
     payload = dict(pack.get("payload") or {})
     retro_pack = dict(payload.get("retro_pack") or {})
+    retro_case = dict(payload.get("retro_case") or {})
+    retro_briefs = list(payload.get("retro_briefs") or [])
+    pending_retro_brief_roles = list(payload.get("pending_retro_brief_roles") or [])
     return {
         "output_path": str(output_path),
         "submission_scaffold_path": str(submission_scaffold_path),
@@ -43,7 +51,16 @@ def summarize_pack(pack: dict, output_path: Path, submission_scaffold_path: Path
         "trigger_type": pack.get("trigger_type"),
         "runtime_bridge_state": payload.get("runtime_bridge_state"),
         "trigger_context": payload.get("trigger_context"),
+        "retro_case": {
+            "case_id": retro_case.get("case_id"),
+            "target_return_pct": retro_case.get("target_return_pct"),
+        }
+        if retro_case
+        else None,
         "retro_pack_summary": {
+            "retro_brief_count": len(retro_briefs),
+            "pending_retro_brief_roles": pending_retro_brief_roles,
+            "retro_ready_for_synthesis": bool(payload.get("retro_ready_for_synthesis")),
             "news_event_count": len(retro_pack.get("news_events") or []),
             "execution_context_count": len(retro_pack.get("execution_contexts") or []),
             "macro_memory_count": len(retro_pack.get("macro_memory") or []),
@@ -62,6 +79,7 @@ def main() -> int:
     parser.add_argument("--trigger-type", default="daily_retro")
     parser.add_argument("--output", default="/tmp/chief_retro_pack.json")
     parser.add_argument("--submission-scaffold-output", default="/tmp/chief_retro_submission.json")
+    parser.add_argument("--timeout-seconds", type=int, default=300)
     args = parser.parse_args()
 
     req = request.Request(
@@ -70,7 +88,7 @@ def main() -> int:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with request.urlopen(req, timeout=60) as response:
+    with request.urlopen(req, timeout=int(args.timeout_seconds)) as response:
         pack = json.load(response)
 
     output_path = Path(args.output)

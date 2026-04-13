@@ -29,6 +29,8 @@ Use this skill for `RT` work only.
 - Escalate to PM when current market makes the strategy hard to apply.
 - For official condition-triggered, heartbeat, or PM follow-up work, submit one `execution` decision batch through the submit bridge with the current `input_id` and `live=true`.
 - Only include `max_notional_usd` when the user or upstream trigger explicitly asks for a temporary execution cap.
+- If PM currently has an active, unlocked target on a symbol where the desk is still unpositioned or pointed the wrong way, this round must do one of two things: place the first entry/flip decision, or raise a root-level `pm_recheck_requested=true` with a concrete `pm_recheck_reason`. Do not hide behind repeated all-`wait` batches.
+- If you refresh the tactical map for such a symbol, the map must explicitly include `first_entry_plan`. A map that only says "wait for confirmation" is incomplete.
 
 ## Workflow
 1. Read [runtime-inputs.md](references/runtime-inputs.md) to understand the current payload and the target chain.
@@ -48,6 +50,7 @@ Use this skill for `RT` work only.
 - Keep the scaffold file as a pure root-level `ExecutionSubmission` object. Do not insert wrapper fields such as `input_id`, `trace_id`, `agent_role`, `task_kind`, `pm_recheck_request`, `rt_commentary`, or per-decision `execution_params`.
 - Default to the map-first path: `trigger_delta -> standing_tactical_map -> rt_decision_digest -> targeted drill-down -> submit`.
 - If `standing_tactical_map` is null and `trigger_delta.requires_tactical_map_refresh = true`, you must refresh the map in the same `execution` submission via `tactical_map_update`.
+- If the desk is still unpositioned or pointed the wrong way on an active, unlocked symbol, treat `wait` as an exception path that requires root-level PM escalation. It is not your default posture.
 - Do not rewrite the tactical map on ordinary no-op / heartbeat rounds unless the runtime pack explicitly indicates a refresh is required or you are making a materially new tactical call.
 - No long-term memory or recall.
 - Do not redefine portfolio direction.
@@ -63,7 +66,7 @@ Use this skill for `RT` work only.
 - Formal `execution` submission must be JSON only, with no markdown fence or prose wrapper.
 - Submit the decision batch at the root level. Do not wrap it under `execution`, `payload.execution`, or any other nested object.
 - RT submits `decisions[]`, not `orders[]`, `execution.summary`, or exchange-specific order plans.
-- If you decide to take no action this round, that is allowed. Submit an explicit root-level `decisions: []` no-op batch rather than inventing fake orders or wrapping a nested `execution` object.
+- If you decide to take no action this round, that is only allowed when there is no active unlocked entry gap, or when you also raise root-level `pm_recheck_requested=true` with a concrete reason. Otherwise `decisions: []` is avoidance, not discipline.
 - If you want to explicitly maintain an existing position unchanged, use action `hold`. `hold` is a no-op signal and must not be used to create or resize a position.
 
 ## References

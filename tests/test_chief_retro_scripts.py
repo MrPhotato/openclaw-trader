@@ -31,6 +31,8 @@ class ChiefRetroScriptTests(unittest.TestCase):
             "trace_id": "trace-chief-1",
             "trigger_type": "daily_retro",
             "payload": {
+                "retro_case": {"case_id": "case-1"},
+                "retro_briefs": [{"agent_role": "pm"}],
                 "retro_pack": {
                     "news_events": [{"event_id": "evt-1"}],
                     "execution_contexts": [{"symbol": "BTC"}],
@@ -41,12 +43,17 @@ class ChiefRetroScriptTests(unittest.TestCase):
         }
         scaffold = PULL_CHIEF_RETRO.build_submission_scaffold(pack)
         self.assertEqual(scaffold["owner_summary"], "")
+        self.assertEqual(scaffold["case_id"], "case-1")
         self.assertEqual(scaffold["reset_command"], "/new")
         self.assertFalse(scaffold["learning_completed"])
         self.assertEqual(scaffold["learning_results"], [])
-        self.assertEqual(scaffold["transcript"], [])
-        self.assertIsNone(scaffold["round_count"])
-        self.assertIsNone(scaffold["meeting_id"])
+        self.assertNotIn("transcript", scaffold)
+        self.assertNotIn("round_count", scaffold)
+        self.assertNotIn("meeting_id", scaffold)
+        self.assertEqual(scaffold["_retro_pack_snapshot"]["case_id"], "case-1")
+        self.assertEqual(scaffold["_retro_pack_snapshot"]["retro_brief_count"], 1)
+        self.assertEqual(scaffold["_retro_pack_snapshot"]["pending_retro_brief_roles"], [])
+        self.assertFalse(scaffold["_retro_pack_snapshot"]["retro_ready_for_synthesis"])
         self.assertEqual(scaffold["_retro_pack_snapshot"]["news_event_count"], 1)
         self.assertEqual(scaffold["_retro_pack_snapshot"]["execution_context_count"], 1)
         self.assertEqual(scaffold["_retro_pack_snapshot"]["learning_target_count"], 0)
@@ -59,6 +66,10 @@ class ChiefRetroScriptTests(unittest.TestCase):
             "payload": {
                 "runtime_bridge_state": {"source": "cache"},
                 "trigger_context": {"trigger_type": "daily_retro"},
+                "retro_case": {"case_id": "case-2", "target_return_pct": 1.0},
+                "retro_briefs": [{"agent_role": "pm"}, {"agent_role": "risk_trader"}, {"agent_role": "macro_event_analyst"}],
+                "pending_retro_brief_roles": [],
+                "retro_ready_for_synthesis": True,
                 "retro_pack": {
                     "news_events": [{"event_id": "evt-1"}, {"event_id": "evt-2"}],
                     "execution_contexts": [{"symbol": "BTC"}],
@@ -76,6 +87,10 @@ class ChiefRetroScriptTests(unittest.TestCase):
             Path("/tmp/chief_retro_submission.json"),
         )
         self.assertEqual(summary["runtime_bridge_state"]["source"], "cache")
+        self.assertEqual(summary["retro_case"]["case_id"], "case-2")
+        self.assertEqual(summary["retro_pack_summary"]["retro_brief_count"], 3)
+        self.assertEqual(summary["retro_pack_summary"]["pending_retro_brief_roles"], [])
+        self.assertTrue(summary["retro_pack_summary"]["retro_ready_for_synthesis"])
         self.assertEqual(summary["retro_pack_summary"]["news_event_count"], 2)
         self.assertEqual(summary["retro_pack_summary"]["macro_memory_count"], 1)
         self.assertEqual(summary["retro_pack_summary"]["learning_target_count"], 1)

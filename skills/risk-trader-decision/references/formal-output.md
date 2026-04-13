@@ -15,7 +15,9 @@ Expected output shape:
 - when this round changes RT's tactical plan, or when `trigger_delta.requires_tactical_map_refresh = true`, include root-level `tactical_map_update`
 - put `decisions[]` at the root level of the submission object
 - do **not** wrap the batch under `execution`, `payload.execution`, `result`, or any other nested key
-- if you decide to do nothing this round, submit an explicit root-level `\"decisions\": []` no-op batch
+- if you decide to do nothing this round, submit an explicit root-level `\"decisions\": []` no-op batch only when there is no active unlocked entry gap, or when you also escalate via root-level PM recheck
+- if PM has an active, unlocked target on a symbol where the desk is still unpositioned or pointed the wrong way, an all-`wait` / empty batch is invalid unless you also set root-level `pm_recheck_requested=true` with a non-empty `pm_recheck_reason`
+- if `tactical_map_update` covers an active, unlocked symbol where the desk is still unpositioned or pointed the wrong way, that coin block must include a non-empty `first_entry_plan`
 - actions should be chosen from:
   - `open`
   - `add`
@@ -30,6 +32,7 @@ Expected output shape:
 - when you have an active or newly-adjusted position, prefer leaving a short optional `reference_stop_loss_condition` note for the next RT wakeup
 - `reference_take_profit_condition` is a text memory aid only; it does not create an order and does not bypass downstream risk/execution logic
 - `reference_stop_loss_condition` is also a text memory aid only; it does not create an order and does not bypass downstream risk/execution logic
+- `pm_recheck_requested` and `pm_recheck_reason` are root-level escalation fields. Use them when PM's current mandate is too inconsistent or too constrained to execute responsibly right now.
 
 RT does not approve itself.
 After formal submission, risk approval happens downstream.
@@ -64,6 +67,7 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/execution \
     "strategy_id": "strategy_...",
     "generated_at_utc": "2026-03-22T17:57:00Z",
     "trigger_type": "condition_trigger",
+    "pm_recheck_requested": false,
     "tactical_map_update": {
       "map_refresh_reason": "pm_strategy_revision",
       "portfolio_posture": "防守偏多，优先控制追价冲动。",
@@ -75,6 +79,7 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/execution \
           "coin": "BTC",
           "working_posture": "回踩承接优先，避免突破后追高。",
           "base_case": "只在结构确认继续的情况下慢慢推进。",
+          "first_entry_plan": "如果当前仍是无仓且 BTC 保持 active long，就先用 2% exposure budget 开第一笔试探仓，不再把等待当默认动作。",
           "preferred_add_condition": "回踩 1h 结构位后重新站稳并伴随买盘恢复。",
           "preferred_reduce_condition": "若承接失败并失守最近 pullback low，则先减回观察仓。",
           "reference_take_profit_condition": "上冲 1h 范围上沿但动能衰减时，分批收一部分。",
@@ -118,8 +123,11 @@ Boundary reminder:
 - `execution` submit is a **decision-layer** contract, not an order-layer contract.
 - RT submits `decisions[]`, not `orders[]`.
 - `tactical_map_update` is optional, but when present it must live at the root level beside `decisions[]`, not nested inside a decision item.
+- `pm_recheck_requested` and `pm_recheck_reason` also live at the root level beside `decisions[]`.
 - A payload like `{..., "execution": {"decisions": [...]}}` is invalid and will be rejected.
 - An explicit empty batch `{..., "decisions": []}` is valid and means "no action this round".
+- But an explicit empty batch is only valid when there is no active unlocked entry gap, or when you also escalate via `pm_recheck_requested=true` plus a concrete reason.
+- When PM still has an active unlocked target and the desk has no first bite on, `wait` is not a neutral default. Either place the first bite or escalate.
 - Use `hold` only to mean "keep the current position unchanged"; it is a valid no-op and should not generate a new order.
 - `reference_take_profit_condition` and `reference_stop_loss_condition` are optional. Use them to leave concise textual exit clues for the next RT wakeup.
 - `MARKET/LIMIT/IOC/FOK`, `order_id`, `fill_price`, `fill_size`, broker retry, and exchange margin mode are downstream concerns handled after `policy_risk` and `Trade Gateway.execution`.

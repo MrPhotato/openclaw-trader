@@ -15,8 +15,11 @@ from openclaw_trader.modules.agent_gateway.adapters import (
 )
 from openclaw_trader.modules.agent_gateway.adapters.openclaw import _CommandResult
 from openclaw_trader.modules.agent_gateway.models import AgentReply, AgentTask
+from openclaw_trader.modules.memory_assets.repository import MemoryAssetsRepository
+from openclaw_trader.modules.memory_assets.service import MemoryAssetsService
 from openclaw_trader.modules.policy_risk.service import PolicyRiskService
 from openclaw_trader.modules.quant_intelligence.service import QuantIntelligenceService
+from openclaw_trader.shared.infra import SqliteDatabase
 from openclaw_trader.modules.trade_gateway.market_data.service import DataIngestService
 from openclaw_trader.modules.news_events.models import NewsDigestEvent
 
@@ -55,17 +58,66 @@ def _test_strategy_payload() -> dict[str, object]:
         "portfolio_invalidation": "test invalidation",
         "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
         "change_summary": "test summary",
-        "targets": [
-            {
-                "symbol": "BTC",
-                "state": "active",
-                "direction": "long",
-                "target_exposure_band_pct": [0.0, 5.0],
-                "rt_discretion_band_pct": 2.0,
-                "priority": 1,
-            }
-        ],
+        "targets": _valid_strategy_targets(),
     }
+
+
+def _valid_strategy_targets(
+    *,
+    btc_state: str = "active",
+    btc_direction: str = "long",
+    btc_band: tuple[float, float] = (0.0, 5.0),
+    btc_rt: float = 2.0,
+    eth_state: str = "watch",
+    eth_direction: str = "flat",
+    eth_band: tuple[float, float] = (0.0, 0.0),
+    eth_rt: float = 0.0,
+    sol_state: str = "watch",
+    sol_direction: str = "flat",
+    sol_band: tuple[float, float] = (0.0, 0.0),
+    sol_rt: float = 0.0,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "symbol": "BTC",
+            "state": btc_state,
+            "direction": btc_direction,
+            "target_exposure_band_pct": list(btc_band),
+            "rt_discretion_band_pct": btc_rt,
+            "priority": 1,
+        },
+        {
+            "symbol": "ETH",
+            "state": eth_state,
+            "direction": eth_direction,
+            "target_exposure_band_pct": list(eth_band),
+            "rt_discretion_band_pct": eth_rt,
+            "priority": 2,
+        },
+        {
+            "symbol": "SOL",
+            "state": sol_state,
+            "direction": sol_direction,
+            "target_exposure_band_pct": list(sol_band),
+            "rt_discretion_band_pct": sol_rt,
+            "priority": 3,
+        },
+    ]
+
+
+def _valid_strategy_submission_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "portfolio_mode": "normal",
+        "target_gross_exposure_band_pct": [0.0, 5.0],
+        "portfolio_thesis": "agent first thesis",
+        "portfolio_invalidation": "agent first invalidation",
+        "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
+        "change_summary": "agent first update",
+        "targets": _valid_strategy_targets(),
+        "scheduled_rechecks": [],
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _test_execution_context() -> dict[str, object]:
@@ -517,7 +569,23 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         "target_exposure_band_pct": [1.0, 2.0],
                         "rt_discretion_band_pct": 1.0,
                         "priority": 1,
-                    }
+                    },
+                    {
+                        "symbol": "ETH",
+                        "state": "watch",
+                        "direction": "flat",
+                        "target_exposure_band_pct": [0.0, 0.0],
+                        "rt_discretion_band_pct": 0.0,
+                        "priority": 2,
+                    },
+                    {
+                        "symbol": "SOL",
+                        "state": "watch",
+                        "direction": "flat",
+                        "target_exposure_band_pct": [0.0, 0.0],
+                        "rt_discretion_band_pct": 0.0,
+                        "priority": 3,
+                    },
                 ],
                 "scheduled_rechecks": [
                     {
@@ -777,7 +845,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "test invalidation",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "test summary",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="pm_main_cron",
@@ -797,6 +865,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                             "coin": "BTC",
                             "working_posture": "先观察再推进",
                             "base_case": "沿主趋势推进。",
+                            "first_entry_plan": "若当前仍无仓且 BTC 保持 active，就先打 1% 试探仓。",
                             "preferred_add_condition": "回踩站稳后继续加仓。",
                             "preferred_reduce_condition": "若结构转弱则减仓。",
                             "reference_take_profit_condition": "冲高分批止盈。",
@@ -832,7 +901,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "old invalidation",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "old summary",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="pm_main_cron",
@@ -851,6 +920,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                             "coin": "BTC",
                             "working_posture": "旧图姿态",
                             "base_case": "旧图 base case。",
+                            "first_entry_plan": "旧图首笔计划。",
                             "preferred_add_condition": "旧图 add。",
                             "preferred_reduce_condition": "旧图 reduce。",
                             "reference_take_profit_condition": "旧图 tp。",
@@ -871,7 +941,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "new invalidation",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "new summary",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="pm_main_cron",
@@ -902,6 +972,67 @@ class AgentGatewayServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_pull_rt_runtime_input_requires_refresh_when_map_missing_first_entry_plan(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            strategy = harness.container.memory_assets.materialize_strategy_asset(
+                trace_id="trace-strategy-active-short",
+                authored_payload={
+                    "portfolio_mode": "defensive",
+                    "target_gross_exposure_band_pct": [0.0, 5.0],
+                    "portfolio_thesis": "Need immediate defensive short.",
+                    "portfolio_invalidation": "Short invalid if BTC reclaims higher timeframe structure.",
+                    "flip_triggers": "Flip back long only after higher timeframe reclaim and macro relief.",
+                    "change_summary": "Shifted BTC to active short.",
+                    "targets": _valid_strategy_targets(
+                        btc_state="active",
+                        btc_direction="short",
+                        btc_band=(0.0, 5.0),
+                    ),
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="agent_message",
+            )
+            harness.container.memory_assets.save_asset(
+                asset_type="rt_tactical_map",
+                actor_role="risk_trader",
+                trace_id="trace-legacy-map",
+                payload={
+                    "map_id": "rt_tactical_map_legacy_missing_first_entry",
+                    "strategy_key": f"{strategy['strategy_id']}:{strategy['revision_number']}",
+                    "updated_at_utc": datetime.now(UTC).isoformat(),
+                    "refresh_reason": "pm_strategy_revision",
+                    "lock_mode": None,
+                    "portfolio_posture": "偏空但继续等确认。",
+                    "desk_focus": "先等更清楚的 candle close。",
+                    "risk_bias": "等确认。",
+                    "coins": [
+                        {
+                            "coin": "BTC",
+                            "working_posture": "偏空但等待确认。",
+                            "base_case": "先等结构确认。",
+                            "preferred_add_condition": "跌破后再加。",
+                            "preferred_reduce_condition": "reclaim 关键位后减。",
+                            "reference_take_profit_condition": "跌向目标位后分批收。",
+                            "reference_stop_loss_condition": "reclaim 关键位后止损。",
+                            "no_trade_zone": "中段不动。",
+                            "force_pm_recheck_condition": "若 mandate 冲突则要求 PM 重评。",
+                            "next_focus": "继续观察。",
+                        }
+                    ],
+                },
+            )
+
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
+            self.assertIsNone(pack.payload["standing_tactical_map"])
+            self.assertTrue(pack.payload["trigger_delta"]["requires_tactical_map_refresh"])
+            self.assertEqual(pack.payload["trigger_delta"]["map_status"], "missing_first_entry_plan")
+            self.assertEqual(pack.payload["trigger_delta"]["missing_first_entry_plan_symbols"], ["BTC"])
+        finally:
+            harness.cleanup()
+
     def test_submit_strategy_consumes_runtime_pack_and_rejects_reuse(self) -> None:
         from .helpers_v2 import build_test_harness
 
@@ -910,16 +1041,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
             pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
             result = harness.container.agent_gateway.submit_strategy(
                 input_id=pack.input_id,
-                payload={
-                    "portfolio_mode": "normal",
-                    "target_gross_exposure_band_pct": [0.0, 5.0],
-                    "portfolio_thesis": "agent first thesis",
-                    "portfolio_invalidation": "agent first invalidation",
-                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
-                    "change_summary": "agent first update",
-                    "targets": [],
-                    "scheduled_rechecks": [],
-                },
+                payload=_valid_strategy_submission_payload(),
             )
             self.assertEqual(result["strategy"]["trigger_type"], "pm_main_cron")
             lease_asset = harness.container.memory_assets.get_asset(pack.input_id)
@@ -927,16 +1049,11 @@ class AgentGatewayServiceTests(unittest.TestCase):
             with self.assertRaises(RuntimeInputLeaseError) as raised:
                 harness.container.agent_gateway.submit_strategy(
                     input_id=pack.input_id,
-                    payload={
-                        "portfolio_mode": "normal",
-                        "target_gross_exposure_band_pct": [0.0, 5.0],
-                        "portfolio_thesis": "duplicate",
-                        "portfolio_invalidation": "duplicate",
-                        "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
-                        "change_summary": "duplicate",
-                        "targets": [],
-                        "scheduled_rechecks": [],
-                    },
+                    payload=_valid_strategy_submission_payload(
+                        portfolio_thesis="duplicate",
+                        portfolio_invalidation="duplicate",
+                        change_summary="duplicate",
+                    ),
                 )
             self.assertEqual(raised.exception.reason, "input_already_consumed")
         finally:
@@ -958,16 +1075,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
             )
             harness.container.agent_gateway.submit_strategy(
                 input_id=pack.input_id,
-                payload={
-                    "portfolio_mode": "defensive",
-                    "target_gross_exposure_band_pct": [0.0, 5.0],
-                    "portfolio_thesis": "agent first thesis",
-                    "portfolio_invalidation": "agent first invalidation",
-                    "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
-                    "change_summary": "agent first update",
-                    "targets": [],
-                    "scheduled_rechecks": [],
-                },
+                payload=_valid_strategy_submission_payload(portfolio_mode="defensive"),
             )
             strategy_events = [
                 item
@@ -1053,7 +1161,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "current invalidation",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "current summary",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="pm_main_cron",
@@ -1103,7 +1211,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "portfolio_invalidation": "current invalidation",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "current summary",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="pm_main_cron",
@@ -1141,6 +1249,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                                 "coin": "BTC",
                                 "working_posture": "先观察承接再推进",
                                 "base_case": "只有回踩站稳后才继续加仓。",
+                                "first_entry_plan": "如果当前仍无仓且 BTC 保持 active，就先用 1% 试探仓验证承接。",
                                 "preferred_add_condition": "回踩关键位并重新站稳。",
                                 "preferred_reduce_condition": "失守 pullback low 时先减仓。",
                                 "reference_take_profit_condition": "冲上 1h 上沿但动能衰减时收一部分。",
@@ -1161,6 +1270,236 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(latest_map["payload"]["strategy_key"], f"{strategy['strategy_id']}:{strategy['revision_number']}")
             self.assertEqual(latest_map["payload"]["refresh_reason"], "pm_strategy_revision")
             self.assertEqual(latest_map["payload"]["coins"][0]["coin"], "BTC")
+        finally:
+            harness.cleanup()
+
+    def test_submit_strategy_rejects_partial_targets(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
+            with self.assertRaises(SubmissionValidationError) as raised:
+                harness.container.agent_gateway.submit_strategy(
+                    input_id=pack.input_id,
+                    payload=_valid_strategy_submission_payload(
+                        targets=_valid_strategy_targets()[:2],
+                    ),
+                )
+            self.assertIn("targets must contain exactly 3 entries", str(raised.exception.errors[0]))
+        finally:
+            harness.cleanup()
+
+    def test_submit_execution_rejects_all_wait_when_active_entry_gap_exists(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            strategy = harness.container.memory_assets.materialize_strategy_asset(
+                trace_id="trace-active-short",
+                authored_payload={
+                    "portfolio_mode": "defensive",
+                    "target_gross_exposure_band_pct": [0.0, 5.0],
+                    "portfolio_thesis": "Need immediate defensive short.",
+                    "portfolio_invalidation": "Short invalid if BTC reclaims higher timeframe structure.",
+                    "flip_triggers": "Flip back long only after higher timeframe reclaim and macro relief.",
+                    "change_summary": "Shifted BTC to active short.",
+                    "targets": _valid_strategy_targets(
+                        btc_state="active",
+                        btc_direction="short",
+                        btc_band=(0.0, 5.0),
+                    ),
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="agent_message",
+            )
+            harness.container.memory_assets.materialize_rt_tactical_map(
+                trace_id="trace-map-active-short",
+                strategy_key=f"{strategy['strategy_id']}:{strategy['revision_number']}",
+                lock_mode=None,
+                authored_payload={
+                    "map_refresh_reason": "pm_strategy_revision",
+                    "portfolio_posture": "防守偏空",
+                    "desk_focus": "BTC 先执行首笔 short，而不是继续观望。",
+                    "risk_bias": "无锁，可执行。",
+                    "coins": [
+                        {
+                            "coin": "BTC",
+                            "working_posture": "首笔 short 应立即建立。",
+                            "base_case": "先建最小试探空仓。",
+                            "first_entry_plan": "BTC 保持 active short 且当前无仓时，先立即打 1% 试探空仓。",
+                            "preferred_add_condition": "跌破结构位后继续加。",
+                            "preferred_reduce_condition": "若 reclaim 关键位则减。",
+                            "reference_take_profit_condition": "跌至首个目标位分批收。",
+                            "reference_stop_loss_condition": "reclaim 关键位则止损。",
+                            "no_trade_zone": "没有无意义等待区。",
+                            "force_pm_recheck_condition": "若 mandate 与 tape 冲突则要求 PM 重评。",
+                            "next_focus": "先打第一笔。",
+                        }
+                    ],
+                },
+            )
+
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
+            with self.assertRaises(SubmissionValidationError) as raised:
+                harness.container.agent_gateway.submit_execution(
+                    input_id=pack.input_id,
+                    payload={
+                        "decision_id": "decision-wait-gap-1",
+                        "strategy_id": strategy["strategy_id"],
+                        "generated_at_utc": "2026-04-13T00:00:00Z",
+                        "trigger_type": "cadence",
+                        "decisions": [],
+                    },
+                    live=True,
+                )
+            self.assertIn("active entry gap detected for BTC", str(raised.exception.errors[0]))
+        finally:
+            harness.cleanup()
+
+    def test_submit_execution_accepts_pm_recheck_for_active_entry_gap_and_creates_reminder(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            strategy = harness.container.memory_assets.materialize_strategy_asset(
+                trace_id="trace-active-short-recheck",
+                authored_payload={
+                    "portfolio_mode": "flat",
+                    "target_gross_exposure_band_pct": [0.0, 1.0],
+                    "portfolio_thesis": "Mandate says short, but gross band is too tight to express cleanly.",
+                    "portfolio_invalidation": "Flat stance invalid if PM widens gross band and confirms entry path.",
+                    "flip_triggers": "Flip back to active short only after PM resolves the mandate conflict.",
+                    "change_summary": "Short target exists but mandate is too constrained.",
+                    "targets": _valid_strategy_targets(
+                        btc_state="active",
+                        btc_direction="short",
+                        btc_band=(0.0, 5.0),
+                    ),
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="agent_message",
+            )
+            harness.container.memory_assets.materialize_rt_tactical_map(
+                trace_id="trace-map-active-short-recheck",
+                strategy_key=f"{strategy['strategy_id']}:{strategy['revision_number']}",
+                lock_mode=None,
+                authored_payload={
+                    "map_refresh_reason": "pm_strategy_revision",
+                    "portfolio_posture": "观望但冲突明显",
+                    "desk_focus": "要求 PM 重评 mandate。",
+                    "risk_bias": "不盲打首笔。",
+                    "coins": [
+                        {
+                            "coin": "BTC",
+                            "working_posture": "先升级 PM。",
+                            "base_case": "当前 mandate 表达不完整。",
+                            "first_entry_plan": "在 PM 澄清前不下首笔，直接要求 PM 重评。",
+                            "preferred_add_condition": "PM 澄清后再执行。",
+                            "preferred_reduce_condition": "无仓可减。",
+                            "reference_take_profit_condition": "N/A",
+                            "reference_stop_loss_condition": "N/A",
+                            "no_trade_zone": "mandate 冲突时不硬开仓。",
+                            "force_pm_recheck_condition": "gross band 与 active short 冲突。",
+                            "next_focus": "先让 PM 说清楚。",
+                        }
+                    ],
+                },
+            )
+
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
+            result = harness.container.agent_gateway.submit_execution(
+                input_id=pack.input_id,
+                payload={
+                    "decision_id": "decision-recheck-gap-1",
+                    "strategy_id": strategy["strategy_id"],
+                    "generated_at_utc": "2026-04-13T00:05:00Z",
+                    "trigger_type": "cadence",
+                    "pm_recheck_requested": True,
+                    "pm_recheck_reason": "BTC is active short but PM still pins gross exposure to 0-1%; RT needs a cleaner mandate before first entry.",
+                    "decisions": [],
+                },
+                live=True,
+            )
+            self.assertEqual(result["accepted_count"], 0)
+            reminder = harness.container.memory_assets.latest_asset(asset_type="direct_reminder")
+            self.assertIsNotNone(reminder)
+            self.assertEqual(reminder["payload"]["to_agent_role"], "pm")
+            self.assertIn("gross exposure to 0-1%", reminder["payload"]["message"])
+        finally:
+            harness.cleanup()
+
+    def test_submit_execution_rejects_blank_first_entry_plan_for_pending_symbol(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            strategy = harness.container.memory_assets.materialize_strategy_asset(
+                trace_id="trace-active-short-map-refresh",
+                authored_payload={
+                    "portfolio_mode": "defensive",
+                    "target_gross_exposure_band_pct": [0.0, 5.0],
+                    "portfolio_thesis": "Need immediate defensive short.",
+                    "portfolio_invalidation": "Short invalid if BTC reclaims higher timeframe structure.",
+                    "flip_triggers": "Flip back long only after higher timeframe reclaim and macro relief.",
+                    "change_summary": "Shifted BTC to active short.",
+                    "targets": _valid_strategy_targets(
+                        btc_state="active",
+                        btc_direction="short",
+                        btc_band=(0.0, 5.0),
+                    ),
+                    "scheduled_rechecks": [],
+                },
+                trigger_type="agent_message",
+            )
+            harness.container.memory_assets.save_asset(
+                asset_type="rt_trigger_event",
+                trace_id="trace-trigger-required-entry-plan",
+                actor_role="system",
+                payload={
+                    "trigger_id": "rt-trigger-required-entry-plan",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "reason": "pm_strategy_update",
+                    "severity": "high",
+                    "coins": ["BTC"],
+                    "dispatched": True,
+                },
+            )
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="condition_trigger")
+            with self.assertRaises(SubmissionValidationError) as raised:
+                harness.container.agent_gateway.submit_execution(
+                    input_id=pack.input_id,
+                    payload={
+                        "decision_id": "decision-blank-entry-plan-1",
+                        "strategy_id": strategy["strategy_id"],
+                        "generated_at_utc": "2026-04-13T00:15:00Z",
+                        "trigger_type": "condition_trigger",
+                        "tactical_map_update": {
+                            "map_refresh_reason": "pm_strategy_revision",
+                            "portfolio_posture": "偏空执行",
+                            "desk_focus": "BTC 首笔要么执行，要么升级。",
+                            "risk_bias": "不接受继续空等。",
+                            "coins": [
+                                {
+                                    "coin": "BTC",
+                                    "working_posture": "首笔必须明确。",
+                                    "base_case": "active short 已经打开，不再接受模糊地图。",
+                                    "first_entry_plan": "   ",
+                                    "preferred_add_condition": "跌破结构位后继续加。",
+                                    "preferred_reduce_condition": "若 reclaim 关键位则减。",
+                                    "reference_take_profit_condition": "跌向目标位后分批收。",
+                                    "reference_stop_loss_condition": "reclaim 关键位则止损。",
+                                    "no_trade_zone": "没有继续空等的 no-trade zone。",
+                                    "force_pm_recheck_condition": "若 mandate 与 tape 冲突则要求 PM 重评。",
+                                    "next_focus": "先把第一笔打清楚。",
+                                }
+                            ],
+                        },
+                        "decisions": [],
+                    },
+                    live=True,
+                )
+            self.assertIn("first_entry_plan", str(raised.exception.errors[0]))
         finally:
             harness.cleanup()
 
@@ -1194,36 +1533,43 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
         harness = build_test_harness()
         try:
+            prepared = harness.container.agent_gateway.prepare_retro_cycle_from_runtime_bridge(
+                trace_id="trace-chief-submit",
+                trigger_type="daily_retro",
+                force_new_case=True,
+            )
             pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
             result = harness.container.agent_gateway.submit_retro(
                 input_id=pack.input_id,
                 payload={
+                    "case_id": prepared["retro_case"]["case_id"],
                     "meeting_id": "retro-test-1",
-                    "round_count": 2,
+                    "round_count": 1,
                     "owner_summary": "Chief retro landed successfully.",
-                    "learning_completed": True,
-                    "learning_results": {
-                        "pm": {
-                            "learning_updated": True,
-                            "learning_path": "/tmp/pm.md",
-                            "learning_summary": "pm learned",
+                    "root_cause_ranking": ["PM 过度保守", "RT 过度等待"],
+                    "learning_directives": [
+                        {
+                            "agent_role": "pm",
+                            "directive": "把翻向条件写清楚。",
+                            "rationale": "避免 RT 无法执行。",
                         }
-                    },
-                    "transcript": [
-                        {"round_index": 1, "speaker_role": "pm", "statement": "one"},
-                        {"round_index": 1, "speaker_role": "risk_trader", "statement": "two"},
                     ],
                 },
             )
             self.assertEqual(result["owner_summary"], "Chief retro landed successfully.")
             self.assertEqual(result["meeting_id"], "retro-test-1")
-            self.assertEqual(len(result["transcript"]), 2)
-            self.assertEqual(result["learning_results"][0]["agent_role"], "pm")
+            self.assertEqual(result["case_id"], prepared["retro_case"]["case_id"])
+            self.assertEqual(result["root_cause_ranking"][0], "PM 过度保守")
             lease_asset = harness.container.memory_assets.get_asset(pack.input_id)
             self.assertEqual(lease_asset["payload"]["status"], "consumed")
             retro_asset = harness.container.memory_assets.latest_asset(asset_type="chief_retro")
             self.assertIsNotNone(retro_asset)
             self.assertEqual(retro_asset["payload"]["owner_summary"], "Chief retro landed successfully.")
+            directive_assets = harness.container.memory_assets.get_learning_directives(
+                case_id=prepared["retro_case"]["case_id"],
+            )
+            self.assertEqual(len(directive_assets), 1)
+            self.assertEqual(directive_assets[0]["agent_role"], "pm")
         finally:
             harness.cleanup()
 
@@ -1253,7 +1599,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         "portfolio_invalidation": "repaired invalidation",
                         "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                         "change_summary": "repaired summary",
-                        "targets": [],
+                        "targets": _valid_strategy_targets(),
                         "scheduled_rechecks": [],
                     },
                     meta={"stdout": '{"portfolio_mode":"normal"}'},
@@ -1283,36 +1629,103 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertEqual(runner.calls[1].session_id, expected_session_id)
         self.assertEqual(runner.calls[1].payload["mode"], "schema_repair")
 
-    def test_run_chief_retro_retries_empty_owner_summary_once(self) -> None:
-        class FlakyChiefRunner:
+    def test_pull_chief_retro_pack_reads_prepared_cycle_without_generating_briefs(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            prepared = harness.container.agent_gateway.prepare_retro_cycle_from_runtime_bridge(
+                trace_id="trace-retro-prep",
+                trigger_type="daily_retro",
+                force_new_case=True,
+            )
+            pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+            self.assertEqual(pack.payload["retro_case"]["case_id"], prepared["retro_case"]["case_id"])
+            self.assertEqual(len(pack.payload["retro_briefs"]), 3)
+            self.assertEqual(
+                {item["agent_role"] for item in pack.payload["retro_briefs"]},
+                {"pm", "risk_trader", "macro_event_analyst"},
+            )
+            self.assertEqual(pack.payload["pending_retro_brief_roles"], [])
+            self.assertTrue(pack.payload["retro_ready_for_synthesis"])
+            self.assertTrue(pack.payload["learning_targets"])
+        finally:
+            harness.cleanup()
+
+    def test_pull_chief_retro_pack_reports_pending_briefs_when_cycle_not_prepared(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+            self.assertEqual(pack.payload["retro_case"], {})
+            self.assertEqual(pack.payload["retro_briefs"], [])
+            self.assertEqual(
+                pack.payload["pending_retro_brief_roles"],
+                ["pm", "risk_trader", "macro_event_analyst"],
+            )
+            self.assertFalse(pack.payload["retro_ready_for_synthesis"])
+        finally:
+            harness.cleanup()
+
+    def test_pull_chief_retro_pack_only_keeps_latest_brief_per_role(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            prepared = harness.container.agent_gateway.prepare_retro_cycle_from_runtime_bridge(
+                trace_id="trace-retro-prep-dedup",
+                trigger_type="daily_retro",
+                force_new_case=True,
+            )
+            case_id = prepared["retro_case"]["case_id"]
+            harness.container.memory_assets.materialize_retro_brief(
+                trace_id="trace-retro-overwrite",
+                case_id=case_id,
+                agent_role="pm",
+                authored_payload={
+                    "root_cause": "new pm root cause",
+                    "cross_role_challenge": "new pm challenge",
+                    "self_critique": "new pm self critique",
+                    "tomorrow_change": "new pm tomorrow change",
+                },
+            )
+            pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+            self.assertEqual(len(pack.payload["retro_briefs"]), 3)
+            pm_brief = next(item for item in pack.payload["retro_briefs"] if item["agent_role"] == "pm")
+            self.assertEqual(pm_brief["root_cause"], "new pm root cause")
+        finally:
+            harness.cleanup()
+
+    def test_run_chief_retro_synthesis_retries_empty_owner_summary_once(self) -> None:
+        class BriefRunner:
             def __init__(self) -> None:
                 self.calls: list[AgentTask] = []
 
             def run(self, task: AgentTask) -> AgentReply:
                 self.calls.append(task)
-                if task.task_kind == "retro_turn":
-                    return AgentReply(
-                        task_id=task.task_id,
-                        agent_role=task.agent_role,
-                        status="completed",
-                        payload={"speaker_role": "crypto_chief", "statement": "Chief round close."},
-                        meta={"stdout": '{"speaker_role":"crypto_chief","statement":"Chief round close."}'},
-                    )
-                retro_calls = [item for item in self.calls if item.task_kind == "retro"]
-                learning_results = _write_learning_targets(list(task.payload.get("learning_targets") or []))
-                if len(retro_calls) == 1:
+                if task.task_kind == "retro_brief":
                     return AgentReply(
                         task_id=task.task_id,
                         agent_role=task.agent_role,
                         status="completed",
                         payload={
-                            "owner_summary": "   ",
-                            "reset_command": "/new",
-                            "learning_completed": True,
-                            "learning_results": learning_results,
+                            "root_cause": f"{task.agent_role} root cause",
+                            "cross_role_challenge": f"{task.agent_role} challenge",
+                            "self_critique": f"{task.agent_role} self critique",
+                            "tomorrow_change": f"{task.agent_role} tomorrow change",
                         },
-                        meta={
-                            "stdout": '{"owner_summary":"   ","reset_command":"/new","learning_completed":true,"learning_results":[{"agent_role":"pm","learning_updated":true,"learning_path":"...","learning_summary":"pm learned one lesson from retro."}]}'
+                    )
+                chief_calls = [item for item in self.calls if item.task_kind == "retro"]
+                if len(chief_calls) == 1:
+                    return AgentReply(
+                        task_id=task.task_id,
+                        agent_role=task.agent_role,
+                        status="completed",
+                        payload={
+                            "case_id": dict(task.payload.get("retro_case") or {}).get("case_id"),
+                            "owner_summary": "   ",
+                            "learning_directives": [],
                         },
                     )
                 return AgentReply(
@@ -1320,104 +1733,29 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     agent_role=task.agent_role,
                     status="completed",
                     payload={
+                        "case_id": dict(task.payload.get("retro_case") or {}).get("case_id"),
                         "owner_summary": "Retro summary ready.",
-                        "reset_command": "/new",
-                        "learning_completed": True,
-                        "learning_results": learning_results,
-                    },
-                    meta={
-                        "stdout": '{"owner_summary":"Retro summary ready.","reset_command":"/new","learning_completed":true,"learning_results":[]}'
+                        "learning_directives": [
+                            {
+                                "agent_role": "pm",
+                                "directive": "pm directive",
+                                "rationale": "pm rationale",
+                            }
+                        ],
                     },
                 )
 
-        runner = FlakyChiefRunner()
+        runner = BriefRunner()
         with TemporaryDirectory() as tempdir:
             learning_root = Path(tempdir)
+            memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tempdir) / "state.db")))
             gateway = AgentGatewayService(
-                pm_runner=DeterministicAgentRunner(),
-                risk_runner=DeterministicAgentRunner(),
-                macro_runner=DeterministicAgentRunner(),
+                pm_runner=runner,
+                risk_runner=runner,
+                macro_runner=runner,
                 chief_runner=runner,
                 session_controller=DeterministicSessionController(),
-                learning_path_by_role={
-                    "pm": str(learning_root / "pm.md"),
-                    "risk_trader": str(learning_root / "rt.md"),
-                    "macro_event_analyst": str(learning_root / "mea.md"),
-                    "crypto_chief": "/tmp/chief-learning.md",
-                },
-            )
-            payload = gateway.run_chief_retro(
-                trace_id="trace-1",
-                runtime_inputs={
-                    "pm": AgentRuntimeInput(input_id="input-pm", agent_role="pm", task_kind="strategy", payload={"trace_id": "trace-1"}),
-                    "risk_trader": AgentRuntimeInput(input_id="input-rt", agent_role="risk_trader", task_kind="execution", payload={"trace_id": "trace-1"}),
-                    "macro_event_analyst": AgentRuntimeInput(input_id="input-mea", agent_role="macro_event_analyst", task_kind="event_summary", payload={"trace_id": "trace-1"}),
-                    "crypto_chief": AgentRuntimeInput(
-                        input_id="input-chief",
-                        agent_role="crypto_chief",
-                        task_kind="retro",
-                        payload={"trace_id": "trace-1"},
-                    ),
-                },
-            )
-            self.assertEqual(payload["owner_summary"], "Retro summary ready.")
-            retro_calls = [item for item in runner.calls if item.task_kind == "retro"]
-            self.assertEqual(len(retro_calls), 2)
-            expected_session_id = gateway.session_id_for_role("crypto_chief")
-            self.assertEqual(retro_calls[0].session_id, expected_session_id)
-            self.assertEqual(retro_calls[1].session_id, expected_session_id)
-            self.assertEqual(retro_calls[1].payload["mode"], "retro_summary_repair")
-
-    def test_run_chief_retro_drives_two_round_meeting_and_owner_summary(self) -> None:
-        class RecordingRunner:
-            def __init__(self, agent_role: str) -> None:
-                self.agent_role = agent_role
-                self.calls: list[AgentTask] = []
-
-            def run(self, task: AgentTask) -> AgentReply:
-                self.calls.append(task)
-                if task.task_kind == "retro_turn":
-                    return AgentReply(
-                        task_id=task.task_id,
-                        agent_role=task.agent_role,
-                        status="completed",
-                        payload={
-                            "speaker_role": task.agent_role,
-                            "statement": f"{task.agent_role}-round-{task.payload['round_index']}",
-                        },
-                    )
-                if task.task_kind == "retro":
-                    learning_results = _write_learning_targets(list(task.payload.get("learning_targets") or []))
-                    return AgentReply(
-                        task_id=task.task_id,
-                        agent_role=task.agent_role,
-                        status="completed",
-                        payload={
-                            "owner_summary": "Retro owner summary ready.",
-                            "reset_command": "/new",
-                            "learning_completed": True,
-                            "learning_results": learning_results,
-                        },
-                    )
-                return AgentReply(
-                    task_id=task.task_id,
-                    agent_role=task.agent_role,
-                    status="completed",
-                    payload={"decision": "unused"},
-                )
-
-        with TemporaryDirectory() as tempdir:
-            learning_root = Path(tempdir)
-            pm_runner = RecordingRunner("pm")
-            rt_runner = RecordingRunner("risk_trader")
-            mea_runner = RecordingRunner("macro_event_analyst")
-            chief_runner = RecordingRunner("crypto_chief")
-            gateway = AgentGatewayService(
-                pm_runner=pm_runner,
-                risk_runner=rt_runner,
-                macro_runner=mea_runner,
-                chief_runner=chief_runner,
-                session_controller=DeterministicSessionController(),
+                memory_assets=memory_assets,
                 learning_path_by_role={
                     "pm": str(learning_root / "pm.md"),
                     "risk_trader": str(learning_root / "rt.md"),
@@ -1425,176 +1763,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "crypto_chief": str(learning_root / "chief.md"),
                 },
             )
-            payload = gateway.run_chief_retro(
-                trace_id="trace-meeting",
-                runtime_inputs={
-                    "pm": AgentRuntimeInput(
-                        input_id="input-pm",
-                        agent_role="pm",
-                        task_kind="strategy",
-                        payload={
-                            "trace_id": "trace-meeting",
-                            "market": {
-                                "market": {"BTC": {"mark_price": "70000", "funding_rate": "0.0001", "open_interest": "123", "day_notional_volume": "456", "trading_status": "STANDARD"}},
-                                "accounts": {"BTC": {"current_side": None, "current_notional_usd": None}},
-                                "market_context": {"BTC": {"shape_summary": "range", "breakout_retest_state": {"state": "range"}, "volatility_state": {"state": "normal"}}},
-                                "execution_history": {"BTC": {"summary": {"recent_order_count": 1}}},
-                                "portfolio": {"total_equity_usd": "1000", "available_equity_usd": "900", "total_exposure_usd": "0", "positions": []},
-                            },
-                            "risk_limits": {"BTC": {"trade_availability": {"tradable": True, "reasons": []}, "risk_limits": {"max_leverage": 5.0}}},
-                            "forecasts": {"BTC": {"1h": {"side": "flat", "confidence": 0.0}}},
-                            "previous_strategy": {
-                                "strategy_id": "strategy-1",
-                                "revision_number": 3,
-                                "portfolio_mode": "defensive",
-                                "portfolio_thesis": "Stay defensive.",
-                                "portfolio_invalidation": "Break higher.",
-                                "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
-                                "change_summary": "No change.",
-                                "targets": [{"symbol": "BTC", "state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0, "priority": 1}],
-                            },
-                            "news_events": [{"news_id": "news-1", "title": "Fed", "summary": "Policy unchanged", "severity": "medium"}],
-                            "macro_memory": [{"memory_day_utc": "2026-03-21", "summary": "Quiet macro day", "event_ids": ["news-1"]}],
-                        },
-                    ),
-                    "risk_trader": AgentRuntimeInput(
-                        input_id="input-rt",
-                        agent_role="risk_trader",
-                        task_kind="execution",
-                        payload={
-                            "trace_id": "trace-meeting",
-                            "strategy": {"strategy_id": "strategy-1", "portfolio_mode": "defensive", "targets": []},
-                            "execution_contexts": [{"coin": "BTC", "product_id": "BTC-PERP-INTX", "target": {"state": "active", "direction": "long", "target_exposure_band_pct": [0, 10], "rt_discretion_band_pct": 2.0}, "current_position_share_pct_of_exposure_budget": 0.0, "market_snapshot": {"mark_price": "70000", "trading_status": "STANDARD"}, "execution_summary": {"recent_order_count": 1}}],
-                        },
-                    ),
-                    "macro_event_analyst": AgentRuntimeInput(
-                        input_id="input-mea",
-                        agent_role="macro_event_analyst",
-                        task_kind="event_summary",
-                        payload={
-                            "trace_id": "trace-meeting",
-                            "market": {
-                                "market": {"BTC": {"mark_price": "70000", "funding_rate": "0.0001", "open_interest": "123", "day_notional_volume": "456", "trading_status": "STANDARD"}},
-                                "accounts": {"BTC": {"current_side": None, "current_notional_usd": None}},
-                                "market_context": {"BTC": {"shape_summary": "range", "breakout_retest_state": {"state": "range"}, "volatility_state": {"state": "normal"}}},
-                                "execution_history": {"BTC": {"summary": {"recent_order_count": 1}}},
-                                "portfolio": {"total_equity_usd": "1000", "available_equity_usd": "900", "total_exposure_usd": "0", "positions": []},
-                            },
-                            "news_events": [{"news_id": "news-1", "title": "Fed", "summary": "Policy unchanged", "severity": "medium"}],
-                            "macro_memory": [{"memory_day_utc": "2026-03-21", "summary": "Quiet macro day", "event_ids": ["news-1"]}],
-                        },
-                    ),
-                    "crypto_chief": AgentRuntimeInput(input_id="input-chief", agent_role="crypto_chief", task_kind="retro", payload={"trace_id": "trace-meeting"}),
-                },
-            )
-
-            self.assertEqual(payload["round_count"], 2)
-            self.assertEqual(len(payload["transcript"]), 8)
-            self.assertEqual(
-                [item["speaker_role"] for item in payload["transcript"][:4]],
-                ["pm", "risk_trader", "macro_event_analyst", "crypto_chief"],
-            )
-            self.assertEqual(payload["owner_summary"], "Retro owner summary ready.")
-            self.assertEqual(len([item for item in pm_runner.calls if item.task_kind == "retro_turn"]), 2)
-            self.assertEqual(len([item for item in rt_runner.calls if item.task_kind == "retro_turn"]), 2)
-            self.assertEqual(len([item for item in mea_runner.calls if item.task_kind == "retro_turn"]), 2)
-            self.assertEqual(len([item for item in chief_runner.calls if item.task_kind == "retro_turn"]), 2)
-            self.assertEqual(len([item for item in chief_runner.calls if item.task_kind == "retro"]), 1)
-            self.assertEqual(len([item for item in pm_runner.calls if item.task_kind == "retro_learning"]), 0)
-            self.assertEqual(len([item for item in rt_runner.calls if item.task_kind == "retro_learning"]), 0)
-            self.assertEqual(len([item for item in mea_runner.calls if item.task_kind == "retro_learning"]), 0)
-            retro_summary_call = [item for item in chief_runner.calls if item.task_kind == "retro"][0]
-            self.assertIn("session_key", retro_summary_call.payload["learning_targets"][0])
-            self.assertEqual(
-                retro_summary_call.payload["learning_targets"][0]["session_key"],
-                "agent:pm:main",
-            )
-            self.assertIn("Use the exact session_key", retro_summary_call.payload["instruction"])
-            self.assertEqual(len(pm_runner.calls[0].payload["transcript"]), 0)
-            self.assertEqual(len(rt_runner.calls[0].payload["transcript"]), 1)
-            self.assertEqual(len(chief_runner.calls[0].payload["transcript"]), 3)
-            self.assertEqual(len(pm_runner.calls[1].payload["transcript"]), 3)
-            self.assertEqual(len(rt_runner.calls[1].payload["transcript"]), 3)
-            self.assertEqual(len(mea_runner.calls[1].payload["transcript"]), 3)
-            self.assertEqual(len(chief_runner.calls[1].payload["transcript"]), 3)
-            self.assertEqual(pm_runner.calls[0].payload["transcript_mode"], "initial_full_pack")
-            self.assertEqual(pm_runner.calls[1].payload["transcript_mode"], "delta_since_last_turn")
-            self.assertIn("runtime_input", pm_runner.calls[0].payload)
-            self.assertIn("market_summary", pm_runner.calls[0].payload["runtime_input"])
-            self.assertIn("strategy_summary", pm_runner.calls[0].payload["runtime_input"])
-            self.assertIn("news_summary", pm_runner.calls[0].payload["runtime_input"])
-            self.assertNotIn("market", pm_runner.calls[0].payload["runtime_input"])
-            self.assertNotIn("runtime_input", pm_runner.calls[1].payload)
-            self.assertNotIn("runtime_input", chief_runner.calls[-1].payload)
-
-    def test_run_chief_retro_resets_same_session_once_on_agent_timeout(self) -> None:
-        class TimeoutThenSuccessChiefRunner:
-            def __init__(self) -> None:
-                self.calls: list[AgentTask] = []
-
-            def run(self, task: AgentTask) -> AgentReply:
-                self.calls.append(task)
-                if task.task_kind == "retro_turn":
-                    return AgentReply(
-                        task_id=task.task_id,
-                        agent_role=task.agent_role,
-                        status="completed",
-                        payload={"speaker_role": "crypto_chief", "statement": "Chief round close."},
-                    )
-                retro_calls = [item for item in self.calls if item.task_kind == "retro"]
-                if len(retro_calls) == 1:
-                    return AgentReply(
-                        task_id=task.task_id,
-                        agent_role=task.agent_role,
-                        status="needs_escalation",
-                        meta={
-                            "error_kind": "agent_timeout",
-                            "stdout": "",
-                            "stderr": "",
-                        },
-                    )
-                learning_results = _write_learning_targets(list(task.payload.get("learning_targets") or []))
-                return AgentReply(
-                    task_id=task.task_id,
-                    agent_role=task.agent_role,
-                    status="completed",
-                    payload={
-                        "owner_summary": "Retro summary ready.",
-                        "reset_command": "/new",
-                        "learning_completed": True,
-                        "learning_results": learning_results,
-                    },
-                    meta={
-                        "stdout": '{"owner_summary":"Retro summary ready.","reset_command":"/new","learning_completed":true,"learning_results":[]}'
-                    },
-                )
-
-        class RecordingSessionController:
-            def __init__(self) -> None:
-                self.resets: list[tuple[str, str, str]] = []
-
-            def reset(self, *, agent_role: str, session_id: str, reset_command: str = "/new") -> dict[str, object]:
-                self.resets.append((agent_role, session_id, reset_command))
-                return {"success": True, "agent_role": agent_role, "session_id": session_id, "reset_command": reset_command}
-
-        runner = TimeoutThenSuccessChiefRunner()
-        session_controller = RecordingSessionController()
-        gateway = AgentGatewayService(
-            pm_runner=DeterministicAgentRunner(),
-            risk_runner=DeterministicAgentRunner(),
-            macro_runner=DeterministicAgentRunner(),
-            chief_runner=runner,
-            session_controller=session_controller,
-            learning_path_by_role={
-                "pm": "/tmp/pm-learning.md",
-                "risk_trader": "/tmp/rt-learning.md",
-                "macro_event_analyst": "/tmp/mea-learning.md",
-                "crypto_chief": "/tmp/chief-learning.md",
-            },
-        )
-        payload = gateway.run_chief_retro(
-            trace_id="trace-1",
-            runtime_inputs={
+            runtime_inputs = {
                 "pm": AgentRuntimeInput(input_id="input-pm", agent_role="pm", task_kind="strategy", payload={"trace_id": "trace-1"}),
                 "risk_trader": AgentRuntimeInput(input_id="input-rt", agent_role="risk_trader", task_kind="execution", payload={"trace_id": "trace-1"}),
                 "macro_event_analyst": AgentRuntimeInput(input_id="input-mea", agent_role="macro_event_analyst", task_kind="event_summary", payload={"trace_id": "trace-1"}),
@@ -1604,23 +1773,87 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     task_kind="retro",
                     payload={"trace_id": "trace-1"},
                 ),
-            },
-        )
-        self.assertEqual(payload["owner_summary"], "Retro summary ready.")
-        self.assertEqual(len([item for item in runner.calls if item.task_kind == "retro"]), 2)
-        self.assertEqual(len(session_controller.resets), 1)
-        expected_session_id = gateway.session_id_for_role("crypto_chief")
-        self.assertEqual(session_controller.resets[0][0], "crypto_chief")
-        self.assertEqual(session_controller.resets[0][1], expected_session_id)
+            }
+            prepared = gateway.prepare_retro_cycle(
+                trace_id="trace-1",
+                runtime_inputs=runtime_inputs,
+                trigger_type="daily_retro",
+                force_new_case=True,
+            )
+            payload = gateway.run_chief_retro_synthesis(
+                trace_id="trace-1",
+                runtime_input=runtime_inputs["crypto_chief"],
+                retro_case=dict(prepared["retro_case"]),
+                retro_briefs=list(prepared["retro_briefs"]),
+            )
+            self.assertEqual(payload["owner_summary"], "Retro summary ready.")
+            retro_calls = [item for item in runner.calls if item.task_kind == "retro"]
+            self.assertEqual(len(retro_calls), 2)
+            expected_session_id = gateway.session_id_for_role("crypto_chief")
+            self.assertEqual(retro_calls[0].session_id, expected_session_id)
+            self.assertEqual(retro_calls[1].session_id, expected_session_id)
+            self.assertEqual(retro_calls[0].payload["mode"], "retro_synthesis")
+            self.assertEqual(retro_calls[1].payload["mode"], "retro_synthesis_repair")
+            self.assertEqual(len([item for item in runner.calls if item.task_kind == "retro_brief"]), 3)
 
-    def test_run_chief_retro_resets_pm_session_once_on_retro_turn_timeout(self) -> None:
+    def test_run_chief_retro_synthesis_persists_case_briefs_and_learning_directives(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            learning_root = Path(tempdir)
+            memory_assets = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tempdir) / "state.db")))
+            gateway = AgentGatewayService(
+                pm_runner=DeterministicAgentRunner(),
+                risk_runner=DeterministicAgentRunner(),
+                macro_runner=DeterministicAgentRunner(),
+                chief_runner=DeterministicAgentRunner(),
+                session_controller=DeterministicSessionController(),
+                memory_assets=memory_assets,
+                learning_path_by_role={
+                    "pm": str(learning_root / "pm.md"),
+                    "risk_trader": str(learning_root / "rt.md"),
+                    "macro_event_analyst": str(learning_root / "mea.md"),
+                    "crypto_chief": str(learning_root / "chief.md"),
+                },
+            )
+            runtime_inputs = {
+                "pm": AgentRuntimeInput(input_id="input-pm", agent_role="pm", task_kind="strategy", payload={"trace_id": "trace-meeting"}),
+                "risk_trader": AgentRuntimeInput(input_id="input-rt", agent_role="risk_trader", task_kind="execution", payload={"trace_id": "trace-meeting"}),
+                "macro_event_analyst": AgentRuntimeInput(input_id="input-mea", agent_role="macro_event_analyst", task_kind="event_summary", payload={"trace_id": "trace-meeting"}),
+                "crypto_chief": AgentRuntimeInput(input_id="input-chief", agent_role="crypto_chief", task_kind="retro", payload={"trace_id": "trace-meeting"}),
+            }
+            prepared = gateway.prepare_retro_cycle(
+                trace_id="trace-meeting",
+                runtime_inputs=runtime_inputs,
+                trigger_type="daily_retro",
+                force_new_case=True,
+            )
+            payload = gateway.run_chief_retro_synthesis(
+                trace_id="trace-meeting",
+                runtime_input=runtime_inputs["crypto_chief"],
+                retro_case=dict(prepared["retro_case"]),
+                retro_briefs=list(prepared["retro_briefs"]),
+            )
+            self.assertTrue(payload["case_id"])
+            self.assertEqual(payload["learning_completed"], False)
+            self.assertEqual(len(payload["learning_directives"]), 4)
+            self.assertEqual(
+                {item["agent_role"] for item in payload["learning_directives"]},
+                {"pm", "risk_trader", "macro_event_analyst", "crypto_chief"},
+            )
+            self.assertEqual(len(memory_assets.get_retro_briefs(case_id=payload["case_id"])), 3)
+            retro_asset = memory_assets.latest_asset(asset_type="chief_retro")
+            self.assertIsNotNone(retro_asset)
+            self.assertEqual(retro_asset["payload"]["case_id"], payload["case_id"])
+            self.assertEqual(len(memory_assets.get_learning_directives(case_id=payload["case_id"])), 4)
+            self.assertEqual(retro_asset["payload"]["learning_directive_ids"], [item["directive_id"] for item in payload["learning_directives"]])
+
+    def test_prepare_retro_cycle_resets_pm_session_once_on_brief_timeout(self) -> None:
         class FlakyPmRunner:
             def __init__(self) -> None:
                 self.calls: list[AgentTask] = []
 
             def run(self, task: AgentTask) -> AgentReply:
                 self.calls.append(task)
-                if task.task_kind == "retro_turn" and len([item for item in self.calls if item.task_kind == "retro_turn"]) == 1:
+                if task.task_kind == "retro_brief" and len([item for item in self.calls if item.task_kind == "retro_brief"]) == 1:
                     return AgentReply(
                         task_id=task.task_id,
                         agent_role=task.agent_role,
@@ -1631,7 +1864,12 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     task_id=task.task_id,
                     agent_role=task.agent_role,
                     status="completed",
-                    payload={"speaker_role": task.agent_role, "statement": f"{task.agent_role}-ok"},
+                    payload={
+                        "root_cause": "pm root cause",
+                        "cross_role_challenge": "pm challenge",
+                        "self_critique": "pm critique",
+                        "tomorrow_change": "pm change",
+                    },
                 )
 
         class SteadyRetroRunner:
@@ -1641,24 +1879,27 @@ class AgentGatewayServiceTests(unittest.TestCase):
 
             def run(self, task: AgentTask) -> AgentReply:
                 self.calls.append(task)
-                if task.task_kind == "retro_turn":
-                    return AgentReply(
-                        task_id=task.task_id,
-                        agent_role=task.agent_role,
-                        status="completed",
-                        payload={"speaker_role": task.agent_role, "statement": f"{task.agent_role}-ok"},
-                    )
-                if task.task_kind == "retro":
-                    learning_results = _write_learning_targets(list(task.payload.get("learning_targets") or []))
+                if task.task_kind == "retro_brief":
                     return AgentReply(
                         task_id=task.task_id,
                         agent_role=task.agent_role,
                         status="completed",
                         payload={
+                            "root_cause": f"{task.agent_role} root cause",
+                            "cross_role_challenge": f"{task.agent_role} challenge",
+                            "self_critique": f"{task.agent_role} critique",
+                            "tomorrow_change": f"{task.agent_role} change",
+                        },
+                    )
+                if task.task_kind == "retro":
+                    return AgentReply(
+                        task_id=task.task_id,
+                        agent_role=task.agent_role,
+                        status="completed",
+                        payload={
+                            "case_id": dict(task.payload.get("retro_case") or {}).get("case_id"),
                             "owner_summary": "Retro owner summary ready.",
-                            "reset_command": "/new",
-                            "learning_completed": True,
-                            "learning_results": learning_results,
+                            "learning_directives": [],
                         },
                     )
                 return AgentReply(task_id=task.task_id, agent_role=task.agent_role, status="completed", payload={})
@@ -1681,6 +1922,7 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 macro_runner=SteadyRetroRunner("macro_event_analyst"),
                 chief_runner=SteadyRetroRunner("crypto_chief"),
                 session_controller=session_controller,
+                memory_assets=MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tempdir) / "state.db"))),
                 learning_path_by_role={
                     "pm": str(learning_root / "pm.md"),
                     "risk_trader": str(learning_root / "rt.md"),
@@ -1688,20 +1930,24 @@ class AgentGatewayServiceTests(unittest.TestCase):
                     "crypto_chief": str(learning_root / "chief.md"),
                 },
             )
-            payload = gateway.run_chief_retro(
+            runtime_inputs = {
+                "pm": AgentRuntimeInput(input_id="input-pm", agent_role="pm", task_kind="strategy", payload={"trace_id": "trace-retry"}),
+                "risk_trader": AgentRuntimeInput(input_id="input-rt", agent_role="risk_trader", task_kind="execution", payload={"trace_id": "trace-retry"}),
+                "macro_event_analyst": AgentRuntimeInput(input_id="input-mea", agent_role="macro_event_analyst", task_kind="event_summary", payload={"trace_id": "trace-retry"}),
+                "crypto_chief": AgentRuntimeInput(input_id="input-chief", agent_role="crypto_chief", task_kind="retro", payload={"trace_id": "trace-retry"}),
+            }
+            prepared = gateway.prepare_retro_cycle(
                 trace_id="trace-retry",
-                runtime_inputs={
-                    "pm": AgentRuntimeInput(input_id="input-pm", agent_role="pm", task_kind="strategy", payload={"trace_id": "trace-retry"}),
-                    "risk_trader": AgentRuntimeInput(input_id="input-rt", agent_role="risk_trader", task_kind="execution", payload={"trace_id": "trace-retry"}),
-                    "macro_event_analyst": AgentRuntimeInput(input_id="input-mea", agent_role="macro_event_analyst", task_kind="event_summary", payload={"trace_id": "trace-retry"}),
-                    "crypto_chief": AgentRuntimeInput(input_id="input-chief", agent_role="crypto_chief", task_kind="retro", payload={"trace_id": "trace-retry"}),
-                },
+                runtime_inputs=runtime_inputs,
+                trigger_type="daily_retro",
+                force_new_case=True,
             )
-            self.assertEqual(payload["round_count"], 2)
-            self.assertEqual(len([item for item in pm_runner.calls if item.task_kind == "retro_turn"]), 3)
+            self.assertTrue(prepared["retro_case"]["case_id"])
+            self.assertEqual(len([item for item in pm_runner.calls if item.task_kind == "retro_brief"]), 2)
             self.assertEqual(len(session_controller.resets), 1)
             self.assertEqual(session_controller.resets[0][0], "pm")
             self.assertEqual(session_controller.resets[0][1], gateway.session_id_for_role("pm"))
+            self.assertEqual(len(prepared["retro_briefs"]), 3)
 
     def test_run_rt_submission_resets_same_session_once_on_input_length_error(self) -> None:
         class ResettableRiskRunner:

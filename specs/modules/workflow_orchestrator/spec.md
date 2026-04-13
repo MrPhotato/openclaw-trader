@@ -75,7 +75,7 @@
 - `MEA` 基础巡检周期为 `2` 小时
 - PM 固定策略判断班次由 OpenClaw `cron` 配置决定
 - RT 固定执行巡检可由用户保留或禁用；条件触发只通过 `openclaw cron run <rt_job_id>` 复用现有标准 RT job
-- Chief 固定复盘班次由 OpenClaw `cron` 在每天 `UTC 23:00` 直接唤醒
+- Chief retro 主触发由 `workflow_orchestrator` 在 `retro_case + retro_briefs` 就绪后直接调用现有 Chief cron job
 - OpenClaw `cron` 是 PM / RT / MEA / Chief 的固定班次 owner
 - `workflow_orchestrator` 在每天 `UTC 00:30` 统一执行 4 个 agent 的 session reset
 - `workflow_orchestrator` 在固定班次之外继续负责复杂调度、recheck 和事件驱动额外唤醒
@@ -111,7 +111,7 @@
   - `record_runtime_pack_consumed`
   - `record_recheck_state`
 - `high` 级事件不再由 `workflow_orchestrator` 托管跟踪；由 `MEA` 直接口头提醒相关 Agent
-- `run_chief_retro` 只负责触发和收口内部复盘会，不直接主持会议内容
+- `run_retro_prep` 只负责手动触发 retro prep；Chief synthesis 由 WO 在 briefs ready 后直接 `cron run`
 - 复盘会后顺序固定为：Chief 发出 learning 指令 -> owner summary
 - session `/new` 不在 retro 流程内执行；改为由 `workflow_orchestrator` 每天 `UTC 00:30` 统一执行
 - `workflow_orchestrator` 不把内部复盘会 transcript 写成正式资产

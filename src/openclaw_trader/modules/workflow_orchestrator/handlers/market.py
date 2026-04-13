@@ -59,12 +59,6 @@ class MarketWorkflowHandler(WorkflowEventRecorder):
             mea_result = self._run_mea(trace_id=trace_id, context=context)
             result["macro"] = mea_result
 
-        if command_type == "run_chief_retro":
-            chief_result = self._run_chief(trace_id=trace_id, context=context)
-            result["chief"] = chief_result
-            if chief_result.get("degraded"):
-                result["degraded"] = True
-
         return result
 
     def _collect_runtime_context(self, *, command_type: str, trace_id: str) -> WorkflowRuntimeContext:
@@ -447,64 +441,6 @@ class MarketWorkflowHandler(WorkflowEventRecorder):
             "macro_event_count": len(canonical_news["events"]),
             "high_impact_count": len([item for item in canonical_news["events"] if item["impact_level"] == "high"]),
             "reminder_count": len(reminders),
-        }
-
-    def _run_chief(self, *, trace_id: str, context: WorkflowRuntimeContext) -> dict[str, Any]:
-        chief_session_id = self.services.agent_gateway.session_id_for_role("crypto_chief")
-        self.services.memory_assets.save_agent_session(
-            agent_role="crypto_chief",
-            session_id=chief_session_id,
-            last_task_kind="retro",
-        )
-        try:
-            reply_payload = self.services.agent_gateway.run_chief_retro(
-                trace_id=trace_id,
-                runtime_inputs=context.agent_inputs,
-            )
-        except SubmissionValidationError as exc:
-            return self._handle_submission_validation_error(
-                trace_id=trace_id,
-                agent_role="crypto_chief",
-                session_id=chief_session_id,
-                task_kind="retro",
-                error=exc,
-            )
-        owner_summary = str(reply_payload.get("owner_summary") or "").strip()
-        transcript = list(reply_payload.get("transcript") or [])
-        learning_results = list(reply_payload.get("learning_results") or [])
-        learning_completed = bool(reply_payload.get("learning_completed"))
-        if owner_summary:
-            self.record_events(self.services.notification_service.notify_owner_summary(trace_id=trace_id, owner_summary=owner_summary))
-        self.record_events(
-            [
-                EventFactory.build(
-                    trace_id=trace_id,
-                    event_type="chief.retro.completed",
-                    source_module="agent_gateway",
-                    entity_type="chief_summary",
-                    entity_id=new_id("retro"),
-                    payload={
-                        "owner_summary": owner_summary,
-                        "learning_completed": learning_completed,
-                        "round_count": reply_payload.get("round_count"),
-                        "transcript": transcript,
-                        "learning_results": learning_results,
-                    },
-                )
-            ]
-        )
-        self.services.memory_assets.save_agent_session(
-            agent_role="crypto_chief",
-            session_id=chief_session_id,
-            last_task_kind="retro",
-        )
-
-        return {
-            "owner_summary": owner_summary,
-            "learning_completed": learning_completed,
-            "transcript": transcript,
-            "learning_results": learning_results,
-            "round_count": reply_payload.get("round_count"),
         }
 
     def _persist_market_snapshots(self, *, command_type: str, trace_id: str, market: Any) -> None:

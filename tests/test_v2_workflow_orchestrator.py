@@ -18,10 +18,12 @@ from openclaw_trader.modules.trade_gateway.market_data import (
 )
 from openclaw_trader.modules.workflow_orchestrator.models import ManualTriggerCommand
 from openclaw_trader.modules.workflow_orchestrator.pm_recheck import PMRecheckConfig, PMRecheckMonitor
+from openclaw_trader.modules.workflow_orchestrator.retro_prep import RetroPrepConfig, RetroPrepMonitor
 from openclaw_trader.modules.workflow_orchestrator.risk_brake import RiskBrakeConfig, RiskBrakeMonitor
 from openclaw_trader.modules.workflow_orchestrator.rt_trigger import OpenClawCronRunner, RTTriggerConfig, RTTriggerMonitor
 
 from .helpers_v2 import FakeMarketDataProvider, build_test_harness
+from .test_v2_agent_gateway import _valid_strategy_targets
 
 
 class FakeCronRunner:
@@ -37,6 +39,12 @@ class FakeCronRunner:
 
         self.runs.append(job_id)
         return CronRunResult(ok=True, stdout='{"ok":true}', stderr="", returncode=0)
+
+    def run_now_detached(self, *, job_id: str):
+        from openclaw_trader.modules.workflow_orchestrator.rt_trigger import CronSpawnResult
+
+        self.runs.append(job_id)
+        return CronSpawnResult(ok=True, pid=43210)
 
 
 class FakeRTTriggerMonitor:
@@ -155,6 +163,12 @@ def _strategy_key(strategy_asset: dict) -> str:
 
 
 def _seed_strategy(harness, *, gross_band: list[float] | None = None, targets: list[dict] | None = None) -> dict:
+    merged_targets = {str(item["symbol"]).upper(): dict(item) for item in (targets or [])}
+    if not merged_targets:
+        merged_targets = {item["symbol"]: item for item in _valid_strategy_targets()}
+    else:
+        for item in _valid_strategy_targets():
+            merged_targets.setdefault(str(item["symbol"]).upper(), item)
     return harness.container.memory_assets.materialize_strategy_asset(
         trace_id="trace-seed-strategy",
         authored_payload={
@@ -164,16 +178,10 @@ def _seed_strategy(harness, *, gross_band: list[float] | None = None, targets: l
             "portfolio_invalidation": "Seed invalidation.",
             "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
             "change_summary": "Seeded strategy.",
-            "targets": targets
-            or [
-                {
-                    "symbol": "BTC",
-                    "state": "active",
-                    "direction": "long",
-                    "target_exposure_band_pct": [0.0, 10.0],
-                    "rt_discretion_band_pct": 2.0,
-                    "priority": 1,
-                }
+            "targets": [
+                merged_targets["BTC"],
+                merged_targets["ETH"],
+                merged_targets["SOL"],
             ],
             "scheduled_rechecks": [],
         },
@@ -227,6 +235,24 @@ def _build_pm_recheck_monitor(harness, *, config: PMRecheckConfig | None = None)
     return monitor, runner
 
 
+def _build_retro_prep_monitor(harness, *, config: RetroPrepConfig | None = None):
+    runner = FakeCronRunner()
+    return RetroPrepMonitor(
+        memory_assets=harness.container.memory_assets,
+        agent_gateway=harness.container.agent_gateway,
+        event_bus=harness.event_bus,
+        config=config
+        or RetroPrepConfig(
+            enabled=True,
+            scan_interval_seconds=30,
+            prep_hour_utc=22,
+            prep_minute_utc=40,
+            chief_job_id="chief-job",
+        ),
+        cron_runner=runner,
+    ), runner
+
+
 class WorkflowOrchestratorTests(unittest.TestCase):
     def test_legacy_market_commands_are_rejected(self) -> None:
         harness = build_test_harness()
@@ -244,7 +270,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
-    def test_path_4_chief_retro_emits_summary_without_resetting_sessions(self) -> None:
+    def test_path_4_run_retro_prep_dispatches_chief_cron_without_running_sync_retro(self) -> None:
         harness = build_test_harness(news_severity="high")
         try:
             harness.container.memory_assets.materialize_strategy_asset(
@@ -256,52 +282,37 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "portfolio_invalidation": "Seed invalidation.",
                     "flip_triggers": "flip when multi-horizon structure and macro regime both reverse",
                     "change_summary": "Seeded before retro.",
-                    "targets": [],
+                    "targets": _valid_strategy_targets(),
                     "scheduled_rechecks": [],
                 },
                 trigger_type="manual",
             )
-            receipt = harness.container.workflow_orchestrator.submit_command(
-                ManualTriggerCommand(command_id="cmd-chief", command_type="run_chief_retro", initiator="test")
+            monitor, runner = _build_retro_prep_monitor(harness)
+            orchestrator = type(harness.container.workflow_orchestrator)(
+                memory_assets=harness.container.memory_assets,
+                event_bus=harness.event_bus,
+                executor=harness.container.workflow_orchestrator.executor,
+                retro_prep_monitor=monitor,  # type: ignore[arg-type]
             )
-            self.assertTrue(receipt.accepted)
-            workflow = harness.wait_for_workflow(receipt.trace_id)
-            self.assertEqual(workflow.state, "completed")
-            projection_assets = harness.container.memory_assets.recent_assets(asset_type="memory_projection", limit=10)
-            self.assertIsNone(harness.container.memory_assets.latest_asset(asset_type="chief_retro"))
-            self.assertEqual(len(projection_assets), 0)
-            self.assertEqual(len(harness.fake_session_controller.resets), 0)
-            agent_sessions = harness.container.memory_assets.list_agent_sessions()
-            self.assertEqual(
-                {session["agent_role"] for session in agent_sessions},
-                {"crypto_chief"},
-            )
-            transcript_events = harness.container.memory_assets.query_events(
-                trace_id=receipt.trace_id,
-                module="agent_gateway",
-                limit=50,
-            )
-            completed_events = [item for item in transcript_events if item["event_type"] == "chief.retro.completed"]
-            self.assertEqual(len(completed_events), 1)
-            retro_payload = completed_events[0]["payload"]
-            self.assertEqual(retro_payload["round_count"], 2)
-            self.assertEqual(len(retro_payload["transcript"]), 8)
-            self.assertEqual(
-                {item["speaker_role"] for item in retro_payload["transcript"]},
-                {"pm", "risk_trader", "macro_event_analyst", "crypto_chief"},
-            )
-            owner_summary_notifications = [
-                command for command in harness.fake_notifier.commands if command.message_type == "chief_owner_summary"
-            ]
-            self.assertEqual(len(owner_summary_notifications), 1)
-            self.assertEqual(
-                owner_summary_notifications[0].recipient,
-                harness.container.notification_service.settings.notification.default_recipient,
-            )
-            self.assertNotIn(
-                "agent:crypto-chief",
-                [command.recipient for command in harness.fake_notifier.commands if command.message_type == "chief_owner_summary"],
-            )
+            try:
+                receipt = orchestrator.submit_command(
+                    ManualTriggerCommand(command_id="cmd-retro-prep", command_type="run_retro_prep", initiator="test")
+                )
+                self.assertTrue(receipt.accepted)
+                workflow = orchestrator.wait_for_workflow(receipt.trace_id)
+                self.assertEqual(workflow.state, "completed")
+                result = harness.container.memory_assets.get_workflow(receipt.trace_id)
+                self.assertIsNotNone(result)
+                prep_state = harness.container.memory_assets.get_asset("retro_prep_state")
+                self.assertIsNotNone(prep_state)
+                self.assertEqual(prep_state["payload"]["last_dispatch_status"], "dispatched")
+                self.assertEqual(runner.runs, ["chief-job"])
+                retro_case = harness.container.memory_assets.latest_retro_case(case_day_utc=datetime.now(UTC).date().isoformat())
+                self.assertIsNotNone(retro_case)
+                self.assertEqual(len(harness.container.memory_assets.get_retro_briefs(case_id=retro_case["case_id"])), 3)
+                self.assertEqual(len(harness.fake_session_controller.resets), 0)
+            finally:
+                orchestrator.close()
         finally:
             harness.cleanup()
 
@@ -453,6 +464,42 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertFalse(result["triggered"])
             self.assertEqual(result["skipped_reason"], "already_dispatched")
             self.assertEqual(runner.runs, [])
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_prepares_case_and_briefs_before_chief_pull(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            result = monitor.scan_once(now=now)
+            self.assertTrue(result["triggered"])
+            self.assertEqual(result["status"], "ready")
+            self.assertEqual(result["retro_brief_count"], 3)
+            self.assertTrue(result["chief_dispatched"])
+            self.assertEqual(result["chief_dispatch_status"], "dispatched")
+            self.assertEqual(runner.runs, ["chief-job"])
+            pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+            self.assertEqual(pack.payload["retro_case"]["case_id"], result["case_id"])
+            self.assertEqual(len(pack.payload["retro_briefs"]), 3)
+            self.assertEqual(pack.payload["pending_retro_brief_roles"], [])
+            self.assertTrue(pack.payload["retro_ready_for_synthesis"])
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_stays_idle_before_window(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 20, tzinfo=UTC)
+            result = monitor.scan_once(now=now)
+            self.assertFalse(result["triggered"])
+            self.assertEqual(result["reason"], "outside_prep_window")
+            self.assertEqual(runner.runs, [])
+            pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+            self.assertEqual(pack.payload["retro_case"], {})
+            self.assertEqual(pack.payload["retro_briefs"], [])
+            self.assertFalse(pack.payload["retro_ready_for_synthesis"])
         finally:
             harness.cleanup()
 

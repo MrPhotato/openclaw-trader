@@ -107,6 +107,20 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
                 dispatch_payload.get("runtime_bridge_refresh_interval_seconds", 10)
             ),
             runtime_bridge_max_age_seconds=int(dispatch_payload.get("runtime_bridge_max_age_seconds", 30)),
+            retro_prep_enabled=bool(dispatch_payload.get("retro_prep_enabled", False)),
+            retro_prep_scan_interval_seconds=int(dispatch_payload.get("retro_prep_scan_interval_seconds", 60)),
+            retro_prep_hour_utc=int(dispatch_payload.get("retro_prep_hour_utc", 22)),
+            retro_prep_minute_utc=int(dispatch_payload.get("retro_prep_minute_utc", 40)),
+            retro_prep_chief_job_id=str(
+                dispatch_payload.get(
+                    "retro_prep_chief_job_id",
+                    "6b0359fe-f8e4-4f82-9671-3b9c28c49299",
+                )
+            ),
+            retro_prep_cron_subprocess_timeout_seconds=int(
+                dispatch_payload.get("retro_prep_cron_subprocess_timeout_seconds", 15)
+            ),
+            retro_prep_openclaw_bin=str(dispatch_payload.get("retro_prep_openclaw_bin", "openclaw")),
             rt_event_trigger_enabled=bool(dispatch_payload.get("rt_event_trigger_enabled", False)),
             rt_event_trigger_job_id=str(
                 dispatch_payload.get(

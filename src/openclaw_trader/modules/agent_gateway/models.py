@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class AgentRuntimeInput(BaseModel):
@@ -61,29 +61,6 @@ class AgentEscalation(BaseModel):
     requested_owner_decision: bool = False
 
 
-class RetroTranscriptEntry(BaseModel):
-    round_index: int
-    speaker_role: str
-    statement: str
-    recorded_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class RetroMeetingTurn(BaseModel):
-    meeting_id: str
-    round_index: int
-    speaker_role: str
-    transcript: list[RetroTranscriptEntry] = Field(default_factory=list)
-    runtime_input_ref: str
-    transcript_seen_count: int = 0
-    transcript_total_count: int = 0
-    runtime_input_included: bool = True
-
-
-class RetroTurnReply(BaseModel):
-    speaker_role: str
-    statement: str
-
-
 class RetroLearningAck(BaseModel):
     agent_role: str
     learning_updated: bool
@@ -91,26 +68,30 @@ class RetroLearningAck(BaseModel):
     learning_summary: str
 
 
-class RetroMeetingResult(BaseModel):
-    meeting_id: str
-    round_count: int
-    transcript: list[RetroTranscriptEntry] = Field(default_factory=list)
-    learning_results: list[RetroLearningAck] = Field(default_factory=list)
-    owner_summary: str
-    reset_command: str = "/new"
-    learning_completed: bool = False
-
-
 class RetroSubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     owner_summary: str
+    case_id: str | None = None
     reset_command: str = "/new"
     learning_completed: bool = False
     learning_results: Any = Field(default_factory=list)
     transcript: list[dict[str, Any]] = Field(default_factory=list)
     round_count: int | None = None
     meeting_id: str | None = None
+    root_cause_ranking: list[str] = Field(default_factory=list)
+    role_judgements: dict[str, str] = Field(default_factory=dict)
+    learning_directives: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RetroBriefSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str | None = None
+    root_cause: str
+    cross_role_challenge: str
+    self_critique: str
+    tomorrow_change: str
 
 
 class StrategySubmissionTarget(BaseModel):
@@ -142,6 +123,27 @@ class StrategySubmission(BaseModel):
     targets: list[StrategySubmissionTarget] = Field(default_factory=list)
     scheduled_rechecks: list[StrategyScheduledRecheck] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_targets_cover_supported_symbols(self) -> "StrategySubmission":
+        symbols = [str(item.symbol or "").strip().upper() for item in self.targets]
+        expected = {"BTC", "ETH", "SOL"}
+        actual = set(symbols)
+        missing = sorted(expected - actual)
+        extras = sorted(actual - expected)
+        duplicates = sorted({symbol for symbol in symbols if symbol and symbols.count(symbol) > 1})
+        if missing or extras or duplicates or len(self.targets) != 3:
+            problems: list[str] = []
+            if missing:
+                problems.append(f"missing targets for {', '.join(missing)}")
+            if extras:
+                problems.append(f"unsupported target symbols {', '.join(extras)}")
+            if duplicates:
+                problems.append(f"duplicate target symbols {', '.join(duplicates)}")
+            if len(self.targets) != 3:
+                problems.append("targets must contain exactly 3 entries (BTC, ETH, SOL)")
+            raise ValueError("; ".join(problems))
+        return self
+
 
 class ExecutionSubmissionDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -170,6 +172,7 @@ class TacticalMapCoinUpdate(BaseModel):
     coin: str
     working_posture: str
     base_case: str
+    first_entry_plan: str = Field(min_length=1)
     preferred_add_condition: str
     preferred_reduce_condition: str
     reference_take_profit_condition: str | None = None
@@ -198,7 +201,15 @@ class ExecutionSubmission(BaseModel):
     generated_at_utc: datetime
     trigger_type: str
     decisions: list[ExecutionSubmissionDecision]
+    pm_recheck_requested: bool = False
+    pm_recheck_reason: str | None = None
     tactical_map_update: TacticalMapUpdate | None = None
+
+    @model_validator(mode="after")
+    def _validate_pm_recheck_fields(self) -> "ExecutionSubmission":
+        if self.pm_recheck_requested and not str(self.pm_recheck_reason or "").strip():
+            raise ValueError("pm_recheck_reason is required when pm_recheck_requested=true")
+        return self
 
 
 class NewsSubmissionEvent(BaseModel):

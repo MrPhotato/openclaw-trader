@@ -7,10 +7,13 @@ from ...shared.utils import new_id
 from .events import EVENT_NOTIFICATION_RECORDED, EVENT_PARAMETER_CHANGED, EVENT_STATE_SNAPSHOT_CAPTURED, MODULE_NAME
 from .models import (
     AgentSessionState,
+    LearningDirectiveAsset,
     NewsSubmissionAsset,
     NotificationResult,
     OverviewQueryView,
     ReplayQueryView,
+    RetroBriefAsset,
+    RetroCaseAsset,
     RTTacticalMapAsset,
     RuntimeBridgeState,
     StateSnapshot,
@@ -282,6 +285,184 @@ class MemoryAssetsService:
             source_ref=source_ref,
             metadata=metadata,
         )
+
+    def materialize_retro_case(
+        self,
+        *,
+        trace_id: str,
+        authored_payload: dict,
+        actor_role: str = "system",
+        source_ref: str | None = None,
+        group_key: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        now = datetime.now(UTC)
+        canonical_payload = dict(authored_payload)
+        canonical_payload.update(
+            {
+                "case_id": str(canonical_payload.get("case_id") or new_id("retro_case")),
+                "case_day_utc": str(canonical_payload.get("case_day_utc") or now.date().isoformat()),
+                "created_at_utc": canonical_payload.get("created_at_utc") or now.isoformat(),
+            }
+        )
+        canonical_payload = RetroCaseAsset.model_validate(canonical_payload).model_dump(mode="json")
+        self.save_asset(
+            asset_type="retro_case",
+            asset_id=str(canonical_payload["case_id"]),
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=group_key or str(canonical_payload["case_day_utc"]),
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
+    def latest_retro_case(self, *, case_day_utc: str | None = None) -> dict | None:
+        assets = self.recent_assets(asset_type="retro_case", actor_role="system", limit=10)
+        for asset in assets:
+            payload = dict(asset.get("payload") or {})
+            if case_day_utc is not None and str(payload.get("case_day_utc") or "") != case_day_utc:
+                continue
+            return {
+                "asset_id": asset.get("asset_id"),
+                **payload,
+            }
+        return None
+
+    def materialize_retro_brief(
+        self,
+        *,
+        trace_id: str,
+        case_id: str,
+        agent_role: str,
+        authored_payload: dict,
+        source_ref: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        now = datetime.now(UTC)
+        canonical_payload = dict(authored_payload)
+        canonical_payload.update(
+            {
+                "brief_id": str(canonical_payload.get("brief_id") or new_id("retro_brief")),
+                "case_id": case_id,
+                "agent_role": agent_role,
+                "created_at_utc": canonical_payload.get("created_at_utc") or now.isoformat(),
+            }
+        )
+        canonical_payload = RetroBriefAsset.model_validate(canonical_payload).model_dump(mode="json")
+        self.save_asset(
+            asset_type="retro_brief",
+            asset_id=str(canonical_payload["brief_id"]),
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=agent_role,
+            group_key=case_id,
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
+    def get_retro_briefs(
+        self,
+        *,
+        case_id: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        briefs: list[dict] = []
+        for asset in self.recent_assets(asset_type="retro_brief", limit=limit):
+            payload = dict(asset.get("payload") or {})
+            if str(payload.get("case_id") or "") != case_id:
+                continue
+            briefs.append(
+                {
+                    "asset_id": asset.get("asset_id"),
+                    **payload,
+                }
+            )
+        return briefs
+
+    def latest_retro_brief(self, *, case_id: str, agent_role: str) -> dict | None:
+        for asset in self.recent_assets(asset_type="retro_brief", actor_role=agent_role, limit=10):
+            payload = dict(asset.get("payload") or {})
+            if str(payload.get("case_id") or "") != case_id:
+                continue
+            return {
+                "asset_id": asset.get("asset_id"),
+                **payload,
+            }
+        return None
+
+    def materialize_learning_directive(
+        self,
+        *,
+        trace_id: str,
+        case_id: str,
+        agent_role: str,
+        session_key: str,
+        learning_path: str,
+        authored_payload: dict,
+        actor_role: str = "crypto_chief",
+        source_ref: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        now = datetime.now(UTC)
+        canonical_payload = dict(authored_payload)
+        canonical_payload.update(
+            {
+                "directive_id": str(canonical_payload.get("directive_id") or new_id("learning_directive")),
+                "case_id": case_id,
+                "agent_role": agent_role,
+                "created_at_utc": canonical_payload.get("created_at_utc") or now.isoformat(),
+                "session_key": session_key,
+                "learning_path": learning_path,
+            }
+        )
+        canonical_payload = LearningDirectiveAsset.model_validate(canonical_payload).model_dump(mode="json")
+        self.save_asset(
+            asset_type="learning_directive",
+            asset_id=str(canonical_payload["directive_id"]),
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=case_id,
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
+    def get_learning_directives(
+        self,
+        *,
+        case_id: str,
+        agent_role: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        directives: list[dict] = []
+        for asset in self.recent_assets(asset_type="learning_directive", limit=limit):
+            payload = dict(asset.get("payload") or {})
+            if str(payload.get("case_id") or "") != case_id:
+                continue
+            if agent_role is not None and str(payload.get("agent_role") or "") != agent_role:
+                continue
+            directives.append(
+                {
+                    "asset_id": asset.get("asset_id"),
+                    **payload,
+                }
+            )
+        return directives
+
+    def latest_learning_directive(self, *, agent_role: str) -> dict | None:
+        for asset in self.recent_assets(asset_type="learning_directive", limit=20):
+            payload = dict(asset.get("payload") or {})
+            if str(payload.get("agent_role") or "") != agent_role:
+                continue
+            return {
+                "asset_id": asset.get("asset_id"),
+                **payload,
+            }
+        return None
 
     def get_pending_scheduled_rechecks(self) -> list[dict]:
         latest_strategy = self.get_latest_strategy()

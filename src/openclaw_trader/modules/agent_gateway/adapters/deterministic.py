@@ -9,22 +9,45 @@ from ...agent_gateway.models import AgentReply, AgentTask
 
 class DeterministicAgentRunner:
     def run(self, task: AgentTask) -> AgentReply:
-        if task.task_kind == "retro_turn":
-            round_index = int(task.payload.get("round_index") or 1)
-            speaker_role = str(task.payload.get("speaker_role") or task.agent_role)
-            statements = {
-                "pm": f"round_{round_index}_pm: target and thesis still align with the observed market path.",
-                "risk_trader": f"round_{round_index}_rt: execution quality was acceptable and no boundary breach was needed.",
-                "macro_event_analyst": f"round_{round_index}_mea: event flow did not invalidate the current thesis.",
-                "crypto_chief": f"round_{round_index}_chief: keep discussion disciplined and isolate process from luck.",
+        if task.task_kind == "retro_brief":
+            focus = {
+                "pm": (
+                    "PM 对 band 和 thesis 仍偏保守，导致风险利用率不足。",
+                    "RT 需要在机会窗口里更主动加风险，而不是等到确认过多后再动。",
+                    "PM 没把翻向和恢复条件写得足够可交易。",
+                    "明天把 band 调整条件和 flip triggers 写得更清楚。",
+                ),
+                "risk_trader": (
+                    "RT 在有把握的窗口里仍偏等待，战术推进不够激进。",
+                    "PM 给出的可执行边界还不够清晰，导致 RT 更容易退回 wait/hold。",
+                    "RT 自己过度依赖确认，少做了先手战术动作。",
+                    "明天在高把握结构里更主动使用 add/reduce，而不是只会 long 到 flat。",
+                ),
+                "macro_event_analyst": (
+                    "MEA 的提醒密度影响了 PM 的节奏，状态变化和重复强化没有分开。",
+                    "PM 应只在真正状态变化时被打断，而不是被同主题连环轰炸。",
+                    "MEA 对同主题重复提醒过滤得不够严格。",
+                    "明天只在状态变化时升级 PM，其余继续写入事件层。",
+                ),
             }
+            root_cause, challenge, self_critique, tomorrow_change = focus.get(
+                task.agent_role,
+                (
+                    "今天没有显著 alpha，主要是流程保守。",
+                    "别的角色没有把约束写清楚。",
+                    "自己的复盘不够锋利。",
+                    "明天把复盘结论写得更可执行。",
+                ),
+            )
             return AgentReply(
                 task_id=task.task_id,
                 agent_role=task.agent_role,
                 status="completed",
                 payload={
-                    "speaker_role": speaker_role,
-                    "statement": statements.get(task.agent_role, f"round_{round_index}_{task.agent_role}: no new objection."),
+                    "root_cause": root_cause,
+                    "cross_role_challenge": challenge,
+                    "self_critique": self_critique,
+                    "tomorrow_change": tomorrow_change,
                 },
             )
         if task.agent_role == "risk_trader":
@@ -171,6 +194,49 @@ class DeterministicAgentRunner:
                 },
             )
         if task.agent_role == "crypto_chief":
+            if task.payload.get("mode") == "retro_synthesis":
+                return AgentReply(
+                    task_id=task.task_id,
+                    agent_role=task.agent_role,
+                    status="completed",
+                    payload={
+                        "case_id": dict(task.payload.get("retro_case") or {}).get("case_id"),
+                        "owner_summary": "Chief 裁决：今天没到 1% 的主因是 PM 防守过重、RT 机会窗口推进偏慢、MEA 对重复主题过滤不够。",
+                        "learning_completed": False,
+                        "root_cause_ranking": [
+                            "PM 风险利用率压得过低",
+                            "RT 在确认过多后才推进战术动作",
+                            "MEA 对同主题重复提醒过滤不够",
+                        ],
+                        "role_judgements": {
+                            "pm": "方向判断大体合理，但 band 和翻向条件不够锋利。",
+                            "risk_trader": "执行纪律稳定，但主动性不足。",
+                            "macro_event_analyst": "信息质量尚可，但升级门槛不够克制。",
+                        },
+                        "learning_directives": [
+                            {
+                                "agent_role": "pm",
+                                "directive": "把 risk-off 和重新加风险的条件写得更明确，尤其是 flip triggers。",
+                                "rationale": "PM 的边界模糊会直接压缩 RT 的执行空间。",
+                            },
+                            {
+                                "agent_role": "risk_trader",
+                                "directive": "在高把握结构里更主动推进 add/reduce，不要总是等到确认过满。",
+                                "rationale": "RT 这轮主要损失在窗口利用率，而不是方向错误。",
+                            },
+                            {
+                                "agent_role": "macro_event_analyst",
+                                "directive": "只有状态变化才打断 PM，同主题重复强化继续留在事件层。",
+                                "rationale": "MEA 的过密提醒会把 PM 推向不必要的频繁改 band。",
+                            },
+                            {
+                                "agent_role": "crypto_chief",
+                                "directive": "继续把 retro 从同步会议收成异步 artifact 链。",
+                                "rationale": "Chief 的价值在裁决，不在主持脆弱的同步会场。",
+                            },
+                        ],
+                    },
+                )
             learning_results = []
             for target in list(task.payload.get("learning_targets") or []):
                 if not isinstance(target, dict):

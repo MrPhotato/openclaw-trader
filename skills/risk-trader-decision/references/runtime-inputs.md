@@ -117,9 +117,14 @@ RT also remains a decision agent, not an order router.
 - Pull once, work from that pack, and submit against the same `input_id`.
 - `python3 /Users/chenzian/openclaw-trader/scripts/pull_rt_runtime.py` now also writes `/tmp/rt_execution_submission.json`. Treat that file as the default submission scaffold for the current round.
 - Keep `/tmp/rt_execution_submission.json` as a pure root-level `ExecutionSubmission` object. Do not add wrapper fields such as `input_id`, `trace_id`, `agent_role`, `task_kind`, `rt_commentary`, `pm_recheck_request`, or per-decision `execution_params`.
+- If the runtime pack shows an active, unlocked target on a symbol where the desk is still unpositioned or pointed the wrong way, the scaffold must end as either:
+  - a batch that opens/adds/flips at least one pending symbol, or
+  - a root-level escalation with `pm_recheck_requested=true` and a non-empty `pm_recheck_reason`
+- If this round also refreshes `tactical_map_update`, every such pending symbol must include a non-empty `first_entry_plan`. The map must say how the first bite gets placed.
 - Prefer writing the runtime pack to a file first and then reading the needed fields from that file. Do not dump the full JSON pack back into the model context.
 - Read `trigger_delta` first, then `standing_tactical_map`, then `rt_decision_digest`.
 - If `standing_tactical_map` is `null` and `trigger_delta.requires_tactical_map_refresh = true`, this round must carry a `tactical_map_update` inside the same `execution` submission. The helper-generated scaffold will already include the required root-level block; fill it in rather than deleting it.
+- If `trigger_delta.map_status = missing_first_entry_plan`, treat the existing map as operationally incomplete even if the rest of the structure is compatible. Refresh it this round.
 - If `standing_tactical_map` is present and `trigger_delta.requires_tactical_map_refresh = false`, default to operating from the map and do not rewrite it on a routine no-op round.
 - Only drill into raw `execution_contexts`, `market.market_context`, `recent_execution_thoughts`, or `news_events` if the digest leaves a material ambiguity.
 - Do not use `GET /api/agent/pull/rt`. The live bridge is `POST` only.
