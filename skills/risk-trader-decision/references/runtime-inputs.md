@@ -1,14 +1,14 @@
-# Runtime Inputs
+# 运行时输入
 
-## Current implementation
-Current runtime path is:
+## 当前实现
+当前运行时路径：
 
 `Workflow Orchestrator condition trigger or heartbeat -> OpenClaw cron run -> RT -> AG pull bridge -> single RT runtime pack`
 
-RT should pull one `rt` runtime pack from `agent_gateway`, then read:
-- `trigger_delta` first
-- `standing_tactical_map` second
-- `rt_decision_digest` first
+RT 应从 `agent_gateway` 拉取一个 `rt` 运行时数据包，然后按以下顺序读取：
+- 首先读取 `trigger_delta`
+- 其次读取 `standing_tactical_map`
+- 再读取 `rt_decision_digest`
 - `market`
 - `execution_contexts`
 - `strategy`
@@ -16,72 +16,72 @@ RT should pull one `rt` runtime pack from `agent_gateway`, then read:
 - `forecasts`
 - `news_events`
 - `recent_execution_thoughts`
-- `latest_rt_trigger_event` when RT was awakened by Workflow Orchestrator
-- `latest_risk_brake_event` when the system itself just executed a forced risk order
+- 当 RT 被 Workflow Orchestrator 唤醒时读取 `latest_rt_trigger_event`
+- 当系统刚刚执行了强制风控单时读取 `latest_risk_brake_event`
 - `trigger_context`
-- lease metadata:
+- 租约元数据：
   - `input_id`
   - `trace_id`
   - `expires_at_utc`
 
-## Account State Source of Truth
+## 账户状态唯一来源
 
-**Always use `/api/agent/pull/rt` to get account state.**
+**始终使用 `/api/agent/pull/rt` 获取账户状态。**
 
-Do NOT use `otrader portfolio` or any other CLI command to query account/positions.
-The `otrader portfolio` command has caching issues and may return stale data (observed lag of 2+ hours).
+不要使用 `otrader portfolio` 或任何其他 CLI 命令查询账户/持仓。
+`otrader portfolio` 命令存在缓存问题，可能返回过时数据（已观察到 2 小时以上的延迟）。
 
-The runtime pack from `/api/agent/pull/rt` contains:
-- `market.accounts` - per-coin account snapshots
-- `market.portfolio` - portfolio-level summary with positions array
-- `news_events` - a thin, trade-oriented recent news layer for headline risk
-- `recent_execution_thoughts` - the last 5 RT decision summaries paired with actual execution outcome details
-- `latest_rt_trigger_event` - the latest objective trigger record, if WO called the registered RT cron job because PM strategy changed, MEA raised a high-impact event, exposure drifted, execution filled, market structure changed, or heartbeat elapsed
-- `latest_risk_brake_event` - the latest system risk-brake record, if the system already forced a reduce or exit order before waking RT
-- `standing_tactical_map` - the latest compatible formal RT tactical map for the current `strategy_key` and `lock_mode`; if this is `null`, RT currently has no valid map for this strategy/lock combination
-- `trigger_delta` - the compact explanation of what changed since the last valid map, including whether this round requires a tactical map refresh
-- `rt_decision_digest` - a compact, decision-first summary that already merges trigger reason, portfolio snapshot, strategy snapshot, symbol focus, recent thoughts, and thin headline risk
-- `execution_submit_defaults` - the default submit flags for this round, including the intended `trigger_type` and default `live` mode
-- when present, each recent thought may also carry `reference_take_profit_condition` and `reference_stop_loss_condition`, textual exit clues left by RT for the next wakeup
-- Real-time `captured_at` timestamps
-- Normalized exposure/share fields that already follow the new house convention:
+运行时数据包来自 `/api/agent/pull/rt`，包含：
+- `market.accounts` - 各币种账户快照
+- `market.portfolio` - 组合层面的摘要，包含持仓数组
+- `news_events` - 轻量、面向交易的近期新闻层，用于头条风险判断
+- `recent_execution_thoughts` - 最近 5 条 RT 决策摘要，配对实际执行结果详情
+- `latest_rt_trigger_event` - 最新的客观触发记录；当 WO 因 PM 策略变更、MEA 触发高影响事件、敞口漂移、成交回报、市场结构变化或心跳到期而调用已注册的 RT cron job 时出现
+- `latest_risk_brake_event` - 最新的系统风控刹车记录；当系统在唤醒 RT 之前已经强制执行了减仓或平仓单时出现
+- `standing_tactical_map` - 当前 `strategy_key` 和 `lock_mode` 下最新兼容的正式 RT 战术地图；如果为 `null`，表示 RT 当前没有适用于此策略/锁定组合的有效地图
+- `trigger_delta` - 自上次有效地图以来发生了什么变化的精简说明，包括本轮是否需要刷新战术地图
+- `rt_decision_digest` - 一个紧凑的、决策优先的摘要，已合并触发原因、组合快照、策略快照、币种焦点、近期思考和轻量头条风险
+- `execution_submit_defaults` - 本轮的默认提交标志，包括预期的 `trigger_type` 和默认 `live` 模式
+- 如果存在，每条近期思考还可能携带 `reference_take_profit_condition` 和 `reference_stop_loss_condition`，即 RT 为下次唤醒留下的文本退出线索
+- 实时 `captured_at` 时间戳
+- 已遵循新统一惯例的标准化敞口/份额字段：
   - `% of exposure budget`
   - `exposure budget = total_equity_usd * max_leverage`
 
-## Exposure math
+## 敞口计算
 
-Use the runtime pack's normalized exposure/share values first.
+优先使用运行时数据包中的标准化敞口/份额值。
 
-Current house convention:
+当前统一惯例：
 
 - `size_pct_of_exposure_budget`
 - `position_share_pct_of_exposure_budget`
 - `current_position_share_pct_of_exposure_budget`
 
-all mean:
+均表示：
 
 `notional_usd / (total_equity_usd * max_leverage) * 100`
 
-They do **not** mean:
+它们**不**表示：
 
 `notional_usd / total_equity_usd * 100`
 
-Example:
+示例：
 
 - `total_equity_usd = 982.13`
 - `max_leverage = 5`
 - `current_notional_usd = 233.67`
 
-Then:
+则：
 
-- correct normalized exposure share = `233.67 / (982.13 * 5) * 100 ≈ 4.76%`
-- old wrong equity-only share = `233.67 / 982.13 * 100 ≈ 23.8%`
+- 正确的标准化敞口份额 = `233.67 / (982.13 * 5) * 100 ≈ 4.76%`
+- 旧的错误的纯权益份额 = `233.67 / 982.13 * 100 ≈ 23.8%`
 
-Never use the second number for RT decisioning in this system.
+在本系统中，RT 决策永远不要使用第二个数字。
 
-This is the only reliable source for current positions, equity, and exposure.
+这是当前持仓、权益和敞口的唯一可靠来源。
 
-Working example:
+实际使用示例：
 
 ```bash
 curl -s -X POST http://127.0.0.1:8788/api/agent/pull/rt \
@@ -101,43 +101,43 @@ print(json.dumps(pack["payload"]["rt_decision_digest"], ensure_ascii=False, inde
 PY
 ```
 
-Source of truth in code:
+代码中的数据源：
 - `src/openclaw_trader/modules/agent_gateway/service.py`
 - `src/openclaw_trader/app/api.py`
 
-## Target contract
-Target formal chain is:
+## 目标合约
+目标正式链路：
 
 `RT -> AG submit bridge (+ input_id) -> policy_risk -> Trade Gateway.execution`
 
-RT remains a decision agent, not a market-data requester.
-RT also remains a decision agent, not an order router.
+RT 始终是决策代理，而非行情数据请求者。
+RT 同样始终是决策代理，而非订单路由器。
 
-## Use Now
-- Pull once, work from that pack, and submit against the same `input_id`.
-- `python3 /Users/chenzian/openclaw-trader/scripts/pull_rt_runtime.py` now also writes `/tmp/rt_execution_submission.json`. Treat that file as the default submission scaffold for the current round.
-- Keep `/tmp/rt_execution_submission.json` as a pure root-level `ExecutionSubmission` object. Do not add wrapper fields such as `input_id`, `trace_id`, `agent_role`, `task_kind`, `rt_commentary`, `pm_recheck_request`, or per-decision `execution_params`.
-- If the runtime pack shows an active, unlocked target on a symbol where the desk is still unpositioned or pointed the wrong way, the scaffold must end as either:
-  - a batch that opens/adds/flips at least one pending symbol, or
-  - a root-level escalation with `pm_recheck_requested=true` and a non-empty `pm_recheck_reason`
-- If this round also refreshes `tactical_map_update`, every such pending symbol must include a non-empty `first_entry_plan`. The map must say how the first bite gets placed.
-- Prefer writing the runtime pack to a file first and then reading the needed fields from that file. Do not dump the full JSON pack back into the model context.
-- Read `trigger_delta` first, then `standing_tactical_map`, then `rt_decision_digest`.
-- If `standing_tactical_map` is `null` and `trigger_delta.requires_tactical_map_refresh = true`, this round must carry a `tactical_map_update` inside the same `execution` submission. The helper-generated scaffold will already include the required root-level block; fill it in rather than deleting it.
-- If `trigger_delta.map_status = missing_first_entry_plan`, treat the existing map as operationally incomplete even if the rest of the structure is compatible. Refresh it this round.
-- If `standing_tactical_map` is present and `trigger_delta.requires_tactical_map_refresh = false`, default to operating from the map and do not rewrite it on a routine no-op round.
-- Only drill into raw `execution_contexts`, `market.market_context`, `recent_execution_thoughts`, or `news_events` if the digest leaves a material ambiguity.
-- Do not use `GET /api/agent/pull/rt`. The live bridge is `POST` only.
-- Treat `execution_contexts` as the actionable bridge from PM formal strategy to RT execution batching.
-- Use `news_events` as a thin headline-risk layer only when the digest indicates they matter.
-- Use `recent_execution_thoughts` only when the digest indicates you need historical self-checking or when the last few actions are directly relevant to this trigger.
-- If `latest_rt_trigger_event` is present, read it first as the reason you were awakened. It is trigger context, not trading authorization; the actual action still must respect PM mandate and `policy_risk`.
-- If `latest_risk_brake_event` is present, read it before planning any action. It means the system has already reduced or exited risk on your behalf; treat that as an accomplished fact, not a suggestion.
-- Never use any identifier inside `latest_rt_trigger_event` as the submit `input_id`. The only valid submit `input_id` is the top-level `input_id` returned by `/api/agent/pull/rt`.
-- Never use any identifier inside `latest_risk_brake_event` as the submit `input_id`. The only valid submit `input_id` is the top-level `input_id` returned by `/api/agent/pull/rt`.
-- Use the runtime pack's top-level `trigger_context.trigger_type` for the formal `trigger_type` when present. Do not derive formal submit fields from `latest_rt_trigger_event` ids.
-- If `latest_risk_brake_event.lock_mode` is `reduce_only`, you may only `reduce / close / hold / wait`.
-- If `latest_risk_brake_event.lock_mode` is `flat_only`, you may only `close / hold / wait`.
-- When reasoning about exposure, quote the normalized share from the runtime pack instead of recomputing it from raw notional and equity.
-- For official condition-triggered, heartbeat, and PM follow-up operation, submit with `live=true`.
-- Only pass `max_notional_usd` when the user or upstream trigger explicitly asks for a temporary execution cap.
+## 当前使用规则
+- 拉取一次数据包，基于该数据包工作，并使用同一个 `input_id` 提交。
+- `python3 /Users/chenzian/openclaw-trader/scripts/pull_rt_runtime.py` 现在也会写入 `/tmp/rt_execution_submission.json`。将该文件作为本轮的默认提交脚手架。
+- 保持 `/tmp/rt_execution_submission.json` 为纯粹的根级 `ExecutionSubmission` 对象。不要添加 `input_id`、`trace_id`、`agent_role`、`task_kind`、`rt_commentary`、`pm_recheck_request` 或每个决策的 `execution_params` 等包装字段。
+- 如果运行时数据包显示某个币种存在活跃的、未锁定的目标，但 desk 尚未建仓或方向相反，则脚手架最终必须是以下之一：
+  - 包含至少一个待处理币种的开仓/加仓/翻转批次，或
+  - 设置了 `pm_recheck_requested=true` 且 `pm_recheck_reason` 非空的根级升级
+- 如果本轮同时刷新 `tactical_map_update`，每个此类待处理币种必须包含非空的 `first_entry_plan`。地图必须说明第一笔试探仓如何下单。
+- 优先将运行时数据包写入文件，然后从该文件中读取所需字段。不要将完整 JSON 数据包回灌到模型上下文中。
+- 先读取 `trigger_delta`，再读取 `standing_tactical_map`，最后读取 `rt_decision_digest`。
+- 如果 `standing_tactical_map` 为 `null` 且 `trigger_delta.requires_tactical_map_refresh = true`，本轮必须在同一 `execution` 提交中携带 `tactical_map_update`。helper 生成的脚手架已包含所需的根级块；填写它而不是删除它。
+- 如果 `trigger_delta.map_status = missing_first_entry_plan`，即使地图其余结构兼容，也将现有地图视为操作上不完整。本轮刷新它。
+- 如果 `standing_tactical_map` 存在且 `trigger_delta.requires_tactical_map_refresh = false`，默认基于该地图操作，不要在常规无操作轮次中重写它。
+- 仅在摘要留有实质性歧义时才深入查看原始 `execution_contexts`、`market.market_context`、`recent_execution_thoughts` 或 `news_events`。
+- 不要使用 `GET /api/agent/pull/rt`。正式桥接仅支持 `POST`。
+- 将 `execution_contexts` 视为从 PM 正式策略到 RT 执行批次的可操作桥梁。
+- 仅在摘要指示相关时，将 `news_events` 作为轻量头条风险层使用。
+- 仅在摘要指示你需要历史自查或最近几次操作与本次触发直接相关时，使用 `recent_execution_thoughts`。
+- 如果存在 `latest_rt_trigger_event`，首先读取它作为你被唤醒的原因。它是触发上下文，不是交易授权；实际操作仍必须遵守 PM 指令和 `policy_risk`。
+- 如果存在 `latest_risk_brake_event`，在规划任何操作前先读取它。它意味着系统已经代你减仓或平仓；将其视为既成事实，而非建议。
+- 永远不要将 `latest_rt_trigger_event` 中的任何标识符用作提交 `input_id`。唯一有效的提交 `input_id` 是 `/api/agent/pull/rt` 返回的顶层 `input_id`。
+- 永远不要将 `latest_risk_brake_event` 中的任何标识符用作提交 `input_id`。唯一有效的提交 `input_id` 是 `/api/agent/pull/rt` 返回的顶层 `input_id`。
+- 使用运行时数据包顶层的 `trigger_context.trigger_type` 作为正式 `trigger_type`（如果存在）。不要从 `latest_rt_trigger_event` id 推导正式提交字段。
+- 如果 `latest_risk_brake_event.lock_mode` 为 `reduce_only`，你只能执行 `reduce / close / hold / wait`。
+- 如果 `latest_risk_brake_event.lock_mode` 为 `flat_only`，你只能执行 `close / hold / wait`。
+- 在推理敞口时，引用运行时数据包中的标准化份额，而不是从原始名义值和权益重新计算。
+- 对于正式的条件触发、心跳和 PM 跟进操作，提交时使用 `live=true`。
+- 仅在用户或上游触发明确要求临时执行上限时才传递 `max_notional_usd`。

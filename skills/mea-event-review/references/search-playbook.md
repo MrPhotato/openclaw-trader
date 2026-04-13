@@ -1,23 +1,28 @@
-# Search Playbook
+# 搜索操作手册
 
-Use `/gemini` only when:
-- the batch is ambiguous
-- the source credibility is unclear
-- the event looks high impact
-- you need cross-source confirmation
+仅在以下情况使用 `/gemini`：
+- 批次内容模糊不清
+- 来源可信度不确定
+- 事件看起来影响重大
+- 需要交叉来源确认
 
-Do not use `/gemini` for every item by default.
+不要默认对每个条目都使用 `/gemini`。
 
-When searching, the instruction must start with one of:
+搜索时，指令必须以下列格式之一开头：
 - `Web search for ...`
 - `联网搜索：...`
 
-Preferred search goal:
-- clarify what happened
-- confirm timing
-- confirm impact scope
-- identify whether the event should be `high`
+优先搜索目标：
+- 弄清发生了什么
+- 确认时间线
+- 确认影响范围
+- 判断事件是否应为 `high`
 
-If the event is `high`, directly tell:
+如果事件为 `high`，直接通知：
 - `PM`
 - `RT`
+
+## 利好事件同样需要确认
+- 如果事件可能显著强化 PM 的 thesis（如关键数据超预期、监管利好、流动性改善信号），同样值得用 `/gemini` 做交叉确认。
+- 确认后的利好事件应和利空事件一样及时通知 `PM` 和 `RT`。
+- 不要只在"风险"事件上投入搜索精力——漏确认一个利好和漏确认一个利空对团队的损失是对等的。

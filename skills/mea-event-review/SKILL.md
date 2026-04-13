@@ -1,41 +1,45 @@
 ---
 name: mea-event-review
-description: Macro Event Analyst workflow for openclaw-trader. Use when MEA needs to review news batches, optionally search the web via /gemini, produce structured news JSON, and directly notify PM and RT only when a high-importance event changes the current trading state.
+description: MEA 宏观事件审查工作流。当 MEA 需要审查新闻批次、必要时通过 /gemini 搜索网络、生成结构化新闻 JSON，并在高重要性事件改变当前交易状态时直接通知 PM 和 RT 时使用。
 ---
 
-# MEA Event Review
+# MEA 事件审查
 
-Use this skill for `MEA` work only.
+此 skill 仅供 `MEA` 使用。
 
-## Use When
-- Every `2` hours
-- Immediate trigger on `NEWS_BATCH_READY`
+## 触发时机
+- 每 `2` 小时
+- `NEWS_BATCH_READY` 即时触发
 
-## Job
-- Pull exactly one MEA runtime pack from `agent_gateway`.
-- Review incoming news batches.
-- Resolve important uncertainties with `/gemini` only when needed.
-- Produce exactly one pure JSON `news` submission when making a formal submit.
-- Submit against the current `input_id`.
-- Only author `events`; the system will add `submission_id` and `generated_at_utc`.
-- Directly notify `PM` and `RT` only when a high-importance event changes the current trading state.
+## 职责
+- 从 `agent_gateway` 拉取恰好一个 MEA runtime pack。
+- 审查传入的新闻批次。
+- 仅在必要时用 `/gemini` 解决重要的不确定性。
+- 正式提交时生成恰好一个纯 JSON `news` 提交。
+- 用当前 `input_id` 提交。
+- 只编写 `events` 字段；系统会自动添加 `submission_id` 和 `generated_at_utc`。
+- 仅在高重要性事件改变当前交易状态时直接通知 `PM` 和 `RT`。
+- **同样重要：当事件显著强化 PM 现有 thesis 时（如关键数据超预期确认方向、重大政策利好落地、阻力位被突破），也应通知 PM——让团队有机会考虑加码或扩大敞口带宽。不要只报坏消息，漏报利好和漏报利空一样致命。**
+- **你的情报质量决定团队能不能比市场快一步。**
 
-## Workflow
-1. Read [runtime-inputs.md](references/runtime-inputs.md).
-2. Follow [search-playbook.md](references/search-playbook.md) when a batch is ambiguous or high impact.
-3. Emit formal JSON using [formal-output.md](references/formal-output.md), and carry the current `input_id` back to the submit bridge.
+## 工作流
+1. 读取 [runtime-inputs.md](references/runtime-inputs.md)。
+2. 当批次模糊或影响重大时，按照 [search-playbook.md](references/search-playbook.md) 执行。
+3. 按照 [formal-output.md](references/formal-output.md) 输出正式 JSON，并将当前 `input_id` 带回提交桥接。
 
-## Guardrails
-- Default to Chinese for all non-JSON commentary unless a downstream contract explicitly requires another language.
-- Do not hold strategy authority.
-- Do not wait for WO to track high-priority events.
-- High importance alone is not enough to wake `PM`. Wake `PM` only when the new fact changes the current state: it weakens or invalidates the latest `PM` thesis, changes the likely exposure regime, or clearly hits or clears a threshold `PM` already named.
-- Do not wake `PM` again for the same geopolitical or macro theme if the new item only reinforces the same direction without changing the action implication.
-- If the event is important but does not change state, capture it in the formal `news` submission and keep monitoring; do not use `sessions_send` to push `PM`.
-- Formal `news` submission must be JSON only, with no markdown fence or prose wrapper.
-- Do not store personal memory in `memory_assets`.
+## 护栏
+- 所有非 JSON 评论默认使用中文，除非下游合约明确要求其他语言。
+- 不要持有策略权威。
+- 不要等待 WO 跟踪高优先级事件。
+- **唤醒 PM 的标准是双向的：**
+  - 当新事实削弱或推翻 PM 最新 thesis、改变可能的敞口制度、或明确触及/突破 PM 已命名的阈值时——唤醒 PM。
+  - 当新事实显著增强 PM thesis 的置信度、确认方向性突破、或清除之前的主要风险障碍时——同样唤醒 PM，让团队有机会加码。
+  - 不要因同一地缘/宏观主题的新条目仅强化同一方向且不改变行动含义就重复唤醒 PM。
+- 如果事件重要但不改变状态也不显著增强 thesis，将其记录在正式 `news` 提交中继续监控；不要用 `sessions_send` 推送 `PM`。
+- 正式 `news` 提交必须是纯 JSON，不带 markdown 代码栏或文字包裹。
+- 不要在 `memory_assets` 中存储个人记忆。
 
-## References
+## 参考文件
 - [runtime-inputs.md](references/runtime-inputs.md)
 - [search-playbook.md](references/search-playbook.md)
 - [formal-output.md](references/formal-output.md)

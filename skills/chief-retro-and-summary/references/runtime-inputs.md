@@ -1,73 +1,73 @@
-# Runtime Inputs
+# 运行时输入
 
-## Current implementation
-Current runtime path is:
+## 当前实现
+当前运行时路径为：
 
 `OpenClaw cron or event wakeup -> Chief -> AG pull bridge -> single chief-retro pack`
 
-Chief should pull one `chief-retro` pack from `agent_gateway`, then read:
+Chief 应从 `agent_gateway` 拉取一个 `chief-retro` 包，然后读取：
 - `retro_pack`
 - `trigger_context`
-- lease metadata:
+- 租约元数据：
   - `input_id`
   - `trace_id`
   - `expires_at_utc`
 
-Operational rule:
-- Treat the returned top-level `input_id` as an opaque lease token.
-- Save it locally if needed, but do not rename it, rebuild it, or replace it with a human-readable placeholder.
+操作规则：
+- 将返回的顶层 `input_id` 视为不透明的租约令牌。
+- 如有需要可在本地保存，但不得重命名、重建或用人类可读的占位符替换它。
 
-Source of truth in code:
+代码中的权威来源：
 - `src/openclaw_trader/modules/agent_gateway/service.py`
 - `src/openclaw_trader/app/api.py`
 
-## Target contract
-Chief should run retrospectives against a shared daily pack centered on:
-- `Trade Gateway` market and execution timeline
-- key `QI` snapshots
-- key `policy_risk` changes
-- PM strategy versions
-- RT execution batches
-- MEA high-impact events
-- one `retro_case`
-- three `retro_briefs`
+## 目标合约
+Chief 应针对以下内容为核心的共享每日包运行复盘：
+- `Trade Gateway` 市场和执行时间线
+- 关键 `QI` 快照
+- 关键 `policy_risk` 变更
+- PM 策略版本
+- RT 执行批次
+- MEA 高影响力事件
+- 一个 `retro_case`
+- 三份 `retro_briefs`
 
-## Use Now
-- Pull once, work from that pack, and submit against the same `input_id`.
-- Prefer:
+## 当前使用规则
+- 拉取一次，基于该包工作，并使用相同的 `input_id` 提交。
+- 优先使用：
   - `python3 /Users/chenzian/openclaw-trader/scripts/pull_chief_retro.py`
-  - This writes:
+  - 该脚本会写入：
     - `/tmp/chief_retro_pack.json`
     - `/tmp/chief_retro_submission.json`
-- The final `POST /api/agent/submit/retro` body must use the exact same top-level `input_id` value from the pull response.
-- The submit body must include:
+- 最终 `POST /api/agent/submit/retro` 的请求体必须使用与拉取响应中完全相同的顶层 `input_id` 值。
+- 提交体必须包含：
   - `input_id`
   - `owner_summary`
-- Strongly prefer also including:
+- 强烈建议同时包含：
   - `case_id`
   - `root_cause_ranking`
   - `role_judgements`
   - `learning_directives`
-- Optional fields:
+- 可选字段：
   - `reset_command`
   - `learning_results`
-- Prefer:
+- 优先使用：
   - `python3 /Users/chenzian/openclaw-trader/scripts/submit_chief_retro.py --input-id "$INPUT_ID" --payload-file /tmp/chief_retro_submission.json`
-- Do not hand-escape a long JSON body inline. Write a JSON file first, then `POST` that file.
-- In the owner-summary phase, the pack provides `learning_targets[]` with:
-  - canonical `learning_path`
-  - exact `session_key` for each agent's main session
-- Use only those `learning_targets[].session_key` values for learning delivery.
-- Do not call `sessions_list` to discover or guess alternative session names.
-- If `learning_targets[]` is unexpectedly absent, note the missing metadata in the retro narrative and continue without waiting for learning confirmation.
-- When Chief asks `PM / RT / MEA / Chief` to run `/self-improving-agent`, use the provided `session_key` exactly.
-- Chief is not moderating a live roundtable here.
-- The pack now provides:
+- 不要在命令行中手动转义长 JSON 体。先写入 JSON 文件，然后 `POST` 该文件。
+- 在 owner-summary 阶段，包会提供 `learning_targets[]`，其中包含：
+  - 规范化的 `learning_path`
+  - 每个 agent 主会话的精确 `session_key`
+- 仅使用那些 `learning_targets[].session_key` 值进行学习交付。
+- 不要调用 `sessions_list` 来发现或猜测替代的会话名称。
+- 如果 `learning_targets[]` 意外缺失，在复盘叙述中注明缺失的元数据，并继续执行，无需等待学习确认。
+- 当 Chief 要求 `PM / RT / MEA / Chief` 运行 `/self-improving-agent` 时，必须精确使用所提供的 `session_key`。
+- Chief 在此处并非主持实时圆桌会议。
+- 包现在提供以下内容：
   - `retro_case`
   - `retro_briefs`
   - `pending_retro_brief_roles`
   - `retro_ready_for_synthesis`
   - `learning_targets`
-  - optional `pending_learning_directives`
-- Your job is to judge the case and those briefs, then emit a concise Chief synthesis.
-- If `retro_ready_for_synthesis` is `false`, stop. Do not synthesize against an incomplete pack.
+  - 可选的 `pending_learning_directives`
+- 你的任务是评判 case 和那些 briefs，然后输出简明的 Chief 综合报告。
+- 如果 `retro_ready_for_synthesis` 为 `false`，停止。不要针对不完整的包进行综合。

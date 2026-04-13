@@ -1,13 +1,13 @@
-# Runtime Inputs
+# 运行时输入
 
-## Current implementation
-Current runtime path is:
+## 当前实现
+当前运行时路径为：
 
 `OpenClaw cron or event wakeup -> PM -> AG pull bridge -> single PM runtime pack`
 
-PM should pull one `pm` runtime pack from `agent_gateway`.
+PM 应从 `agent_gateway` 拉取一个 `pm` 运行时包。
 
-Fixed `pm-main` cadence example:
+固定 `pm-main` 节奏示例：
 
 ```bash
 python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py \
@@ -16,7 +16,7 @@ python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py \
   --output /tmp/pm_runtime_pack.json
 ```
 
-Direct message wake example:
+直接消息唤醒示例：
 
 ```bash
 python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py \
@@ -28,11 +28,11 @@ python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py \
   --output /tmp/pm_runtime_pack.json
 ```
 
-Use `manual` only for a true ad-hoc manual refresh. If a pending system wake such as `scheduled_recheck` or `risk_brake` already exists, let the bridge preserve that trigger instead of overwriting it.
+仅在真正的临时手动刷新时使用 `manual`。如果已有待处理的系统唤醒（如 `scheduled_recheck` 或 `risk_brake`），应让桥接保留该触发器，而不是覆盖它。
 
-This call is not instant. In the live stack it can take roughly `20-30s` because the bridge compiles market, news, forecast, and risk facts before returning.
+此调用并非即时完成。在实时栈中大约需要 `20-30s`，因为桥接会在返回前编译市场、新闻、预测和风控数据。
 
-Recommended extraction pattern:
+推荐的提取模式：
 
 ```bash
 python3 - <<'PY'
@@ -44,7 +44,7 @@ print(pack["input_id"])
 PY
 ```
 
-The response shape is:
+返回的数据结构为：
 
 ```json
 {
@@ -74,49 +74,49 @@ The response shape is:
 }
 ```
 
-Important live field layout:
-- lease metadata lives at the top level:
+重要实时字段布局：
+- 租约元数据位于顶层：
   - `input_id`
   - `trace_id`
   - `expires_at_utc`
   - `trigger_type`
-- strategy facts live under `payload`
-- `market_context` and `portfolio` are **inside** `payload.market`, not top-level siblings
-- `news_events` is a compact recent-news layer for PM review, not an unbounded raw news dump
-- `latest_pm_trigger_event` records the audited PM wake reason for this run. Fixed cadence, workflow wakes, direct agent messages, and manual refreshes should all land here.
-- `latest_risk_brake_event` may be present when the system just forced a reduce or exit order before waking PM
-- `risk_brake_policy` describes the standing desk rule: the system watches both single-position peak drawdown and portfolio peak drawdown, and it can automatically reduce or exit before PM wakes
-- `previous_strategy` already uses canonical strategy field names such as:
+- 策略事实位于 `payload` 下
+- `market_context` 和 `portfolio` 位于 `payload.market` **内部**，不是顶层同级字段
+- `news_events` 是供 PM 审阅的精简近期新闻层，不是无限制的原始新闻转储
+- `latest_pm_trigger_event` 记录本次运行经审计的 PM 唤醒原因。固定节奏、工作流唤醒、直接代理消息和手动刷新都应记录在此
+- `latest_risk_brake_event` 在系统刚刚在唤醒 PM 之前强制减仓或平仓时可能存在
+- `risk_brake_policy` 描述了常设台面规则：系统监控单仓位最大回撤和组合最大回撤，可以在 PM 被唤醒之前自动减仓或平仓
+- `previous_strategy` 已使用规范策略字段名称，如：
   - `portfolio_thesis`
   - `portfolio_invalidation`
   - `flip_triggers`
   - `change_summary`
-- do not assume older aliases such as `thesis` or `invalidation`
+- 不要假设旧的别名如 `thesis` 或 `invalidation`
 
-Source of truth in code:
+代码中的权威来源：
 - `src/openclaw_trader/modules/agent_gateway/service.py`
 - `src/openclaw_trader/app/api.py`
 
-## Target contract
-PM should keep working from structured facts, but the formal output path is:
+## 目标合约
+PM 应继续基于结构化事实工作，但正式输出路径为：
 
 `PM -> AG submit bridge (+ input_id) -> strategy.schema.json validation -> memory_assets + workflow_orchestrator`
 
-PM should not assume there is any separate message broker hop in the live path, nor that it can request data directly from any message broker.
+PM 不应假设实时路径中存在任何独立的消息代理跳转，也不应假设可以直接从任何消息代理请求数据。
 
-## Use Now
-- Pull once, work from that pack, and submit against the same `input_id`.
-- Do not probe the bridge with `GET /api/agent/pull/pm`. The live bridge is `POST` only.
-- Never use `web_fetch` for `127.0.0.1` or localhost. Use shell `curl` only.
-- Prefer `python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py` over handwritten curl so PM wake provenance stays audited and consistent.
-- The bridge now has a narrow safety net for raw `pull/pm`: if PM was just woken by a recent direct agent message and then issues a bare `pm_unspecified` pull, the service will inherit that recent message provenance instead of silently downgrading to `pm_unspecified`. This is only a guardrail, not the preferred path.
-- Do not infer `input_id` from timestamps, process ids, filenames, or partial logs. Read the top-level `input_id` from the runtime pack directly.
-- Because runtime pack output can be long, prefer writing it to a file first and then reading the file. Do not trust truncated process output.
-- Do not paste the full runtime pack back into the conversation after pulling it. Keep the large JSON in a file and only extract the fields you need.
-- If `latest_risk_brake_event` is present, treat it as a hard desk fact: the system has already reduced or exited risk. Your job is to re-evaluate mandate and publish a new strategy revision around that new state.
-- Treat `risk_brake_policy` as a standing house rule, not a suggestion. PM is not the only risk controller now: the system can auto-reduce or auto-exit on both single-position peak drawdown and portfolio peak drawdown, then wake PM to revise mandate.
-- Every formal strategy must explicitly cover `BTC`, `ETH`, and `SOL` in `targets`. Do not omit a coin just because it is inactive; mark it `watch` or `disabled` instead.
-- If you were woken by RT / MEA / Chief / owner directly, classify the wake as `agent_message` and include `source_role`, `wake_source=sessions_send`, and a one-line `reason` in the pull helper args.
-- If submit fails with `unknown_input_id`, do one fresh `pull/pm`, replace the old `input_id`, and retry once. Stop there; repeated retries with guessed ids are always wrong.
-- If runtime facts and later design notes diverge, follow the live pack plus the formal strategy contract.
-- Do not wait for `workflow_orchestrator` to push a strategy payload. PM is agent-first now.
+## 当前使用规则
+- 拉取一次，基于该包工作，并使用同一个 `input_id` 提交。
+- 不要使用 `GET /api/agent/pull/pm` 探测桥接。实时桥接仅支持 `POST`。
+- 永远不要使用 `web_fetch` 访问 `127.0.0.1` 或 localhost。仅使用 shell `curl`。
+- 优先使用 `python3 /Users/chenzian/openclaw-trader/scripts/pull_pm_runtime.py` 而非手写 curl，以确保 PM 唤醒来源的审计一致性。
+- 桥接现在对原始 `pull/pm` 有一个窄安全网：如果 PM 刚刚被最近的直接代理消息唤醒，然后发出一个裸 `pm_unspecified` 拉取请求，服务会继承该最近消息的来源信息，而非静默降级为 `pm_unspecified`。这只是一个防护栏，不是首选路径。
+- 不要从时间戳、进程 ID、文件名或部分日志推断 `input_id`。直接从运行时包的顶层读取 `input_id`。
+- 由于运行时包输出可能很长，优先将其写入文件再读取文件。不要信任截断的进程输出。
+- 拉取运行时包后不要将完整内容粘贴到对话中。将大 JSON 保存在文件中，仅提取需要的字段。
+- 如果 `latest_risk_brake_event` 存在，将其视为硬性台面事实：系统已经减仓或平仓。你的任务是重新评估授权并围绕新状态发布新的策略修订。
+- 将 `risk_brake_policy` 视为常设内部规则，而非建议。PM 不再是唯一的风控者：系统可以对单仓位最大回撤和组合最大回撤自动减仓或平仓，然后唤醒 PM 修订授权。
+- 每个正式策略必须在 `targets` 中明确覆盖 `BTC`、`ETH` 和 `SOL`。不要因为某币种不活跃就省略它；标记为 `watch` 或 `disabled` 即可。
+- 如果你被 RT / MEA / Chief / owner 直接唤醒，将唤醒分类为 `agent_message`，并在拉取辅助参数中包含 `source_role`、`wake_source=sessions_send` 和一行 `reason`。
+- 如果提交失败并返回 `unknown_input_id`，执行一次新的 `pull/pm`，替换旧的 `input_id`，然后重试一次。到此为止；使用猜测的 ID 反复重试永远是错误的。
+- 如果运行时事实和后续设计文档有分歧，以实时包加正式策略合约为准。
+- 不要等待 `workflow_orchestrator` 推送策略载荷。PM 现在是代理优先的。
