@@ -100,7 +100,14 @@ export type MarketContextData = {
         {
           window?: string;
           change_pct?: number | null;
-          points: Array<{ timestamp: number; close: string }>;
+          points: Array<{
+            timestamp: number;
+            close: string;
+            open?: string | null;
+            high?: string | null;
+            low?: string | null;
+            volume?: string | null;
+          }>;
         }
       >;
     }

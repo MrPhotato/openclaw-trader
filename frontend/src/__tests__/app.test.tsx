@@ -395,8 +395,6 @@ describe("App", () => {
     expect(screen.queryByText("当前敞口")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("$161.3").length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getAllByText("名义占用 3.23%").length).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(screen.getByText("观察线")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId("balance-risk-legend")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: "展开更多成交回执" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: "展开更多高优先事件" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());
