@@ -211,7 +211,17 @@ class CoinbaseIntxMarketDataProvider:
             granularity=granularity,
             limit=lookback,
         )
-        points = [PriceSeriesPoint(timestamp=candle.start, close=str(candle.close)) for candle in candles[-lookback:]]
+        points = [
+            PriceSeriesPoint(
+                timestamp=candle.start,
+                close=str(candle.close),
+                open=str(candle.open),
+                high=str(candle.high),
+                low=str(candle.low),
+                volume=str(candle.volume),
+            )
+            for candle in candles[-lookback:]
+        ]
         change_pct = None
         if len(candles) >= 2:
             first = Decimal(str(candles[0].close))

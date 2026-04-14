@@ -9,6 +9,10 @@ from pydantic import AliasChoices, BaseModel, Field
 class PriceSeriesPoint(BaseModel):
     timestamp: int
     close: str
+    open: str | None = None
+    high: str | None = None
+    low: str | None = None
+    volume: str | None = None
 
 
 class CompressedPriceSeries(BaseModel):
