@@ -981,6 +981,22 @@ function ChiefRetroTimeline(props: {
   const learningResults = Array.isArray(retroPayload?.learning_results) ? retroPayload.learning_results as Record<string, unknown>[] : [];
   const rootCauseRanking = Array.isArray(retroPayload?.root_cause_ranking) ? retroPayload.root_cause_ranking as string[] : [];
   const roleJudgements = asRecord(retroPayload?.role_judgements);
+  const ownerSummary = typeof retroPayload?.owner_summary === "string" ? retroPayload.owner_summary : "";
+  const challengePrompts = normalizeRetroChallengePrompts(rc?.challenge_prompts);
+  const learningDirectiveEmptyMessage = hasTextualLearningSection(ownerSummary)
+    ? "这轮只在文本里写了学习要求，没提交结构化 learning_directives。"
+    : "此次复盘没有生成学习指令。";
+  const learningResultEmptyMessage = directives.length > 0
+    ? "学习指令已生成，但学习结果尚未回写。"
+    : hasTextualLearningSection(ownerSummary)
+      ? "这轮没有结构化学习指令，所以也没有可核验的学习落实记录。"
+      : "学习结果尚未回写。";
+  const learningChain = chiefLearningChainState({
+    ownerSummary,
+    directives,
+    learningResults,
+    learningCompleted: retroPayload?.learning_completed === true,
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -1006,14 +1022,14 @@ function ChiefRetroTimeline(props: {
                 <div className="text-sm leading-7 text-slate-300 whitespace-pre-line">{String(rc.objective_summary)}</div>
               </div>
             )}
-            {Array.isArray(rc.challenge_prompts) && (rc.challenge_prompts as Record<string, unknown>[]).length > 0 && (
+            {challengePrompts.length > 0 && (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="text-xs tracking-widest text-slate-500 mb-3">挑战提示</div>
                 <div className="space-y-2">
-                  {(rc.challenge_prompts as Record<string, unknown>[]).map((prompt, i) => (
+                  {challengePrompts.map((prompt, i) => (
                     <div key={i} className="flex gap-2 text-sm">
-                      <span className="shrink-0 font-medium text-slate-400">{ROLE_LABEL[String(prompt.role ?? "")] ?? String(prompt.role ?? "?")}:</span>
-                      <span className="text-slate-300">{String(prompt.prompt ?? prompt.question ?? "")}</span>
+                      {prompt.label ? <span className="shrink-0 font-medium text-slate-400">{prompt.label}:</span> : null}
+                      <span className="text-slate-300">{prompt.text}</span>
                     </div>
                   ))}
                 </div>
@@ -1067,25 +1083,28 @@ function ChiefRetroTimeline(props: {
                 <div className="text-xs tracking-widest text-slate-500 mb-3">根因排序</div>
                 <ol className="list-decimal list-inside space-y-1 text-sm text-slate-300">
                   {rootCauseRanking.map((cause, i) => (
-                    <li key={i}>{String(cause)}</li>
+                    <li key={i}>{stripLeadingOrdinal(String(cause))}</li>
                   ))}
                 </ol>
               </div>
             )}
             {roleJudgements && (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs tracking-widest text-slate-500 mb-3">角色评分</div>
+                <div className="text-xs tracking-widest text-slate-500 mb-3">角色裁决</div>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {Object.entries(roleJudgements).map(([role, judgement]) => {
-                    const raw = typeof judgement === "string" ? judgement : String((judgement as Record<string, unknown>)?.grade ?? (judgement as Record<string, unknown>)?.score ?? judgement ?? "—");
-                    const pipeIdx = raw.indexOf("|");
-                    const grade = pipeIdx > 0 ? raw.slice(0, pipeIdx).trim() : raw.split(/\s/)[0] || "—";
-                    const comment = pipeIdx > 0 ? raw.slice(pipeIdx + 1).trim() : "";
+                    const parsed = parseRoleJudgement(judgement);
                     return (
                       <div key={role} className="rounded-xl border border-white/5 bg-white/[0.03] p-3">
                         <div className="text-xs text-slate-500">{ROLE_LABEL[role] ?? role}</div>
-                        <div className={`mt-1 text-2xl font-bold ${GRADE_TONE[grade] ?? "text-slate-200"}`}>{grade}</div>
-                        {comment && <div className="mt-2 text-xs leading-5 text-slate-400">{comment}</div>}
+                        {parsed.grade ? (
+                          <>
+                            <div className={`mt-1 text-2xl font-bold ${GRADE_TONE[parsed.grade] ?? "text-slate-200"}`}>{parsed.grade}</div>
+                            {parsed.comment ? <div className="mt-2 text-xs leading-5 text-slate-400">{parsed.comment}</div> : null}
+                          </>
+                        ) : (
+                          <div className="mt-2 text-sm leading-6 text-slate-300">{parsed.comment || "暂无结构化裁决。"}</div>
+                        )}
                       </div>
                     );
                   })}
@@ -1093,8 +1112,8 @@ function ChiefRetroTimeline(props: {
               </div>
             )}
             <div className="grid gap-3 sm:grid-cols-3">
-              <HeroMetric label="综合轮次" value={String(retroPayload.round_count ?? "—")} tone="text-slate-100" />
-              <HeroMetric label="学习完成" value={retroPayload.learning_completed ? "是" : "否"} tone={retroPayload.learning_completed ? "text-emerald-300" : "text-amber-300"} />
+              <HeroMetric label="复盘模式" value={chiefRetroModeLabel(retroPayload?.round_count)} tone="text-slate-100" />
+              <HeroMetric label="学习链路" value={learningChain.value} tone={learningChain.tone} />
               <HeroMetric label="复盘时间" value={retro ? formatTime(retro.created_at) : "—"} tone="text-slate-200" />
             </div>
           </div>
@@ -1124,7 +1143,7 @@ function ChiefRetroTimeline(props: {
             })}
           </div>
         ) : (
-          <EmptyState message="此次复盘没有生成学习指令。" />
+          <EmptyState message={learningDirectiveEmptyMessage} />
         )}
       </RetroPhasePanel>
 
@@ -1144,7 +1163,7 @@ function ChiefRetroTimeline(props: {
             })}
           </div>
         ) : (
-          <EmptyState message="学习结果尚未回写。" />
+          <EmptyState message={learningResultEmptyMessage} />
         )}
       </RetroPhasePanel>
 
@@ -2243,6 +2262,103 @@ function compactText(value: string, maxLength: number) {
     return normalized;
   }
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function normalizeRetroChallengePrompts(value: unknown): Array<{ label: string | null; text: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (typeof item === "string" && item.trim().length > 0) {
+      return [{ label: null, text: item.trim() }];
+    }
+    const record = asRecord(item);
+    if (!record) {
+      return [];
+    }
+    const text = nonEmptyText(record.prompt ?? record.question ?? record.text, "");
+    if (!text) {
+      return [];
+    }
+    const role = typeof record.role === "string" ? record.role.trim() : "";
+    return [{ label: role ? (ROLE_LABEL[role] ?? role) : null, text }];
+  });
+}
+
+function stripLeadingOrdinal(value: string) {
+  return value.replace(/^\s*\d+\.\s*/, "").trim();
+}
+
+function parseRoleJudgement(value: unknown): { grade: string | null; comment: string } {
+  const record = asRecord(value);
+  const explicitGrade = record ? nonEmptyText(record.grade, "") : "";
+  const explicitComment = record ? nonEmptyText(record.comment ?? record.summary, "") : "";
+  if (explicitGrade) {
+    return {
+      grade: explicitGrade,
+      comment: explicitComment,
+    };
+  }
+  const raw = nonEmptyText(value, "");
+  const match = raw.match(/^(A[+-]?|B[+-]?|C[+-]?|D[+-]?|F)\s*(?:\|\s*(.+))?$/);
+  if (match) {
+    return {
+      grade: match[1],
+      comment: (match[2] ?? "").trim(),
+    };
+  }
+  return {
+    grade: null,
+    comment: raw,
+  };
+}
+
+function chiefRetroModeLabel(roundCount: unknown) {
+  const count = toNumber(roundCount);
+  if (count === null) {
+    return "异步 briefs";
+  }
+  return `同步 ${Math.trunc(count)} 轮`;
+}
+
+function hasTextualLearningSection(ownerSummary: string) {
+  return /学习指令|学习落实|学习结果|会后学习/.test(ownerSummary);
+}
+
+function chiefLearningChainState(props: {
+  ownerSummary: string;
+  directives: Array<Record<string, unknown>>;
+  learningResults: Array<Record<string, unknown>>;
+  learningCompleted: boolean;
+}) {
+  if (props.learningResults.length > 0) {
+    return {
+      value: props.learningCompleted ? "已回写" : "部分回写",
+      tone: props.learningCompleted ? "text-emerald-300" : "text-sky-300",
+    };
+  }
+  if (props.directives.length > 0) {
+    return {
+      value: "待落实",
+      tone: "text-amber-300",
+    };
+  }
+  if (hasTextualLearningSection(props.ownerSummary)) {
+    return {
+      value: "仅文本提及",
+      tone: "text-amber-300",
+    };
+  }
+  if (props.learningCompleted) {
+    return {
+      value: "已完成",
+      tone: "text-emerald-300",
+    };
+  }
+  return {
+    value: "未结构化提交",
+    tone: "text-slate-200",
+  };
 }
 
 function toNumber(value: unknown) {

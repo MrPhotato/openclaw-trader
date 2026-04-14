@@ -440,7 +440,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chief" }));
     await waitFor(() => expect(screen.getByTestId("chief-view")).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByText("Crypto Chief").length).toBeGreaterThanOrEqual(1));
-    await waitFor(() => expect(screen.getByText("Owner Summary")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Chief 综合判断")).toBeInTheDocument());
   });
 
   test("switches balance granularity without crashing", async () => {
@@ -510,5 +510,113 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getAllByText("$161.3").length).toBeGreaterThanOrEqual(2));
     expect(screen.queryByText("$999.9")).not.toBeInTheDocument();
+  });
+
+  test("renders Chief retro using async-brief semantics instead of old roundtable assumptions", async () => {
+    const originalChiefPayload = agentPayloads.crypto_chief;
+    agentPayloads.crypto_chief = {
+      session: { status: "active", last_active_at: "2026-04-14T09:00:00Z" },
+      latest_asset: {
+        asset_id: "retro-new",
+        asset_type: "chief_retro",
+        payload: {
+          owner_summary: "本轮复盘确认有钱留在桌上没赚到。学习指令已在文本中写明，但没有结构化提交。",
+          round_count: null,
+          learning_completed: false,
+          learning_results: [],
+          root_cause_ranking: [
+            "1. PM 防守过度：方向已被市场验证正确时紧急收紧带宽 [0,15%]→[0,10%]，看对方向下错注",
+            "2. RT 执行迟缓：BTC 站上 $72K 硬止损线后未立即翻仓，ETH 顺风只建 ~1%",
+          ],
+          role_judgements: {
+            pm: "方向判断正确✓，但资本分配严重失败✗。看对不敢加是比看错更严重的问题。",
+            risk_trader: "方向转换最终正确✓，但节奏太慢、仓位太小✗。",
+          },
+          learning_directive_ids: [],
+        },
+        metadata: {},
+        created_at: "2026-04-14T09:00:00Z",
+      },
+      latest_chief_retro: {
+        asset_id: "retro-new",
+        asset_type: "chief_retro",
+        payload: {
+          owner_summary: "本轮复盘确认有钱留在桌上没赚到。学习指令已在文本中写明，但没有结构化提交。",
+          round_count: null,
+          learning_completed: false,
+          learning_results: [],
+          root_cause_ranking: [
+            "1. PM 防守过度：方向已被市场验证正确时紧急收紧带宽 [0,15%]→[0,10%]，看对方向下错注",
+            "2. RT 执行迟缓：BTC 站上 $72K 硬止损线后未立即翻仓，ETH 顺风只建 ~1%",
+          ],
+          role_judgements: {
+            pm: "方向判断正确✓，但资本分配严重失败✗。看对不敢加是比看错更严重的问题。",
+            risk_trader: "方向转换最终正确✓，但节奏太慢、仓位太小✗。",
+          },
+          learning_directive_ids: [],
+        },
+        metadata: {},
+        created_at: "2026-04-14T09:00:00Z",
+      },
+      retro_chain: {
+        case_id: "case-async-1",
+        retro_case: {
+          case_id: "case-async-1",
+          case_day_utc: "2026-04-13",
+          created_at_utc: "2026-04-14T08:50:00Z",
+          target_return_pct: 1,
+          primary_question: "为什么今天没有赚到 1%？",
+          objective_summary: "把信号、执行和消息治理拆开复盘。",
+          challenge_prompts: [
+            "PM 是否因为防守过度、翻向条件不清、或 band 调整过频而压缩了可赚空间？",
+            "RT 是否因为执行节奏、等待确认、或缺少主动翻向而错过了可抓的战术收益？",
+          ],
+        },
+        briefs: [
+          {
+            brief_id: "brief-pm-1",
+            agent_role: "pm",
+            created_at_utc: "2026-04-14T08:51:00Z",
+            root_cause: "PM 过度保守。",
+            cross_role_challenge: "MEA 推送太碎。",
+            self_critique: "band 收紧太早。",
+            tomorrow_change: "把翻向条件写清楚。",
+          },
+        ],
+        learning_directives: [],
+      },
+      recent_assets: [],
+    };
+
+    try {
+      const client = new QueryClient();
+      render(
+        <QueryClientProvider client={client}>
+          <App />
+        </QueryClientProvider>,
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: "Chief" }));
+
+      await waitFor(() => expect(screen.getByText("角色裁决")).toBeInTheDocument());
+      expect(screen.queryByText("角色评分")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(
+          screen.getByText("PM 是否因为防守过度、翻向条件不清、或 band 调整过频而压缩了可赚空间？"),
+        ).toBeInTheDocument(),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByText("PM 防守过度：方向已被市场验证正确时紧急收紧带宽 [0,15%]→[0,10%]，看对方向下错注"),
+        ).toBeInTheDocument(),
+      );
+      await waitFor(() => expect(screen.getByText("异步 briefs")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("仅文本提及")).toBeInTheDocument());
+      await waitFor(() =>
+        expect(screen.getByText("这轮只在文本里写了学习要求，没提交结构化 learning_directives。")).toBeInTheDocument(),
+      );
+    } finally {
+      agentPayloads.crypto_chief = originalChiefPayload;
+    }
   });
 });
