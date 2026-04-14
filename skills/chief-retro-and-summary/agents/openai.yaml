@@ -1,4 +1,4 @@
 interface:
-  display_name: "Chief Retro"
-  short_description: "Run retro, summarize, and reset sessions"
-  default_prompt: "Use $chief-retro-and-summary to judge the retro case, issue learning directives, and then send the owner summary."
+  display_name: "Chief 复盘"
+  short_description: "完成复盘、下发学习指令并产出 owner 摘要"
+  default_prompt: "使用 $chief-retro-and-summary 判断当前 retro case，产出学习指令，并发送 owner 摘要。"

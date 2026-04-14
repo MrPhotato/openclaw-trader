@@ -190,8 +190,24 @@ class RuntimeBridgeState(BaseModel):
     runtime_inputs: dict[str, Any] = Field(default_factory=dict)
 
 
+class RetroCycleStateAsset(BaseModel):
+    cycle_id: str
+    trade_day_utc: str
+    state: str
+    started_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    brief_deadline_utc: datetime
+    chief_deadline_utc: datetime
+    degraded_reason: str | None = None
+    retro_case_id: str | None = None
+    chief_retro_id: str | None = None
+    ready_brief_roles: list[str] = Field(default_factory=list)
+    missing_brief_roles: list[str] = Field(default_factory=list)
+    chief_dispatch_status: str | None = None
+
+
 class RetroCaseAsset(BaseModel):
     case_id: str
+    cycle_id: str
     case_day_utc: str
     created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
     trigger_type: str
@@ -207,6 +223,7 @@ class RetroCaseAsset(BaseModel):
 
 class RetroBriefAsset(BaseModel):
     brief_id: str
+    cycle_id: str
     case_id: str
     agent_role: str
     created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -218,13 +235,18 @@ class RetroBriefAsset(BaseModel):
 
 class LearningDirectiveAsset(BaseModel):
     directive_id: str
+    cycle_id: str
     case_id: str
     agent_role: str
     created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    issued_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
     session_key: str
     learning_path: str
     directive: str
     rationale: str
+    baseline_fingerprint: dict[str, Any] = Field(default_factory=dict)
+    completion_state: str = "pending"
+    completed_at_utc: datetime | None = None
 
 
 class MacroEventRecord(BaseModel):

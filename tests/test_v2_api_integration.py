@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -9,7 +11,8 @@ from fastapi.testclient import TestClient
 from openclaw_trader.app.factory import create_app
 
 from .helpers_v2 import build_test_harness
-from .test_v2_agent_gateway import _seed_runtime_bridge_state, _valid_strategy_targets
+from .test_v2_agent_gateway import _seed_pending_retro_case, _seed_runtime_bridge_state, _valid_strategy_targets
+from .test_v2_workflow_orchestrator import _build_retro_prep_monitor
 
 
 class ApiIntegrationTests(unittest.TestCase):
@@ -242,7 +245,6 @@ class ApiIntegrationTests(unittest.TestCase):
                         "payload": {
                             "case_id": chief_payload["retro_case"]["case_id"],
                             "owner_summary": "Chief retro submitted from API integration test.",
-                            "round_count": 1,
                             "root_cause_ranking": ["PM 过度保守"],
                             "learning_directives": [
                                 {
@@ -259,7 +261,6 @@ class ApiIntegrationTests(unittest.TestCase):
                     submit_retro.json()["owner_summary"],
                     "Chief retro submitted from API integration test.",
                 )
-                self.assertEqual(submit_retro.json()["round_count"], 1)
                 self.assertEqual(submit_retro.json()["case_id"], chief_payload["retro_case"]["case_id"])
 
                 chief_pack_missing_summary = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
@@ -278,6 +279,273 @@ class ApiIntegrationTests(unittest.TestCase):
                     retro_missing_owner_summary.json()["detail"]["reason"],
                     "retro_submit_owner_summary_required",
                 )
+        finally:
+            harness.cleanup()
+
+    def test_submit_retro_brief_endpoint_accepts_role_runtime_pack(self) -> None:
+        harness = build_test_harness()
+        try:
+            _seed_pending_retro_case(harness)
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                pm_pack = client.post("/api/agent/pull/pm", json={"trigger_type": "pm_main_cron"})
+                self.assertEqual(pm_pack.status_code, 200)
+                payload = pm_pack.json()["payload"]
+                self.assertTrue(payload["pending_retro_case"])
+                self.assertEqual(payload["retro_brief_status"]["state"], "pending")
+
+                submit = client.post(
+                    "/api/agent/submit/retro-brief",
+                    json={
+                        "input_id": pm_pack.json()["input_id"],
+                        "payload": {
+                            "case_id": payload["pending_retro_case"]["case_id"],
+                            "root_cause": "PM 过度保守。",
+                            "cross_role_challenge": "RT 需要更主动，但 PM 先要给清晰边界。",
+                            "self_critique": "翻向条件写得不够可交易。",
+                            "tomorrow_change": "明天把 flip triggers 写成明确动作。",
+                        },
+                    },
+                )
+                self.assertEqual(submit.status_code, 200)
+                self.assertEqual(submit.json()["agent_role"], "pm")
+                self.assertEqual(submit.json()["case_id"], payload["pending_retro_case"]["case_id"])
+        finally:
+            harness.cleanup()
+
+    def test_submit_retro_brief_endpoint_rejects_wrong_case_id(self) -> None:
+        harness = build_test_harness()
+        try:
+            _seed_pending_retro_case(harness)
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                rt_pack = client.post("/api/agent/pull/rt", json={"trigger_type": "cadence"})
+                self.assertEqual(rt_pack.status_code, 200)
+                submit = client.post(
+                    "/api/agent/submit/retro-brief",
+                    json={
+                        "input_id": rt_pack.json()["input_id"],
+                        "payload": {
+                            "case_id": "retro_case_wrong",
+                            "root_cause": "RT 过度等待。",
+                            "cross_role_challenge": "PM 需要给更清晰边界。",
+                            "self_critique": "没有在高把握窗口主动推进。",
+                            "tomorrow_change": "明天在高把握窗口更主动 add/reduce。",
+                        },
+                    },
+                )
+                self.assertEqual(submit.status_code, 422)
+                self.assertEqual(submit.json()["detail"]["reason"], "retro_brief_case_mismatch")
+        finally:
+            harness.cleanup()
+
+    def test_query_chief_latest_returns_retro_cycle_and_learning_completion(self) -> None:
+        harness = build_test_harness()
+        try:
+            cycle_state, retro_case = _seed_pending_retro_case(harness)
+            harness.container.memory_assets.save_asset(
+                asset_type="chief_retro",
+                asset_id="chief-retro-query",
+                trace_id="trace-chief-retro-query",
+                actor_role="crypto_chief",
+                payload={
+                    "retro_id": "chief-retro-query",
+                    "case_id": retro_case["case_id"],
+                    "cycle_id": cycle_state["cycle_id"],
+                    "owner_summary": "Chief retro completed.",
+                    "learning_directives": [],
+                    "learning_directive_ids": [],
+                },
+            )
+            harness.container.memory_assets.materialize_learning_directive(
+                trace_id="trace-learning-query",
+                case_id=retro_case["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+                agent_role="pm",
+                session_key="agent:pm:main",
+                learning_path="/tmp/pm-learning-query.md",
+                actor_role="system",
+                authored_payload={
+                    "directive": "把翻向条件写清楚。",
+                    "rationale": "让 RT 有明确边界。",
+                    "completion_state": "completed",
+                    "completed_at_utc": "2026-04-12T23:00:00+00:00",
+                },
+            )
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                response = client.get("/api/query/agents/crypto_chief/latest")
+                self.assertEqual(response.status_code, 200)
+                retro_chain = response.json()["retro_chain"]
+                self.assertEqual(retro_chain["retro_cycle_state"]["cycle_id"], cycle_state["cycle_id"])
+                self.assertEqual(retro_chain["chief_retro"]["payload"]["case_id"], retro_case["case_id"])
+                self.assertEqual(retro_chain["learning_directives"][0]["completion_state"], "completed")
+        finally:
+            harness.cleanup()
+
+    def test_submit_retro_endpoint_rejects_legacy_fields(self) -> None:
+        harness = build_test_harness()
+        try:
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                harness.container.agent_gateway.prepare_retro_cycle_from_runtime_bridge(
+                    trace_id="trace-chief-prep-legacy-fields",
+                    trigger_type="daily_retro",
+                    force_new_case=True,
+                )
+                chief_pack = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
+                self.assertEqual(chief_pack.status_code, 200)
+                submit = client.post(
+                    "/api/agent/submit/retro",
+                    json={
+                        "input_id": chief_pack.json()["input_id"],
+                        "payload": {
+                            "case_id": chief_pack.json()["payload"]["retro_case"]["case_id"],
+                            "owner_summary": "legacy field test",
+                            "round_count": 1,
+                        },
+                    },
+                )
+                self.assertEqual(submit.status_code, 422)
+                self.assertEqual(submit.json()["detail"]["reason"], "retro_submit_legacy_fields_forbidden")
+        finally:
+            harness.cleanup()
+
+    def test_full_retro_happy_path_end_to_end(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                prep = monitor.scan_once(now=now)
+                self.assertEqual(prep["status"], "ready")
+                self.assertTrue(prep["chief_dispatched"])
+                self.assertEqual(runner.runs, ["chief-job"])
+
+                chief_pack = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
+                self.assertEqual(chief_pack.status_code, 200)
+                case_id = chief_pack.json()["payload"]["retro_case"]["case_id"]
+                cycle_id = chief_pack.json()["payload"]["retro_cycle_state"]["cycle_id"]
+
+                submit = client.post(
+                    "/api/agent/submit/retro",
+                    json={
+                        "input_id": chief_pack.json()["input_id"],
+                        "payload": {
+                            "case_id": case_id,
+                            "owner_summary": "Chief retro completed.",
+                            "root_cause_ranking": ["PM 过度保守", "RT 过度等待", "MEA 提醒过密"],
+                            "role_judgements": {
+                                "pm": "方向判断基本正确，但 band 过窄。",
+                                "risk_trader": "执行纪律稳定，但主动性不足。",
+                                "macro_event_analyst": "提醒质量尚可，但去重不够。",
+                            },
+                            "learning_directives": [
+                                {"agent_role": "pm", "directive": "把翻向条件写清楚。", "rationale": "让 RT 有明确边界。"},
+                                {"agent_role": "risk_trader", "directive": "高把握窗口更主动 add/reduce。", "rationale": "提高窗口利用率。"},
+                                {"agent_role": "macro_event_analyst", "directive": "只在状态变化时升级提醒。", "rationale": "降低重复打断。"},
+                                {"agent_role": "crypto_chief", "directive": "继续维护异步 artifact 链。", "rationale": "避免回退到同步会。"},
+                            ],
+                        },
+                    },
+                )
+                self.assertEqual(submit.status_code, 200)
+
+                post_retro = monitor.scan_once(now=now + timedelta(minutes=2))
+                self.assertEqual(post_retro["status"], "completed")
+                directives = harness.container.memory_assets.get_learning_directives(case_id=case_id, cycle_id=cycle_id)
+                self.assertEqual(len(directives), 4)
+                self.assertTrue(all(item["completion_state"] == "pending" for item in directives))
+
+                pm_pack = client.post("/api/agent/pull/pm", json={"trigger_type": "pm_main_cron"})
+                self.assertEqual(pm_pack.status_code, 200)
+                self.assertEqual(len(pm_pack.json()["payload"]["pending_learning_directives"]), 1)
+
+                for learning_path in harness.container.agent_gateway.learning_path_by_role.values():
+                    path = Path(learning_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("updated from self-improving-agent\n", encoding="utf-8")
+
+                monitor.scan_once(now=now + timedelta(minutes=3), force=True)
+                directives = harness.container.memory_assets.get_learning_directives(case_id=case_id, cycle_id=cycle_id)
+                self.assertTrue(all(item["completion_state"] == "completed" for item in directives))
+
+                chief_state = client.get("/api/query/agents/crypto_chief/latest")
+                self.assertEqual(chief_state.status_code, 200)
+                retro_chain = chief_state.json()["retro_chain"]
+                self.assertEqual(retro_chain["retro_cycle_state"]["cycle_id"], cycle_id)
+                self.assertEqual(len(retro_chain["briefs"]), 3)
+                self.assertEqual(len(retro_chain["learning_directives"]), 4)
+                self.assertTrue(all(item["completion_state"] == "completed" for item in retro_chain["learning_directives"]))
+        finally:
+            harness.cleanup()
+
+    def test_full_retro_degraded_path_end_to_end(self) -> None:
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            cycle_state, retro_case = _seed_pending_retro_case(harness, trade_day_utc=now.date().isoformat())
+            harness.container.memory_assets.materialize_retro_brief(
+                trace_id="trace-retro-pm-only",
+                case_id=retro_case["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+                agent_role="pm",
+                authored_payload={
+                    "root_cause": "PM 过度保守。",
+                    "cross_role_challenge": "RT 需要更主动。",
+                    "self_critique": "band 不够锋利。",
+                    "tomorrow_change": "明天把边界写清楚。",
+                },
+            )
+            harness.container.memory_assets.save_retro_cycle_state(
+                trace_id="trace-retro-degraded",
+                cycle_id=cycle_state["cycle_id"],
+                payload={
+                    **cycle_state,
+                    "retro_case_id": retro_case["case_id"],
+                    "brief_deadline_utc": (now - timedelta(minutes=1)).isoformat(),
+                    "ready_brief_roles": ["pm"],
+                    "missing_brief_roles": ["risk_trader", "macro_event_analyst"],
+                },
+            )
+            monitor, runner = _build_retro_prep_monitor(harness)
+            app = create_app(harness.container)
+            with TestClient(app) as client:
+                prep = monitor.scan_once(now=now)
+                self.assertEqual(prep["status"], "degraded")
+                self.assertTrue(prep["chief_dispatched"])
+                self.assertEqual(runner.runs, ["chief-job"])
+
+                chief_pack = client.post("/api/agent/pull/chief-retro", json={"trigger_type": "daily_retro"})
+                self.assertEqual(chief_pack.status_code, 200)
+                self.assertEqual(
+                    sorted(chief_pack.json()["payload"]["pending_retro_brief_roles"]),
+                    ["macro_event_analyst", "risk_trader"],
+                )
+
+                submit = client.post(
+                    "/api/agent/submit/retro",
+                    json={
+                        "input_id": chief_pack.json()["input_id"],
+                        "payload": {
+                            "case_id": retro_case["case_id"],
+                            "owner_summary": "Chief degraded retro completed.",
+                            "learning_directives": [
+                                {"agent_role": "pm", "directive": "pm directive", "rationale": "pm rationale"},
+                                {"agent_role": "risk_trader", "directive": "rt directive", "rationale": "rt rationale"},
+                                {"agent_role": "macro_event_analyst", "directive": "mea directive", "rationale": "mea rationale"},
+                                {"agent_role": "crypto_chief", "directive": "chief directive", "rationale": "chief rationale"},
+                            ],
+                        },
+                    },
+                )
+                self.assertEqual(submit.status_code, 200)
+                final_scan = monitor.scan_once(now=now + timedelta(minutes=2))
+                self.assertEqual(final_scan["status"], "degraded")
+                final_cycle = harness.container.memory_assets.latest_retro_cycle_state(trade_day_utc=now.date().isoformat())
+                self.assertEqual(final_cycle["state"], "degraded")
+                self.assertEqual(final_cycle["degraded_reason"], "missing_briefs")
         finally:
             harness.cleanup()
 

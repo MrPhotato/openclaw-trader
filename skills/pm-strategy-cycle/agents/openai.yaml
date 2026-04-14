@@ -1,4 +1,4 @@
 interface:
-  display_name: "PM Strategy"
-  short_description: "Review facts and submit strategy JSON"
-  default_prompt: "Use $pm-strategy-cycle to review the latest structured facts and produce a pure JSON strategy submission."
+  display_name: "PM 策略"
+  short_description: "审阅事实并提交策略 JSON"
+  default_prompt: "使用 $pm-strategy-cycle 审阅最新结构化事实，并产出纯 JSON 策略提交。"

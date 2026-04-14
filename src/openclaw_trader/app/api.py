@@ -197,6 +197,26 @@ def build_router() -> APIRouter:
             ) from exc
         return result
 
+    @router.post("/api/agent/submit/retro-brief")
+    async def submit_retro_brief(request: Request):
+        container = request.app.state.container
+        req = await _parse_agent_submit_request(request)
+        try:
+            result = container.agent_gateway.submit_retro_brief(input_id=req.input_id, payload=req.payload)
+        except RuntimeInputLeaseError as exc:
+            raise HTTPException(status_code=409, detail={"reason": exc.reason, "input_id": exc.input_id}) from exc
+        except SubmissionValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "reason": exc.error_kind,
+                    "schema_ref": exc.schema_ref,
+                    "prompt_ref": exc.prompt_ref,
+                    "errors": exc.errors,
+                },
+            ) from exc
+        return result
+
     @router.post("/api/agent/submit/retro")
     async def submit_retro(request: Request):
         container = request.app.state.container

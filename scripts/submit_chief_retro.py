@@ -13,6 +13,11 @@ FORBIDDEN_TOP_LEVEL_KEYS = {
     "agent_role",
     "task_kind",
     "payload",
+    "meeting_id",
+    "round_count",
+    "transcript",
+    "learning_completed",
+    "learning_results",
 }
 
 
@@ -24,13 +29,13 @@ def preflight_payload(payload: dict) -> tuple[bool, dict]:
             "ok": False,
             "reason": "payload_wrapper_fields_present",
             "forbidden_top_level_keys": forbidden_top,
-            "hint": "payload-file must contain only the root RetroSubmission object. Keep input_id outside the file; submit_chief_retro.py wraps it for you.",
+            "hint": "payload-file 里只能放根级 RetroSubmission 对象。`input_id` 放在文件外层，submit_chief_retro.py 会代你封装。",
         }
     if not owner_summary:
         return False, {
             "ok": False,
             "reason": "owner_summary_required",
-            "hint": "owner_summary must be a non-empty string before submit.",
+            "hint": "`owner_summary` 提交前必须是非空字符串。",
         }
     return True, {}
 
@@ -41,15 +46,14 @@ def summarize_result(result: dict) -> dict:
         "trace_id": result.get("trace_id"),
         "input_id": result.get("input_id"),
         "retro_id": result.get("retro_id"),
-        "meeting_id": result.get("meeting_id"),
-        "round_count": result.get("round_count"),
-        "learning_completed": result.get("learning_completed"),
+        "case_id": result.get("case_id"),
+        "cycle_id": result.get("cycle_id"),
         "owner_summary": result.get("owner_summary"),
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Submit Chief retro outcome.")
+    parser = argparse.ArgumentParser(description="提交 Chief retro 结果。")
     parser.add_argument("--url", default="http://127.0.0.1:8788/api/agent/submit/retro")
     parser.add_argument("--input-id", required=True)
     parser.add_argument("--payload-file", required=True)

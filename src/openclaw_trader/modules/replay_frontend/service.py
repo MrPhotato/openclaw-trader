@@ -88,14 +88,18 @@ class ReplayFrontendService:
             return None
         payload = dict(latest_chief_retro.get("payload") or {})
         case_id = str(payload.get("case_id") or latest_chief_retro.get("group_key") or "")
+        cycle_id = str(payload.get("cycle_id") or "")
         if not case_id:
             return None
-        retro_case = self.memory_assets.latest_retro_case()
+        retro_case = self.memory_assets.get_retro_case(case_id=case_id)
         if retro_case:
             rc_id = str(retro_case.get("case_id") or retro_case.get("asset_id") or "")
             if rc_id != case_id:
                 retro_case = None
-        briefs_raw = self.memory_assets.get_retro_briefs(case_id=case_id)
+        if not cycle_id and retro_case:
+            cycle_id = str(retro_case.get("cycle_id") or "")
+        retro_cycle_state = self.memory_assets.get_retro_cycle_state(cycle_id=cycle_id) if cycle_id else None
+        briefs_raw = self.memory_assets.get_retro_briefs(case_id=case_id, cycle_id=cycle_id or None)
         seen_roles: set[str] = set()
         briefs: list[dict] = []
         for brief in briefs_raw:
@@ -103,11 +107,14 @@ class ReplayFrontendService:
             if role and role not in seen_roles:
                 seen_roles.add(role)
                 briefs.append(brief)
-        directives = self.memory_assets.get_learning_directives(case_id=case_id)
+        directives = self.memory_assets.get_learning_directives(case_id=case_id, cycle_id=cycle_id or None)
         return {
             "case_id": case_id,
+            "cycle_id": cycle_id or None,
+            "retro_cycle_state": retro_cycle_state,
             "retro_case": retro_case,
             "briefs": briefs,
+            "chief_retro": latest_chief_retro,
             "learning_directives": directives,
         }
 

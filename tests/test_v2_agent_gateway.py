@@ -49,6 +49,49 @@ def _write_learning_targets(learning_targets: list[dict[str, object]]) -> list[d
     return results
 
 
+def _seed_pending_retro_case(harness, *, trade_day_utc: str | None = None) -> tuple[dict[str, object], dict[str, object]]:
+    trace_id = "trace-retro-pending"
+    today = trade_day_utc or datetime.now(UTC).date().isoformat()
+    cycle = harness.container.memory_assets.materialize_retro_cycle_state(
+        trace_id=trace_id,
+        authored_payload={
+            "trade_day_utc": today,
+            "state": "brief_collection",
+            "brief_deadline_utc": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+            "chief_deadline_utc": (datetime.now(UTC) + timedelta(minutes=30)).isoformat(),
+            "ready_brief_roles": [],
+            "missing_brief_roles": ["pm", "risk_trader", "macro_event_analyst"],
+            "chief_dispatch_status": "pending",
+        },
+    )
+    retro_case = harness.container.memory_assets.materialize_retro_case(
+        trace_id=trace_id,
+        authored_payload={
+            "cycle_id": cycle["cycle_id"],
+            "case_day_utc": today,
+            "trigger_type": "daily_retro",
+            "primary_question": "为什么今天没有赚到 1%？",
+            "objective_summary": "等待三份 brief 后再由 Chief 综合。",
+            "target_return_pct": 1.0,
+            "challenge_prompts": ["PM 是否过度保守？", "RT 是否过度等待？", "MEA 是否提醒过密？"],
+            "strategy_ids": [],
+            "execution_batch_ids": [],
+            "macro_event_ids": [],
+            "recent_notification_ids": [],
+        },
+        metadata={"trigger_type": "daily_retro"},
+    )
+    cycle = harness.container.memory_assets.save_retro_cycle_state(
+        trace_id=trace_id,
+        cycle_id=cycle["cycle_id"],
+        payload={
+            **cycle,
+            "retro_case_id": retro_case["case_id"],
+        },
+    )
+    return cycle, retro_case
+
+
 def _test_strategy_payload() -> dict[str, object]:
     return {
         "strategy_id": "strategy-test-1",
@@ -1528,6 +1571,100 @@ class AgentGatewayServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_pull_role_runtime_pack_includes_pending_retro_context(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            cycle, retro_case = _seed_pending_retro_case(harness)
+            pm_pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
+            rt_pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
+            mea_pack = harness.container.agent_gateway.pull_mea_runtime_input(trigger_type="news_batch_ready")
+
+            for pack, agent_role in (
+                (pm_pack, "pm"),
+                (rt_pack, "risk_trader"),
+                (mea_pack, "macro_event_analyst"),
+            ):
+                self.assertEqual(pack.payload["pending_retro_case"]["case_id"], retro_case["case_id"])
+                self.assertEqual(pack.payload["retro_cycle_state"]["cycle_id"], cycle["cycle_id"])
+                self.assertEqual(pack.payload["retro_brief_status"]["agent_role"], agent_role)
+                self.assertFalse(pack.payload["retro_brief_status"]["submitted"])
+                self.assertEqual(pack.payload["retro_brief_status"]["state"], "pending")
+        finally:
+            harness.cleanup()
+
+    def test_submit_retro_brief_consumes_role_runtime_pack(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            cycle, retro_case = _seed_pending_retro_case(harness)
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
+            self.assertEqual(pack.payload["pending_retro_case"]["case_id"], retro_case["case_id"])
+            result = harness.container.agent_gateway.submit_retro_brief(
+                input_id=pack.input_id,
+                payload={
+                    "case_id": retro_case["case_id"],
+                    "root_cause": "PM 过度保守。",
+                    "cross_role_challenge": "RT 需要更主动，但 PM 先要把边界写清楚。",
+                    "self_critique": "今天 band 和翻向条件写得不够锋利。",
+                    "tomorrow_change": "明天把 risk-off 和加仓条件写成可执行语句。",
+                },
+            )
+            self.assertEqual(result["case_id"], retro_case["case_id"])
+            self.assertEqual(result["cycle_id"], cycle["cycle_id"])
+            self.assertEqual(result["agent_role"], "pm")
+            lease_asset = harness.container.memory_assets.get_asset(pack.input_id)
+            self.assertEqual(lease_asset["payload"]["status"], "consumed")
+            stored = harness.container.memory_assets.latest_retro_brief(
+                case_id=retro_case["case_id"],
+                cycle_id=cycle["cycle_id"],
+                agent_role="pm",
+            )
+            self.assertIsNotNone(stored)
+            self.assertEqual(stored["root_cause"], "PM 过度保守。")
+        finally:
+            harness.cleanup()
+
+    def test_submit_retro_brief_rejects_missing_fields(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            _, retro_case = _seed_pending_retro_case(harness)
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
+            with self.assertRaises(SubmissionValidationError) as raised:
+                harness.container.agent_gateway.submit_retro_brief(
+                    input_id=pack.input_id,
+                    payload={"case_id": retro_case["case_id"]},
+                )
+            self.assertEqual(raised.exception.error_kind, "retro_brief_invalid_payload")
+        finally:
+            harness.cleanup()
+
+    def test_submit_retro_brief_rejects_wrong_case_id(self) -> None:
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            _seed_pending_retro_case(harness)
+            pack = harness.container.agent_gateway.pull_mea_runtime_input(trigger_type="news_batch_ready")
+            with self.assertRaises(SubmissionValidationError) as raised:
+                harness.container.agent_gateway.submit_retro_brief(
+                    input_id=pack.input_id,
+                    payload={
+                        "case_id": "retro_case_wrong",
+                        "root_cause": "MEA 过度重复提醒。",
+                        "cross_role_challenge": "PM 不应被重复主题反复打断。",
+                        "self_critique": "没有严格区分状态变化和重复强化。",
+                        "tomorrow_change": "只在状态变化时升级提醒。",
+                    },
+                )
+            self.assertEqual(raised.exception.error_kind, "retro_brief_case_mismatch")
+        finally:
+            harness.cleanup()
+
     def test_submit_retro_consumes_chief_runtime_pack(self) -> None:
         from .helpers_v2 import build_test_harness
 
@@ -1543,8 +1680,6 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 input_id=pack.input_id,
                 payload={
                     "case_id": prepared["retro_case"]["case_id"],
-                    "meeting_id": "retro-test-1",
-                    "round_count": 1,
                     "owner_summary": "Chief retro landed successfully.",
                     "root_cause_ranking": ["PM 过度保守", "RT 过度等待"],
                     "learning_directives": [
@@ -1557,7 +1692,6 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
             )
             self.assertEqual(result["owner_summary"], "Chief retro landed successfully.")
-            self.assertEqual(result["meeting_id"], "retro-test-1")
             self.assertEqual(result["case_id"], prepared["retro_case"]["case_id"])
             self.assertEqual(result["root_cause_ranking"][0], "PM 过度保守")
             lease_asset = harness.container.memory_assets.get_asset(pack.input_id)
@@ -1565,11 +1699,11 @@ class AgentGatewayServiceTests(unittest.TestCase):
             retro_asset = harness.container.memory_assets.latest_asset(asset_type="chief_retro")
             self.assertIsNotNone(retro_asset)
             self.assertEqual(retro_asset["payload"]["owner_summary"], "Chief retro landed successfully.")
-            directive_assets = harness.container.memory_assets.get_learning_directives(
-                case_id=prepared["retro_case"]["case_id"],
-            )
-            self.assertEqual(len(directive_assets), 1)
-            self.assertEqual(directive_assets[0]["agent_role"], "pm")
+            self.assertEqual(retro_asset["payload"]["learning_directive_ids"], [])
+            self.assertEqual(len(retro_asset["payload"]["learning_directives"]), 1)
+            self.assertEqual(retro_asset["payload"]["learning_directives"][0]["agent_role"], "pm")
+            directive_assets = harness.container.memory_assets.get_learning_directives(case_id=prepared["retro_case"]["case_id"])
+            self.assertEqual(directive_assets, [])
         finally:
             harness.cleanup()
 
@@ -1628,6 +1762,8 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertEqual(runner.calls[0].session_id, expected_session_id)
         self.assertEqual(runner.calls[1].session_id, expected_session_id)
         self.assertEqual(runner.calls[1].payload["mode"], "schema_repair")
+        self.assertIn("上一版正式提交没有通过校验", runner.calls[1].payload["instruction"])
+        self.assertNotIn("The previous formal submission failed validation", runner.calls[1].payload["instruction"])
 
     def test_pull_chief_retro_pack_reads_prepared_cycle_without_generating_briefs(self) -> None:
         from .helpers_v2 import build_test_harness
@@ -1833,7 +1969,6 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 retro_briefs=list(prepared["retro_briefs"]),
             )
             self.assertTrue(payload["case_id"])
-            self.assertEqual(payload["learning_completed"], False)
             self.assertEqual(len(payload["learning_directives"]), 4)
             self.assertEqual(
                 {item["agent_role"] for item in payload["learning_directives"]},
@@ -1843,8 +1978,9 @@ class AgentGatewayServiceTests(unittest.TestCase):
             retro_asset = memory_assets.latest_asset(asset_type="chief_retro")
             self.assertIsNotNone(retro_asset)
             self.assertEqual(retro_asset["payload"]["case_id"], payload["case_id"])
-            self.assertEqual(len(memory_assets.get_learning_directives(case_id=payload["case_id"])), 4)
-            self.assertEqual(retro_asset["payload"]["learning_directive_ids"], [item["directive_id"] for item in payload["learning_directives"]])
+            self.assertEqual(len(memory_assets.get_learning_directives(case_id=payload["case_id"])), 0)
+            self.assertEqual(retro_asset["payload"]["learning_directive_ids"], [])
+            self.assertEqual(len(retro_asset["payload"]["learning_directives"]), 4)
 
     def test_prepare_retro_cycle_resets_pm_session_once_on_brief_timeout(self) -> None:
         class FlakyPmRunner:
@@ -1948,6 +2084,67 @@ class AgentGatewayServiceTests(unittest.TestCase):
             self.assertEqual(session_controller.resets[0][0], "pm")
             self.assertEqual(session_controller.resets[0][1], gateway.session_id_for_role("pm"))
             self.assertEqual(len(prepared["retro_briefs"]), 3)
+
+    def test_pull_role_runtime_pack_only_returns_pending_learning_directives(self) -> None:
+        harness = build_test_harness()
+        try:
+            cycle_state, retro_case = _seed_pending_retro_case(harness)
+            harness.container.memory_assets.materialize_learning_directive(
+                trace_id="trace-learning-pending",
+                case_id=retro_case["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+                agent_role="pm",
+                session_key="agent:pm:main",
+                learning_path="/tmp/pm-learning.md",
+                authored_payload={
+                    "directive": "pending directive",
+                    "rationale": "pending rationale",
+                    "completion_state": "pending",
+                },
+            )
+            harness.container.memory_assets.materialize_learning_directive(
+                trace_id="trace-learning-completed",
+                case_id=retro_case["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+                agent_role="pm",
+                session_key="agent:pm:main",
+                learning_path="/tmp/pm-learning.md",
+                authored_payload={
+                    "directive": "completed directive",
+                    "rationale": "completed rationale",
+                    "completion_state": "completed",
+                    "completed_at_utc": datetime.now(UTC).isoformat(),
+                },
+            )
+            pack = harness.container.agent_gateway.pull_pm_runtime_input(trigger_type="pm_main_cron")
+            directives = pack.payload["pending_learning_directives"]
+            self.assertEqual(len(directives), 1)
+            self.assertEqual(directives[0]["directive"], "pending directive")
+            self.assertEqual(directives[0]["completion_state"], "pending")
+        finally:
+            harness.cleanup()
+
+    def test_submit_retro_rejects_legacy_learning_fields(self) -> None:
+        harness = build_test_harness()
+        try:
+            prepared = harness.container.agent_gateway.prepare_retro_cycle_from_runtime_bridge(
+                trace_id="trace-chief-submit-legacy-learning",
+                trigger_type="daily_retro",
+                force_new_case=True,
+            )
+            pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+            with self.assertRaises(SubmissionValidationError) as raised:
+                harness.container.agent_gateway.submit_retro(
+                    input_id=pack.input_id,
+                    payload={
+                        "case_id": prepared["retro_case"]["case_id"],
+                        "owner_summary": "Chief retro landed successfully.",
+                        "learning_completed": True,
+                    },
+                )
+            self.assertEqual(raised.exception.error_kind, "retro_submit_legacy_fields_forbidden")
+        finally:
+            harness.cleanup()
 
     def test_run_rt_submission_resets_same_session_once_on_input_length_error(self) -> None:
         class ResettableRiskRunner:

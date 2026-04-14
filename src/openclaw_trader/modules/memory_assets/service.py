@@ -14,6 +14,7 @@ from .models import (
     ReplayQueryView,
     RetroBriefAsset,
     RetroCaseAsset,
+    RetroCycleStateAsset,
     RTTacticalMapAsset,
     RuntimeBridgeState,
     StateSnapshot,
@@ -301,6 +302,7 @@ class MemoryAssetsService:
         canonical_payload.update(
             {
                 "case_id": str(canonical_payload.get("case_id") or new_id("retro_case")),
+                "cycle_id": str(canonical_payload.get("cycle_id") or new_id("retro_cycle")),
                 "case_day_utc": str(canonical_payload.get("case_day_utc") or now.date().isoformat()),
                 "created_at_utc": canonical_payload.get("created_at_utc") or now.isoformat(),
             }
@@ -317,6 +319,16 @@ class MemoryAssetsService:
             metadata=metadata or {},
         )
         return canonical_payload
+
+    def get_retro_case(self, *, case_id: str) -> dict | None:
+        asset = self.get_asset(case_id)
+        if asset is None or str(asset.get("asset_type") or "") != "retro_case":
+            return None
+        payload = dict(asset.get("payload") or {})
+        return {
+            "asset_id": asset.get("asset_id"),
+            **payload,
+        }
 
     def latest_retro_case(self, *, case_day_utc: str | None = None) -> dict | None:
         assets = self.recent_assets(asset_type="retro_case", actor_role="system", limit=10)
@@ -337,14 +349,19 @@ class MemoryAssetsService:
         case_id: str,
         agent_role: str,
         authored_payload: dict,
+        cycle_id: str | None = None,
         source_ref: str | None = None,
         metadata: dict | None = None,
     ) -> dict:
         now = datetime.now(UTC)
+        resolved_cycle_id = str(cycle_id or "").strip()
+        if not resolved_cycle_id and case_id:
+            resolved_cycle_id = str((self.get_retro_case(case_id=case_id) or {}).get("cycle_id") or "").strip()
         canonical_payload = dict(authored_payload)
         canonical_payload.update(
             {
                 "brief_id": str(canonical_payload.get("brief_id") or new_id("retro_brief")),
+                "cycle_id": str(canonical_payload.get("cycle_id") or resolved_cycle_id or new_id("retro_cycle")),
                 "case_id": case_id,
                 "agent_role": agent_role,
                 "created_at_utc": canonical_payload.get("created_at_utc") or now.isoformat(),
@@ -366,13 +383,16 @@ class MemoryAssetsService:
     def get_retro_briefs(
         self,
         *,
-        case_id: str,
+        case_id: str | None = None,
+        cycle_id: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
         briefs: list[dict] = []
         for asset in self.recent_assets(asset_type="retro_brief", limit=limit):
             payload = dict(asset.get("payload") or {})
-            if str(payload.get("case_id") or "") != case_id:
+            if case_id is not None and str(payload.get("case_id") or "") != case_id:
+                continue
+            if cycle_id is not None and str(payload.get("cycle_id") or "") != cycle_id:
                 continue
             briefs.append(
                 {
@@ -382,10 +402,91 @@ class MemoryAssetsService:
             )
         return briefs
 
-    def latest_retro_brief(self, *, case_id: str, agent_role: str) -> dict | None:
+    def latest_retro_brief(self, *, case_id: str | None = None, cycle_id: str | None = None, agent_role: str) -> dict | None:
         for asset in self.recent_assets(asset_type="retro_brief", actor_role=agent_role, limit=10):
             payload = dict(asset.get("payload") or {})
-            if str(payload.get("case_id") or "") != case_id:
+            if case_id is not None and str(payload.get("case_id") or "") != case_id:
+                continue
+            if cycle_id is not None and str(payload.get("cycle_id") or "") != cycle_id:
+                continue
+            return {
+                "asset_id": asset.get("asset_id"),
+                **payload,
+            }
+        return None
+
+    def materialize_retro_cycle_state(
+        self,
+        *,
+        trace_id: str,
+        authored_payload: dict,
+        actor_role: str = "system",
+        source_ref: str | None = None,
+        group_key: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        now = datetime.now(UTC)
+        canonical_payload = dict(authored_payload)
+        canonical_payload.update(
+            {
+                "cycle_id": str(canonical_payload.get("cycle_id") or new_id("retro_cycle")),
+                "trade_day_utc": str(canonical_payload.get("trade_day_utc") or now.date().isoformat()),
+                "started_at_utc": canonical_payload.get("started_at_utc") or now.isoformat(),
+            }
+        )
+        canonical_payload = RetroCycleStateAsset.model_validate(canonical_payload).model_dump(mode="json")
+        self.save_asset(
+            asset_type="retro_cycle_state",
+            asset_id=str(canonical_payload["cycle_id"]),
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=group_key or str(canonical_payload["trade_day_utc"]),
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
+    def save_retro_cycle_state(
+        self,
+        *,
+        trace_id: str | None,
+        cycle_id: str,
+        payload: dict,
+        actor_role: str = "system",
+        source_ref: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        canonical_payload = dict(payload)
+        canonical_payload["cycle_id"] = cycle_id
+        canonical_payload = RetroCycleStateAsset.model_validate(canonical_payload).model_dump(mode="json")
+        self.save_asset(
+            asset_type="retro_cycle_state",
+            asset_id=cycle_id,
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=str(canonical_payload["trade_day_utc"]),
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
+    def get_retro_cycle_state(self, *, cycle_id: str) -> dict | None:
+        asset = self.get_asset(cycle_id)
+        if asset is None or str(asset.get("asset_type") or "") != "retro_cycle_state":
+            return None
+        payload = dict(asset.get("payload") or {})
+        return {
+            "asset_id": asset.get("asset_id"),
+            **payload,
+        }
+
+    def latest_retro_cycle_state(self, *, trade_day_utc: str | None = None) -> dict | None:
+        assets = self.recent_assets(asset_type="retro_cycle_state", actor_role="system", limit=10)
+        for asset in assets:
+            payload = dict(asset.get("payload") or {})
+            if trade_day_utc is not None and str(payload.get("trade_day_utc") or "") != trade_day_utc:
                 continue
             return {
                 "asset_id": asset.get("asset_id"),
@@ -402,18 +503,24 @@ class MemoryAssetsService:
         session_key: str,
         learning_path: str,
         authored_payload: dict,
+        cycle_id: str | None = None,
         actor_role: str = "crypto_chief",
         source_ref: str | None = None,
         metadata: dict | None = None,
     ) -> dict:
         now = datetime.now(UTC)
+        resolved_cycle_id = str(cycle_id or "").strip()
+        if not resolved_cycle_id and case_id:
+            resolved_cycle_id = str((self.get_retro_case(case_id=case_id) or {}).get("cycle_id") or "").strip()
         canonical_payload = dict(authored_payload)
         canonical_payload.update(
             {
                 "directive_id": str(canonical_payload.get("directive_id") or new_id("learning_directive")),
+                "cycle_id": str(canonical_payload.get("cycle_id") or resolved_cycle_id or new_id("retro_cycle")),
                 "case_id": case_id,
                 "agent_role": agent_role,
                 "created_at_utc": canonical_payload.get("created_at_utc") or now.isoformat(),
+                "issued_at_utc": canonical_payload.get("issued_at_utc") or now.isoformat(),
                 "session_key": session_key,
                 "learning_path": learning_path,
             }
@@ -431,17 +538,45 @@ class MemoryAssetsService:
         )
         return canonical_payload
 
+    def save_learning_directive(
+        self,
+        *,
+        trace_id: str | None,
+        directive_id: str,
+        payload: dict,
+        actor_role: str = "system",
+        source_ref: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        canonical_payload = dict(payload)
+        canonical_payload["directive_id"] = directive_id
+        canonical_payload = LearningDirectiveAsset.model_validate(canonical_payload).model_dump(mode="json")
+        self.save_asset(
+            asset_type="learning_directive",
+            asset_id=directive_id,
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=str(canonical_payload["case_id"]),
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
     def get_learning_directives(
         self,
         *,
-        case_id: str,
+        case_id: str | None = None,
+        cycle_id: str | None = None,
         agent_role: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
         directives: list[dict] = []
         for asset in self.recent_assets(asset_type="learning_directive", limit=limit):
             payload = dict(asset.get("payload") or {})
-            if str(payload.get("case_id") or "") != case_id:
+            if case_id is not None and str(payload.get("case_id") or "") != case_id:
+                continue
+            if cycle_id is not None and str(payload.get("cycle_id") or "") != cycle_id:
                 continue
             if agent_role is not None and str(payload.get("agent_role") or "") != agent_role:
                 continue
@@ -453,10 +588,12 @@ class MemoryAssetsService:
             )
         return directives
 
-    def latest_learning_directive(self, *, agent_role: str) -> dict | None:
+    def latest_learning_directive(self, *, agent_role: str, cycle_id: str | None = None) -> dict | None:
         for asset in self.recent_assets(asset_type="learning_directive", limit=20):
             payload = dict(asset.get("payload") or {})
             if str(payload.get("agent_role") or "") != agent_role:
+                continue
+            if cycle_id is not None and str(payload.get("cycle_id") or "") != cycle_id:
                 continue
             return {
                 "asset_id": asset.get("asset_id"),

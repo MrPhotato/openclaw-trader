@@ -86,6 +86,16 @@ class AgentGatewayService:
     _EXECUTION_PROMPT_REF = "specs/modules/agent_gateway/contracts/execution.prompt.md"
     _NEWS_SCHEMA_REF = "specs/modules/agent_gateway/contracts/news.schema.json"
     _NEWS_PROMPT_REF = "specs/modules/agent_gateway/contracts/news.prompt.md"
+    _RETRO_BRIEF_SPEC_REF_BY_ROLE = {
+        "pm": "specs/agents/pm/spec.md",
+        "risk_trader": "specs/agents/risk_trader/spec.md",
+        "macro_event_analyst": "specs/agents/macro_event_analyst/spec.md",
+    }
+    _RETRO_BRIEF_PROMPT_REF_BY_ROLE = {
+        "pm": "skills/pm-strategy-cycle/SKILL.md",
+        "risk_trader": "skills/risk-trader-decision/SKILL.md",
+        "macro_event_analyst": "skills/mea-event-review/SKILL.md",
+    }
     _CHIEF_RETRO_SPEC_REF = "specs/agents/crypto_chief/spec.md"
     _CHIEF_RETRO_PROMPT_REF = "skills/chief-retro-and-summary/SKILL.md"
     _PM_TRIGGER_EVENT_TYPE = "workflow.pm_trigger.detected"
@@ -682,6 +692,18 @@ class AgentGatewayService:
 
     def submit_retro(self, *, input_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         lease = self._validate_runtime_lease(input_id=input_id, agent_role="crypto_chief")
+        legacy_fields = [
+            field_name
+            for field_name in ("meeting_id", "round_count", "transcript", "learning_completed", "learning_results")
+            if field_name in dict(payload or {})
+        ]
+        if legacy_fields:
+            raise SubmissionValidationError(
+                schema_ref=self._CHIEF_RETRO_SPEC_REF,
+                prompt_ref=self._CHIEF_RETRO_PROMPT_REF,
+                errors=[f"legacy_field_forbidden:{field_name}" for field_name in legacy_fields],
+                error_kind="retro_submit_legacy_fields_forbidden",
+            )
         try:
             submission = RetroSubmission.model_validate(payload or {})
         except ValidationError as exc:
@@ -716,6 +738,67 @@ class AgentGatewayService:
             learning_targets=learning_targets,
         )
         self._consume_runtime_lease(lease=lease, submission_kind="retro")
+        return result
+
+    def submit_retro_brief(self, *, input_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        lease = self._validate_retro_brief_lease(input_id=input_id)
+        agent_role = lease.pack.agent_role
+        retro_case = dict(lease.pack.payload.get("pending_retro_case") or {})
+        case_id = str(retro_case.get("case_id") or "").strip()
+        if not case_id:
+            schema_ref, prompt_ref = self._retro_brief_contract_refs(agent_role)
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=["pending_retro_case_required"],
+                error_kind="retro_brief_pending_case_required",
+            )
+        requested_case_id = str((payload or {}).get("case_id") or case_id).strip()
+        if requested_case_id != case_id:
+            schema_ref, prompt_ref = self._retro_brief_contract_refs(agent_role)
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=["retro_brief_case_mismatch"],
+                error_kind="retro_brief_case_mismatch",
+            )
+        stored_case = self.memory_assets.get_retro_case(case_id=case_id)
+        if stored_case is None:
+            schema_ref, prompt_ref = self._retro_brief_contract_refs(agent_role)
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=["retro_case_not_found"],
+                error_kind="retro_brief_case_not_found",
+            )
+        existing = self.memory_assets.latest_retro_brief(
+            case_id=case_id,
+            cycle_id=str(stored_case.get("cycle_id") or retro_case.get("cycle_id") or ""),
+            agent_role=agent_role,
+        )
+        if existing is not None:
+            schema_ref, prompt_ref = self._retro_brief_contract_refs(agent_role)
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=["retro_brief_already_submitted"],
+                error_kind="retro_brief_already_submitted",
+            )
+        brief_submission = self._validate_retro_brief_submission(
+            agent_role=agent_role,
+            payload={
+                **dict(payload or {}),
+                "case_id": case_id,
+            },
+        )
+        result = self._materialize_retro_brief_asset(
+            trace_id=lease.pack.trace_id,
+            agent_role=agent_role,
+            retro_case=stored_case,
+            brief_submission=brief_submission,
+            source_ref=input_id,
+        )
+        self._consume_runtime_lease(lease=lease, submission_kind="retro_brief")
         return result
 
     def _issue_runtime_pack(
@@ -771,15 +854,18 @@ class AgentGatewayService:
         expires_at = datetime.now(UTC) + timedelta(seconds=self.runtime_pack_ttl_seconds)
         if agent_role == "crypto_chief":
             learning_targets = self._capture_retro_learning_targets()
-            retro_case = self._latest_prepared_retro_case()
+            retro_cycle_state, retro_case = self._latest_runtime_retro_context()
             retro_briefs = self._prepared_retro_briefs(
                 case_id=str(retro_case.get("case_id") or ""),
+                cycle_id=str(retro_case.get("cycle_id") or retro_cycle_state.get("cycle_id") or ""),
             )
-            pending_brief_roles = [
-                role
-                for role in self._RETRO_BRIEF_ROLES
-                if role not in {str(item.get("agent_role") or "") for item in retro_briefs}
-            ]
+            pending_brief_roles = list(retro_cycle_state.get("missing_brief_roles") or [])
+            if not pending_brief_roles:
+                pending_brief_roles = [
+                    role
+                    for role in self._RETRO_BRIEF_ROLES
+                    if role not in {str(item.get("agent_role") or "") for item in retro_briefs}
+                ]
             payload = {
                 "retro_pack": {
                     "market": runtime_inputs["crypto_chief"].payload.get("market", {}),
@@ -793,13 +879,20 @@ class AgentGatewayService:
                     "recent_news_submissions": self.memory_assets.get_recent_news_submissions(limit=10),
                     "learning_targets": learning_targets,
                 },
+                "retro_cycle_state": retro_cycle_state,
                 "retro_case": retro_case,
                 "retro_briefs": retro_briefs,
                 "pending_retro_brief_roles": pending_brief_roles,
+                "retro_briefs_ready": bool(retro_case) and not pending_brief_roles,
                 "retro_ready_for_synthesis": bool(retro_case) and not pending_brief_roles,
-                "pending_learning_directives": self.memory_assets.get_learning_directives(
-                    case_id=str(retro_case.get("case_id") or ""),
-                )
+                "pending_learning_directives": [
+                    item
+                    for item in self.memory_assets.get_learning_directives(
+                        case_id=str(retro_case.get("case_id") or ""),
+                        cycle_id=str(retro_case.get("cycle_id") or retro_cycle_state.get("cycle_id") or "") or None,
+                    )
+                    if str(item.get("completion_state") or "pending") == "pending"
+                ]
                 if retro_case
                 else [],
                 "learning_targets": learning_targets,
@@ -848,6 +941,8 @@ class AgentGatewayService:
                     "lock_mode": lock_mode,
                 }
                 payload["rt_decision_digest"] = self._build_rt_decision_digest(payload)
+            if agent_role in self._RETRO_BRIEF_ROLES:
+                payload.update(self._build_retro_brief_runtime_payload(agent_role))
             hidden_payload = {
                 "market": context["market"],
                 "policies": context["policies"],
@@ -1792,7 +1887,7 @@ class AgentGatewayService:
             "news_events": self._compact_news_events(news_events, limit=8),
             "previous_strategy": strategy_payload or {},
             "macro_memory": list(macro_memory or []),
-            "pending_learning_directive": self._latest_learning_directive_payload("pm"),
+            "pending_learning_directives": self._pending_learning_directives_payload("pm"),
         }
         return {
             "pm": AgentRuntimeInput(
@@ -1813,7 +1908,7 @@ class AgentGatewayService:
                     "news_events": self._compact_news_events(news_events, limit=5),
                     "strategy": rt_strategy_payload,
                     "execution_contexts": rt_execution_contexts,
-                    "pending_learning_directive": self._latest_learning_directive_payload("risk_trader"),
+                    "pending_learning_directives": self._pending_learning_directives_payload("risk_trader"),
                 },
             ),
             "macro_event_analyst": AgentRuntimeInput(
@@ -1827,7 +1922,7 @@ class AgentGatewayService:
                     "macro_memory": list(macro_memory or []),
                     "latest_strategy": mea_strategy_payload,
                     "recent_news_submissions": self._recent_mea_submissions_digest(limit=3),
-                    "pending_learning_directive": self._latest_learning_directive_payload("macro_event_analyst"),
+                    "pending_learning_directives": self._pending_learning_directives_payload("macro_event_analyst"),
                 },
             ),
             "crypto_chief": AgentRuntimeInput(
@@ -1838,7 +1933,7 @@ class AgentGatewayService:
                     **{**pm_payload, "market": chief_market_payload},
                     "previous_strategy": chief_strategy_payload,
                     "execution_contexts": chief_execution_contexts,
-                    "pending_learning_directive": self._latest_learning_directive_payload("crypto_chief"),
+                    "pending_learning_directives": self._pending_learning_directives_payload("crypto_chief"),
                 },
             ),
         }
@@ -1915,21 +2010,76 @@ class AgentGatewayService:
             "lock_release": "new_pm_strategy_revision",
         }
 
-    def _latest_learning_directive_payload(self, agent_role: str) -> dict[str, Any] | None:
+    def _pending_learning_directives_payload(self, agent_role: str) -> list[dict[str, Any]]:
         if self.memory_assets is None:
-            return None
-        directive = self.memory_assets.latest_learning_directive(agent_role=agent_role)
-        if directive is None:
-            return None
-        return {
-            "directive_id": directive.get("directive_id") or directive.get("asset_id"),
-            "case_id": directive.get("case_id"),
-            "directive": directive.get("directive"),
-            "rationale": directive.get("rationale"),
-            "session_key": directive.get("session_key"),
-            "learning_path": directive.get("learning_path"),
-            "created_at_utc": directive.get("created_at_utc"),
+            return []
+        directives = self.memory_assets.get_learning_directives(agent_role=agent_role, limit=20)
+        pending = [
+            directive
+            for directive in directives
+            if str(directive.get("completion_state") or "pending") == "pending"
+        ]
+        pending.sort(key=lambda item: str(item.get("issued_at_utc") or item.get("created_at_utc") or ""))
+        return [
+            {
+                "directive_id": directive.get("directive_id") or directive.get("asset_id"),
+                "cycle_id": directive.get("cycle_id"),
+                "case_id": directive.get("case_id"),
+                "directive": directive.get("directive"),
+                "rationale": directive.get("rationale"),
+                "session_key": directive.get("session_key"),
+                "learning_path": directive.get("learning_path"),
+                "issued_at_utc": directive.get("issued_at_utc"),
+                "completion_state": directive.get("completion_state"),
+            }
+            for directive in pending
+        ]
+
+    def _build_retro_brief_runtime_payload(self, agent_role: str) -> dict[str, Any]:
+        cycle_state, retro_case = self._latest_runtime_retro_context()
+        brief = None
+        case_id = str(retro_case.get("case_id") or "").strip()
+        cycle_id = str(retro_case.get("cycle_id") or cycle_state.get("cycle_id") or "").strip()
+        if case_id:
+            brief = self.memory_assets.latest_retro_brief(
+                case_id=case_id,
+                cycle_id=cycle_id or None,
+                agent_role=agent_role,
+            )
+        cycle_phase = str(cycle_state.get("state") or "").strip()
+        is_closed = cycle_phase in {"completed", "failed"}
+        pending_retro_case = retro_case if retro_case and brief is None and not is_closed else {}
+        brief_status = {
+            "cycle_id": cycle_id or None,
+            "case_id": case_id or None,
+            "agent_role": agent_role,
+            "submitted": brief is not None,
+            "brief_id": str((brief or {}).get("brief_id") or "") or None,
+            "state": "submitted" if brief is not None else "pending" if pending_retro_case else "no_active_cycle",
+            "cycle_state": cycle_phase or None,
         }
+        return {
+            "pending_retro_case": pending_retro_case,
+            "retro_cycle_state": cycle_state,
+            "retro_brief_status": brief_status,
+        }
+
+    def _latest_runtime_retro_context(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self.memory_assets is None:
+            return {}, {}
+        trade_day_utc = datetime.now(UTC).date().isoformat()
+        cycle_state = dict(self.memory_assets.latest_retro_cycle_state(trade_day_utc=trade_day_utc) or {})
+        if not cycle_state:
+            cycle_state = dict(self.memory_assets.latest_retro_cycle_state() or {})
+        retro_case: dict[str, Any] = {}
+        case_id = str(cycle_state.get("retro_case_id") or "").strip()
+        if case_id:
+            retro_case = dict(self.memory_assets.get_retro_case(case_id=case_id) or {})
+        if not retro_case:
+            retro_case = dict(self.memory_assets.latest_retro_case(case_day_utc=trade_day_utc) or {})
+        if not retro_case:
+            retro_case = dict(self.memory_assets.latest_retro_case() or {})
+        return cycle_state, retro_case
 
     def _recent_mea_submissions_digest(self, *, limit: int = 3) -> list[dict[str, Any]]:
         """Compact digest of MEA's own recent news submissions, for cross-turn dedup.
@@ -2018,25 +2168,27 @@ class AgentGatewayService:
         trace_id: str,
         runtime_inputs: dict[str, AgentRuntimeInput],
         trigger_type: str,
+        case_day_utc: str | None = None,
+        cycle_id: str | None = None,
         force_new_case: bool = False,
     ) -> dict[str, Any]:
-        case_day_utc = datetime.now(UTC).date().isoformat()
-        retro_case = None if force_new_case else self.memory_assets.latest_retro_case(case_day_utc=case_day_utc)
-        if retro_case is None:
-            retro_case = self.memory_assets.materialize_retro_case(
-                trace_id=trace_id,
-                authored_payload=self._build_retro_case_payload(
-                    trigger_type=trigger_type,
-                    runtime_inputs=runtime_inputs,
-                ),
-                actor_role="system",
-                group_key=case_day_utc,
-                metadata={"trigger_type": trigger_type},
-            )
+        prepared = self.ensure_retro_case(
+            trace_id=trace_id,
+            runtime_inputs=runtime_inputs,
+            trigger_type=trigger_type,
+            case_day_utc=case_day_utc,
+            cycle_id=cycle_id,
+            force_new_case=force_new_case,
+        )
+        retro_case = dict(prepared.get("retro_case") or {})
         case_id = str(retro_case.get("case_id") or "")
         retro_briefs: list[dict[str, Any]] = []
         for agent_role in self._RETRO_BRIEF_ROLES:
-            existing = self.memory_assets.latest_retro_brief(case_id=case_id, agent_role=agent_role)
+            existing = self.memory_assets.latest_retro_brief(
+                case_id=case_id,
+                cycle_id=str(retro_case.get("cycle_id") or "") or None,
+                agent_role=agent_role,
+            )
             if existing is None:
                 existing = self.run_retro_brief_submission(
                     trace_id=trace_id,
@@ -2046,8 +2198,39 @@ class AgentGatewayService:
                 )
             retro_briefs.append(existing)
         return {
-            "retro_case": retro_case,
+            **prepared,
             "retro_briefs": retro_briefs,
+        }
+
+    def ensure_retro_case(
+        self,
+        *,
+        trace_id: str,
+        runtime_inputs: dict[str, AgentRuntimeInput],
+        trigger_type: str,
+        case_day_utc: str | None = None,
+        cycle_id: str | None = None,
+        force_new_case: bool = False,
+    ) -> dict[str, Any]:
+        resolved_case_day_utc = str(case_day_utc or datetime.now(UTC).date().isoformat())
+        retro_case = None if force_new_case else self.memory_assets.latest_retro_case(case_day_utc=resolved_case_day_utc)
+        if retro_case is None:
+            retro_case = self.memory_assets.materialize_retro_case(
+                trace_id=trace_id,
+                authored_payload=self._build_retro_case_payload(
+                    trigger_type=trigger_type,
+                    runtime_inputs=runtime_inputs,
+                    case_day_utc=resolved_case_day_utc,
+                    cycle_id=cycle_id,
+                ),
+                actor_role="system",
+                group_key=resolved_case_day_utc,
+                metadata={"trigger_type": trigger_type},
+            )
+        return {
+            "retro_case": retro_case,
+            "runtime_inputs": runtime_inputs,
+            "cycle_id": str((retro_case or {}).get("cycle_id") or cycle_id or ""),
         }
 
     def prepare_retro_cycle_from_runtime_bridge(
@@ -2055,6 +2238,8 @@ class AgentGatewayService:
         *,
         trace_id: str,
         trigger_type: str,
+        case_day_utc: str | None = None,
+        cycle_id: str | None = None,
         force_new_case: bool = False,
     ) -> dict[str, Any]:
         runtime_bundle = self._resolve_runtime_bridge_bundle(
@@ -2066,6 +2251,31 @@ class AgentGatewayService:
             trace_id=trace_id,
             runtime_inputs=runtime_bundle["runtime_inputs"],
             trigger_type=trigger_type,
+            case_day_utc=case_day_utc,
+            cycle_id=cycle_id,
+            force_new_case=force_new_case,
+        )
+
+    def ensure_retro_case_from_runtime_bridge(
+        self,
+        *,
+        trace_id: str,
+        trigger_type: str,
+        case_day_utc: str | None = None,
+        cycle_id: str | None = None,
+        force_new_case: bool = False,
+    ) -> dict[str, Any]:
+        runtime_bundle = self._resolve_runtime_bridge_bundle(
+            agent_role="crypto_chief",
+            trace_id=trace_id,
+            trigger_type=trigger_type,
+        )
+        return self.ensure_retro_case(
+            trace_id=trace_id,
+            runtime_inputs=runtime_bundle["runtime_inputs"],
+            trigger_type=trigger_type,
+            case_day_utc=case_day_utc,
+            cycle_id=cycle_id,
             force_new_case=force_new_case,
         )
 
@@ -2077,6 +2287,28 @@ class AgentGatewayService:
         runtime_input: AgentRuntimeInput,
         retro_case: dict[str, Any],
     ) -> dict[str, Any]:
+        brief_submission = self.run_retro_brief_task(
+            trace_id=trace_id,
+            agent_role=agent_role,
+            runtime_input=runtime_input,
+            retro_case=retro_case,
+        )
+        return self._materialize_retro_brief_asset(
+            trace_id=trace_id,
+            agent_role=agent_role,
+            retro_case=retro_case,
+            brief_submission=brief_submission,
+            source_ref=runtime_input.input_id,
+        )
+
+    def run_retro_brief_task(
+        self,
+        *,
+        trace_id: str,
+        agent_role: str,
+        runtime_input: AgentRuntimeInput,
+        retro_case: dict[str, Any],
+    ) -> RetroBriefSubmission:
         task = AgentTask(
             task_id=new_id("task"),
             agent_role=agent_role,
@@ -2106,29 +2338,29 @@ class AgentGatewayService:
                 stderr_summary=str(reply.meta.get("stderr") or ""),
                 errors=[f"retro_brief_failed:{agent_role}"],
             )
-        try:
-            brief_submission = RetroBriefSubmission.model_validate(reply.payload or {})
-        except ValidationError as exc:
-            raise self._chief_retro_error(
-                error_kind=f"{agent_role}_retro_brief_invalid",
-                raw_reply=str(reply.meta.get("stdout") or reply.meta.get("raw") or ""),
-                stderr_summary=str(reply.meta.get("stderr") or ""),
-                errors=[f"retro_brief_invalid:{agent_role}", *[str(item.get("type") or "invalid") for item in exc.errors()]],
-            ) from exc
-        for field_name in ("root_cause", "cross_role_challenge", "self_critique", "tomorrow_change"):
-            if not str(getattr(brief_submission, field_name) or "").strip():
-                raise self._chief_retro_error(
-                    error_kind=f"{agent_role}_retro_brief_invalid",
-                    raw_reply=str(reply.meta.get("stdout") or reply.meta.get("raw") or ""),
-                    stderr_summary=str(reply.meta.get("stderr") or ""),
-                    errors=[f"retro_brief_field_required:{agent_role}:{field_name}"],
-                )
+        return self._validate_retro_brief_submission(
+            agent_role=agent_role,
+            payload=reply.payload or {},
+            raw_reply=str(reply.meta.get("stdout") or reply.meta.get("raw") or ""),
+            stderr_summary=str(reply.meta.get("stderr") or ""),
+        )
+
+    def _materialize_retro_brief_asset(
+        self,
+        *,
+        trace_id: str,
+        agent_role: str,
+        retro_case: dict[str, Any],
+        brief_submission: RetroBriefSubmission,
+        source_ref: str,
+    ) -> dict[str, Any]:
         brief_payload = self.memory_assets.materialize_retro_brief(
             trace_id=trace_id,
             case_id=str(retro_case.get("case_id") or ""),
             agent_role=agent_role,
             authored_payload=brief_submission.model_dump(mode="json"),
-            source_ref=runtime_input.input_id,
+            cycle_id=str(retro_case.get("cycle_id") or ""),
+            source_ref=source_ref,
             metadata={"trigger_type": str(retro_case.get("trigger_type") or "")},
         )
         self.memory_assets.save_agent_session(
@@ -2150,6 +2382,71 @@ class AgentGatewayService:
             ]
         )
         return brief_payload
+
+    def _validate_retro_brief_submission(
+        self,
+        *,
+        agent_role: str,
+        payload: dict[str, Any],
+        raw_reply: str | None = None,
+        stderr_summary: str | None = None,
+    ) -> RetroBriefSubmission:
+        try:
+            brief_submission = RetroBriefSubmission.model_validate(payload or {})
+        except ValidationError as exc:
+            schema_ref, prompt_ref = self._retro_brief_contract_refs(agent_role)
+            if raw_reply is None and stderr_summary is None:
+                raise SubmissionValidationError(
+                    schema_ref=schema_ref,
+                    prompt_ref=prompt_ref,
+                    errors=["invalid_retro_brief_payload"],
+                    error_kind="retro_brief_invalid_payload",
+                ) from exc
+            raise self._chief_retro_error(
+                error_kind=f"{agent_role}_retro_brief_invalid",
+                raw_reply=str(raw_reply or ""),
+                stderr_summary=str(stderr_summary or ""),
+                errors=[f"retro_brief_invalid:{agent_role}", *[str(item.get("type") or "invalid") for item in exc.errors()]],
+            ) from exc
+        for field_name in ("root_cause", "cross_role_challenge", "self_critique", "tomorrow_change"):
+            if str(getattr(brief_submission, field_name) or "").strip():
+                continue
+            schema_ref, prompt_ref = self._retro_brief_contract_refs(agent_role)
+            if raw_reply is None and stderr_summary is None:
+                raise SubmissionValidationError(
+                    schema_ref=schema_ref,
+                    prompt_ref=prompt_ref,
+                    errors=[f"retro_brief_field_required:{field_name}"],
+                    error_kind="retro_brief_invalid_payload",
+                )
+            raise self._chief_retro_error(
+                error_kind=f"{agent_role}_retro_brief_invalid",
+                raw_reply=str(raw_reply or ""),
+                stderr_summary=str(stderr_summary or ""),
+                errors=[f"retro_brief_field_required:{agent_role}:{field_name}"],
+            )
+        return brief_submission
+
+    def _retro_brief_contract_refs(self, agent_role: str) -> tuple[str, str]:
+        return (
+            self._RETRO_BRIEF_SPEC_REF_BY_ROLE.get(agent_role, "specs/013-retro-rebuild/spec.md"),
+            self._RETRO_BRIEF_PROMPT_REF_BY_ROLE.get(agent_role, "specs/013-retro-rebuild/quickstart.md"),
+        )
+
+    def _validate_retro_brief_lease(self, *, input_id: str) -> AgentRuntimeLease:
+        self._require_runtime_bridge_dependencies()
+        asset = self.memory_assets.get_asset(input_id)
+        if asset is None or asset.get("asset_type") != "agent_runtime_lease":
+            raise RuntimeInputLeaseError(reason="unknown_input_id", input_id=input_id, agent_role="retro_brief")
+        lease = AgentRuntimeLease.model_validate(asset.get("payload") or {})
+        if lease.pack.agent_role not in self._RETRO_BRIEF_ROLES:
+            raise RuntimeInputLeaseError(
+                reason="wrong_agent_role",
+                input_id=input_id,
+                agent_role="retro_brief",
+                detail=str(lease.pack.agent_role),
+            )
+        return self._validate_runtime_lease(input_id=input_id, agent_role=lease.pack.agent_role)
 
     def run_chief_retro_synthesis(
         self,
@@ -2234,7 +2531,6 @@ class AgentGatewayService:
                     errors=["owner_summary_required"],
                 )
         payload["case_id"] = str(payload.get("case_id") or retro_case.get("case_id") or "")
-        payload["round_count"] = int(payload.get("round_count") or 1)
         return self._materialize_retro_outcome(
             trace_id=trace_id,
             input_id=runtime_input.input_id,
@@ -2243,17 +2539,12 @@ class AgentGatewayService:
             learning_targets=learning_targets,
         )
 
-    def _latest_prepared_retro_case(self) -> dict[str, Any]:
-        case_day_utc = datetime.now(UTC).date().isoformat()
-        retro_case = self.memory_assets.latest_retro_case(case_day_utc=case_day_utc)
-        return dict(retro_case or {})
-
-    def _prepared_retro_briefs(self, *, case_id: str) -> list[dict[str, Any]]:
+    def _prepared_retro_briefs(self, *, case_id: str, cycle_id: str | None = None) -> list[dict[str, Any]]:
         if not case_id:
             return []
         briefs: list[dict[str, Any]] = []
         for role in self._RETRO_BRIEF_ROLES:
-            latest = self.memory_assets.latest_retro_brief(case_id=case_id, agent_role=role)
+            latest = self.memory_assets.latest_retro_brief(case_id=case_id, cycle_id=cycle_id, agent_role=role)
             if latest is not None:
                 briefs.append(dict(latest))
         return briefs
@@ -2263,6 +2554,8 @@ class AgentGatewayService:
         *,
         trigger_type: str,
         runtime_inputs: dict[str, AgentRuntimeInput],
+        case_day_utc: str | None = None,
+        cycle_id: str | None = None,
     ) -> dict[str, Any]:
         chief_payload = dict(runtime_inputs["crypto_chief"].payload or {})
         strategy_payload = dict(chief_payload.get("previous_strategy") or {})
@@ -2279,6 +2572,8 @@ class AgentGatewayService:
                 objective_summary += f" rev {revision_number}"
             objective_summary += "。"
         return {
+            "cycle_id": str(cycle_id or "").strip() or None,
+            "case_day_utc": str(case_day_utc or datetime.now(UTC).date().isoformat()),
             "trigger_type": trigger_type,
             "primary_question": "为什么今天没有赚到 1%？",
             "objective_summary": objective_summary,
@@ -2329,47 +2624,27 @@ class AgentGatewayService:
                 errors=["owner_summary_required"],
             )
         reset_command = str(submission.reset_command or "/new").strip() or "/new"
-        transcript = list(submission.transcript or [])
-        learning_results = self._normalize_retro_learning_results(submission.learning_results)
-        learning_completed = bool(submission.learning_completed)
-        round_count = submission.round_count
-        if round_count is None:
-            round_indexes = [int(item.get("round_index") or 0) for item in transcript if isinstance(item, dict)]
-            round_count = max(round_indexes) if round_indexes else None
-        meeting_id = str(submission.meeting_id or "").strip() or new_id("retro")
+        case_id = str(submission.case_id or "").strip() or None
+        cycle_id = self._resolve_retro_cycle_id(case_id=case_id)
         learning_directives = self._normalize_learning_directive_submissions(submission.learning_directives)
-        directive_assets = self._materialize_learning_directive_assets(
-            trace_id=trace_id,
-            case_id=str(submission.case_id or ""),
-            directives=learning_directives,
-            learning_targets=learning_targets,
-            source_ref=source_ref,
-        )
         retro_payload = {
-            "meeting_id": meeting_id,
-            "case_id": str(submission.case_id or "").strip() or None,
-            "round_count": round_count,
-            "transcript": transcript,
-            "learning_results": learning_results,
+            "case_id": case_id,
+            "cycle_id": cycle_id,
             "owner_summary": owner_summary,
             "reset_command": reset_command,
-            "learning_completed": learning_completed,
             "root_cause_ranking": list(submission.root_cause_ranking or []),
             "role_judgements": dict(submission.role_judgements or {}),
-            "learning_directive_ids": [item["directive_id"] for item in directive_assets],
+            "learning_directive_ids": [],
+            "learning_directives": learning_directives,
         }
         retro_asset = self.memory_assets.save_asset(
             asset_type="chief_retro",
             payload=retro_payload,
             trace_id=trace_id,
             actor_role="crypto_chief",
-            group_key=meeting_id,
+            group_key=str(case_id or cycle_id or new_id("retro")),
             source_ref=source_ref,
-            metadata={
-                "input_id": input_id,
-                "round_count": round_count,
-                "learning_completed": learning_completed,
-            },
+            metadata={"input_id": input_id},
         )
         if owner_summary and self.notification_service is not None:
             self._record_events(
@@ -2390,7 +2665,7 @@ class AgentGatewayService:
                         "retro": retro_payload,
                         "retro_id": retro_asset["asset_id"],
                         "input_id": input_id,
-                        "learning_directives": directive_assets,
+                        "learning_directives": learning_directives,
                     },
                 )
             ]
@@ -2405,17 +2680,13 @@ class AgentGatewayService:
             "trace_id": trace_id,
             "input_id": input_id,
             "retro_id": retro_asset["asset_id"],
-            "meeting_id": meeting_id,
             "case_id": retro_payload["case_id"],
+            "cycle_id": cycle_id,
             "owner_summary": owner_summary,
             "reset_command": reset_command,
-            "learning_completed": learning_completed,
-            "transcript": transcript,
-            "learning_results": learning_results,
-            "round_count": round_count,
             "root_cause_ranking": retro_payload["root_cause_ranking"],
             "role_judgements": retro_payload["role_judgements"],
-            "learning_directives": directive_assets,
+            "learning_directives": learning_directives,
         }
 
     def _build_retro_runtime_summary(
@@ -2882,8 +3153,6 @@ class AgentGatewayService:
         normalized["case_id"] = str(normalized.get("case_id") or "").strip() or None
         normalized["owner_summary"] = str(normalized.get("owner_summary") or "").strip()
         normalized["reset_command"] = str(normalized.get("reset_command") or "/new").strip() or "/new"
-        normalized["learning_completed"] = bool(normalized.get("learning_completed"))
-        normalized["learning_results"] = list(normalized.get("learning_results") or [])
         normalized["root_cause_ranking"] = [str(item).strip() for item in list(normalized.get("root_cause_ranking") or []) if str(item).strip()]
         normalized["role_judgements"] = {
             str(key).strip(): str(value).strip()
@@ -2922,6 +3191,7 @@ class AgentGatewayService:
         *,
         trace_id: str,
         case_id: str,
+        cycle_id: str | None,
         directives: list[dict[str, Any]],
         learning_targets: list[dict[str, Any]],
         source_ref: str,
@@ -2946,6 +3216,7 @@ class AgentGatewayService:
                     agent_role=agent_role,
                     session_key=str(target.get("session_key") or ""),
                     learning_path=str(target.get("learning_path") or ""),
+                    cycle_id=cycle_id,
                     authored_payload={
                         "directive": str(directive.get("directive") or ""),
                         "rationale": str(directive.get("rationale") or ""),
@@ -2955,6 +3226,14 @@ class AgentGatewayService:
                 )
             )
         return assets
+
+    def _resolve_retro_cycle_id(self, *, case_id: str | None) -> str | None:
+        if not case_id:
+            return None
+        retro_case = self.memory_assets.get_retro_case(case_id=case_id)
+        if retro_case is None:
+            return None
+        return str(retro_case.get("cycle_id") or "").strip() or None
 
     @staticmethod
     def _normalize_retro_learning_results(payload: Any) -> list[dict[str, Any]]:
@@ -3110,7 +3389,7 @@ class AgentGatewayService:
         return {
             "mode": "schema_repair",
             "submission_kind": submission_kind,
-            "instruction": "The previous formal submission failed validation. Return exactly one pure JSON object only. Do not use markdown fences. Do not include any explanation.",
+            "instruction": "上一版正式提交没有通过校验。现在只返回一个纯 JSON 对象，不要使用 markdown 代码块，也不要附带解释。",
             "schema_ref": schema_ref,
             "prompt_ref": prompt_ref,
             "validation_errors": list(errors),

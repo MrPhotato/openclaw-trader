@@ -3,7 +3,7 @@
 ## 当前实现
 当前运行时路径为：
 
-`OpenClaw cron or event wakeup -> Chief -> AG pull bridge -> single chief-retro pack`
+`OpenClaw 定时或事件唤醒 -> Chief -> AG 拉取桥接 -> 单个 chief-retro pack`
 
 Chief 应从 `agent_gateway` 拉取一个 `chief-retro` 包，然后读取：
 - `retro_pack`

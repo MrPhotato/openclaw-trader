@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from openclaw_trader.modules.trade_gateway.market_data import (
@@ -23,7 +24,7 @@ from openclaw_trader.modules.workflow_orchestrator.risk_brake import RiskBrakeCo
 from openclaw_trader.modules.workflow_orchestrator.rt_trigger import OpenClawCronRunner, RTTriggerConfig, RTTriggerMonitor
 
 from .helpers_v2 import FakeMarketDataProvider, build_test_harness
-from .test_v2_agent_gateway import _valid_strategy_targets
+from .test_v2_agent_gateway import _seed_pending_retro_case, _valid_strategy_targets
 
 
 class FakeCronRunner:
@@ -479,11 +480,258 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertTrue(result["chief_dispatched"])
             self.assertEqual(result["chief_dispatch_status"], "dispatched")
             self.assertEqual(runner.runs, ["chief-job"])
+            cycle_state = harness.container.memory_assets.latest_retro_cycle_state(trade_day_utc=now.date().isoformat())
+            self.assertIsNotNone(cycle_state)
+            self.assertEqual(cycle_state["state"], "chief_pending")
+            self.assertEqual(sorted(cycle_state["ready_brief_roles"]), ["macro_event_analyst", "pm", "risk_trader"])
+            self.assertEqual(cycle_state["missing_brief_roles"], [])
+            self.assertEqual(cycle_state["chief_dispatch_status"], "dispatched")
             pack = harness.container.agent_gateway.pull_chief_retro_pack(trigger_type="daily_retro")
+            self.assertEqual(pack.payload["retro_cycle_state"]["cycle_id"], cycle_state["cycle_id"])
             self.assertEqual(pack.payload["retro_case"]["case_id"], result["case_id"])
             self.assertEqual(len(pack.payload["retro_briefs"]), 3)
             self.assertEqual(pack.payload["pending_retro_brief_roles"], [])
+            self.assertTrue(pack.payload["retro_briefs_ready"])
             self.assertTrue(pack.payload["retro_ready_for_synthesis"])
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_marks_degraded_after_brief_deadline_and_still_dispatches_chief(self) -> None:
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            cycle_state, retro_case = _seed_pending_retro_case(harness, trade_day_utc=now.date().isoformat())
+            harness.container.memory_assets.materialize_retro_brief(
+                trace_id="trace-retro-pm-brief",
+                case_id=retro_case["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+                agent_role="pm",
+                authored_payload={
+                    "root_cause": "PM 过度保守。",
+                    "cross_role_challenge": "RT 需要更主动。",
+                    "self_critique": "band 写得不够锋利。",
+                    "tomorrow_change": "明天把边界写清楚。",
+                },
+            )
+            harness.container.memory_assets.save_retro_cycle_state(
+                trace_id="trace-retro-cycle-update",
+                cycle_id=cycle_state["cycle_id"],
+                payload={
+                    **cycle_state,
+                    "retro_case_id": retro_case["case_id"],
+                    "brief_deadline_utc": (now - timedelta(minutes=1)).isoformat(),
+                    "ready_brief_roles": ["pm"],
+                    "missing_brief_roles": ["risk_trader", "macro_event_analyst"],
+                },
+            )
+            monitor, runner = _build_retro_prep_monitor(harness)
+            result = monitor.scan_once(now=now)
+            self.assertTrue(result["triggered"])
+            self.assertEqual(result["status"], "degraded")
+            self.assertTrue(result["chief_dispatched"])
+            self.assertEqual(runner.runs, ["chief-job"])
+            cycle_state = harness.container.memory_assets.latest_retro_cycle_state(trade_day_utc=now.date().isoformat())
+            self.assertEqual(cycle_state["state"], "degraded")
+            self.assertEqual(cycle_state["degraded_reason"], "missing_briefs")
+            self.assertEqual(cycle_state["ready_brief_roles"], ["pm"])
+            self.assertEqual(sorted(cycle_state["missing_brief_roles"]), ["macro_event_analyst", "risk_trader"])
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_does_not_redispatch_same_cycle(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            first = monitor.scan_once(now=now)
+            second = monitor.scan_once(now=now + timedelta(minutes=1))
+            self.assertTrue(first["chief_dispatched"])
+            self.assertFalse(second["chief_dispatched"])
+            self.assertEqual(second["chief_dispatch_status"], "already_dispatched")
+            self.assertEqual(runner.runs, ["chief-job"])
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_marks_completed_after_chief_retro_exists(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            first = monitor.scan_once(now=now)
+            harness.container.memory_assets.save_asset(
+                asset_type="chief_retro",
+                asset_id="chief-retro-1",
+                trace_id="trace-chief-retro-done",
+                actor_role="crypto_chief",
+                payload={
+                    "retro_id": "chief-retro-1",
+                    "case_id": first["case_id"],
+                    "owner_summary": "Chief retro completed.",
+                    "learning_directives": [
+                        {"agent_role": "pm", "directive": "pm directive", "rationale": "pm rationale"},
+                        {"agent_role": "risk_trader", "directive": "rt directive", "rationale": "rt rationale"},
+                        {"agent_role": "macro_event_analyst", "directive": "mea directive", "rationale": "mea rationale"},
+                        {"agent_role": "crypto_chief", "directive": "chief directive", "rationale": "chief rationale"},
+                    ],
+                },
+            )
+            second = monitor.scan_once(now=now + timedelta(minutes=2))
+            self.assertFalse(second["chief_dispatched"])
+            self.assertEqual(second["status"], "completed")
+            self.assertEqual(second["chief_dispatch_status"], "already_completed")
+            self.assertEqual(runner.runs, ["chief-job"])
+            cycle_state = harness.container.memory_assets.latest_retro_cycle_state(trade_day_utc=now.date().isoformat())
+            self.assertEqual(cycle_state["state"], "completed")
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_materializes_learning_directives_from_chief_retro(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, _runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            first = monitor.scan_once(now=now)
+            cycle_state = harness.container.memory_assets.latest_retro_cycle_state(trade_day_utc=now.date().isoformat())
+            harness.container.memory_assets.save_asset(
+                asset_type="chief_retro",
+                asset_id="chief-retro-materialize",
+                trace_id="trace-chief-retro-materialize",
+                actor_role="crypto_chief",
+                payload={
+                    "retro_id": "chief-retro-materialize",
+                    "case_id": first["case_id"],
+                    "cycle_id": cycle_state["cycle_id"],
+                    "owner_summary": "Chief retro completed.",
+                    "learning_directives": [
+                        {"agent_role": "pm", "directive": "pm directive", "rationale": "pm rationale"},
+                        {"agent_role": "risk_trader", "directive": "rt directive", "rationale": "rt rationale"},
+                        {"agent_role": "macro_event_analyst", "directive": "mea directive", "rationale": "mea rationale"},
+                        {"agent_role": "crypto_chief", "directive": "chief directive", "rationale": "chief rationale"},
+                    ],
+                },
+            )
+            second = monitor.scan_once(now=now + timedelta(minutes=2))
+            self.assertEqual(second["status"], "completed")
+            directives = harness.container.memory_assets.get_learning_directives(
+                case_id=first["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+            )
+            self.assertEqual(len(directives), 4)
+            self.assertEqual({item["agent_role"] for item in directives}, {"pm", "risk_trader", "macro_event_analyst", "crypto_chief"})
+            self.assertTrue(all(item["completion_state"] == "pending" for item in directives))
+            chief_asset = harness.container.memory_assets.latest_asset(asset_type="chief_retro", actor_role="crypto_chief")
+            self.assertEqual(len(chief_asset["payload"]["learning_directive_ids"]), 4)
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_marks_failed_when_chief_learning_directives_missing_role(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, _runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            first = monitor.scan_once(now=now)
+            cycle_state = harness.container.memory_assets.latest_retro_cycle_state(trade_day_utc=now.date().isoformat())
+            harness.container.memory_assets.save_asset(
+                asset_type="chief_retro",
+                asset_id="chief-retro-missing-role",
+                trace_id="trace-chief-retro-missing-role",
+                actor_role="crypto_chief",
+                payload={
+                    "retro_id": "chief-retro-missing-role",
+                    "case_id": first["case_id"],
+                    "cycle_id": cycle_state["cycle_id"],
+                    "owner_summary": "Chief retro completed.",
+                    "learning_directives": [
+                        {"agent_role": "pm", "directive": "pm directive", "rationale": "pm rationale"},
+                        {"agent_role": "risk_trader", "directive": "rt directive", "rationale": "rt rationale"},
+                        {"agent_role": "macro_event_analyst", "directive": "mea directive", "rationale": "mea rationale"},
+                    ],
+                },
+            )
+            second = monitor.scan_once(now=now + timedelta(minutes=2))
+            self.assertEqual(second["status"], "failed")
+            cycle_state = harness.container.memory_assets.latest_retro_cycle_state(trade_day_utc=now.date().isoformat())
+            self.assertEqual(cycle_state["state"], "failed")
+            self.assertIn("missing_learning_directives:crypto_chief", str(cycle_state["degraded_reason"]))
+            directives = harness.container.memory_assets.get_learning_directives(
+                case_id=first["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+            )
+            self.assertEqual(directives, [])
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_marks_learning_directive_completed_from_file_facts(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, _runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            learning_path = Path(harness.container.agent_gateway.learning_path_by_role["pm"])
+            learning_path.parent.mkdir(parents=True, exist_ok=True)
+            learning_path.write_text("baseline\n", encoding="utf-8")
+            baseline = monitor._learning_file_fingerprint(str(learning_path))
+            cycle_state, retro_case = _seed_pending_retro_case(harness, trade_day_utc=now.date().isoformat())
+            directive = harness.container.memory_assets.materialize_learning_directive(
+                trace_id="trace-learning-completed",
+                case_id=retro_case["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+                agent_role="pm",
+                session_key="agent:pm:main",
+                learning_path=str(learning_path),
+                actor_role="system",
+                authored_payload={
+                    "directive": "pm directive",
+                    "rationale": "pm rationale",
+                    "baseline_fingerprint": baseline,
+                    "completion_state": "pending",
+                },
+            )
+            learning_path.write_text("baseline\nupdated\n", encoding="utf-8")
+            monitor.scan_once(now=now, force=True)
+            updated = next(
+                item
+                for item in harness.container.memory_assets.get_learning_directives(case_id=retro_case["case_id"])
+                if item["directive_id"] == directive["directive_id"]
+            )
+            self.assertEqual(updated["completion_state"], "completed")
+            self.assertIsNotNone(updated["completed_at_utc"])
+        finally:
+            harness.cleanup()
+
+    def test_retro_prep_monitor_marks_learning_directive_stale_from_file_facts(self) -> None:
+        harness = build_test_harness()
+        try:
+            monitor, _runner = _build_retro_prep_monitor(harness)
+            now = datetime(2026, 4, 12, 22, 45, tzinfo=UTC)
+            learning_path = Path(harness.container.agent_gateway.learning_path_by_role["risk_trader"])
+            learning_path.parent.mkdir(parents=True, exist_ok=True)
+            learning_path.write_text("baseline\n", encoding="utf-8")
+            baseline = monitor._learning_file_fingerprint(str(learning_path))
+            cycle_state, retro_case = _seed_pending_retro_case(harness, trade_day_utc=now.date().isoformat())
+            directive = harness.container.memory_assets.materialize_learning_directive(
+                trace_id="trace-learning-stale",
+                case_id=retro_case["case_id"],
+                cycle_id=cycle_state["cycle_id"],
+                agent_role="risk_trader",
+                session_key="agent:risk_trader:main",
+                learning_path=str(learning_path),
+                actor_role="system",
+                authored_payload={
+                    "directive": "rt directive",
+                    "rationale": "rt rationale",
+                    "baseline_fingerprint": baseline,
+                    "completion_state": "pending",
+                },
+            )
+            learning_path.unlink()
+            monitor.scan_once(now=now, force=True)
+            updated = next(
+                item
+                for item in harness.container.memory_assets.get_learning_directives(case_id=retro_case["case_id"])
+                if item["directive_id"] == directive["directive_id"]
+            )
+            self.assertEqual(updated["completion_state"], "stale")
+            self.assertIsNone(updated["completed_at_utc"])
         finally:
             harness.cleanup()
 

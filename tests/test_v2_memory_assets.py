@@ -138,9 +138,20 @@ class MemoryAssetsServiceTests(unittest.TestCase):
     def test_retro_assets_roundtrip(self) -> None:
         with TemporaryDirectory() as tmp:
             service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            cycle = service.materialize_retro_cycle_state(
+                trace_id="trace-retro",
+                authored_payload={
+                    "trade_day_utc": "2026-04-14",
+                    "state": "case_created",
+                    "brief_deadline_utc": "2026-04-14T22:55:00Z",
+                    "chief_deadline_utc": "2026-04-14T23:10:00Z",
+                    "missing_brief_roles": ["pm", "risk_trader", "macro_event_analyst"],
+                },
+            )
             retro_case = service.materialize_retro_case(
                 trace_id="trace-retro",
                 authored_payload={
+                    "cycle_id": cycle["cycle_id"],
                     "trigger_type": "daily_retro",
                     "primary_question": "为什么今天没有赚到 1%？",
                     "objective_summary": "拆解 PM、RT、MEA 三个环节的真实贡献。",
@@ -151,6 +162,7 @@ class MemoryAssetsServiceTests(unittest.TestCase):
                 trace_id="trace-retro",
                 case_id=retro_case["case_id"],
                 agent_role="pm",
+                cycle_id=cycle["cycle_id"],
                 authored_payload={
                     "root_cause": "PM 过度保守。",
                     "cross_role_challenge": "RT 可以更主动。",
@@ -164,22 +176,29 @@ class MemoryAssetsServiceTests(unittest.TestCase):
                 agent_role="pm",
                 session_key="agent:pm:main",
                 learning_path="/tmp/pm.md",
+                cycle_id=cycle["cycle_id"],
                 authored_payload={
                     "directive": "把风格切换条件写清楚。",
                     "rationale": "避免 RT 无法执行。",
                 },
             )
+            latest_cycle = service.latest_retro_cycle_state(trade_day_utc=retro_case["case_day_utc"])
+            self.assertIsNotNone(latest_cycle)
+            self.assertEqual(latest_cycle["cycle_id"], cycle["cycle_id"])
             latest_case = service.latest_retro_case(case_day_utc=retro_case["case_day_utc"])
             self.assertIsNotNone(latest_case)
             self.assertEqual(latest_case["case_id"], retro_case["case_id"])
+            self.assertEqual(latest_case["cycle_id"], cycle["cycle_id"])
             latest_brief = service.latest_retro_brief(case_id=retro_case["case_id"], agent_role="pm")
             self.assertIsNotNone(latest_brief)
             self.assertEqual(latest_brief["brief_id"], retro_brief["brief_id"])
-            self.assertEqual(len(service.get_retro_briefs(case_id=retro_case["case_id"])), 1)
+            self.assertEqual(latest_brief["cycle_id"], cycle["cycle_id"])
+            self.assertEqual(len(service.get_retro_briefs(case_id=retro_case["case_id"], cycle_id=cycle["cycle_id"])), 1)
             latest_directive = service.latest_learning_directive(agent_role="pm")
             self.assertIsNotNone(latest_directive)
             self.assertEqual(latest_directive["directive_id"], directive["directive_id"])
-            self.assertEqual(len(service.get_learning_directives(case_id=retro_case["case_id"])), 1)
+            self.assertEqual(latest_directive["cycle_id"], cycle["cycle_id"])
+            self.assertEqual(len(service.get_learning_directives(case_id=retro_case["case_id"], cycle_id=cycle["cycle_id"])), 1)
 
 
 if __name__ == "__main__":

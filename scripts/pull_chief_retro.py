@@ -10,24 +10,26 @@ from urllib import request
 def build_submission_scaffold(pack: dict) -> dict:
     payload = dict(pack.get("payload") or {})
     retro_pack = dict(payload.get("retro_pack") or {})
+    retro_cycle_state = dict(payload.get("retro_cycle_state") or {})
     retro_case = dict(payload.get("retro_case") or {})
     retro_briefs = list(payload.get("retro_briefs") or [])
     pending_retro_brief_roles = list(payload.get("pending_retro_brief_roles") or [])
     return {
         "owner_summary": "",
         "case_id": str(retro_case.get("case_id") or "") or None,
-        "reset_command": "/new",
-        "learning_completed": False,
-        "learning_results": [],
+        "root_cause_ranking": [],
+        "role_judgements": {},
+        "learning_directives": [],
         "_operator_hint": (
-            "Fill owner_summary and any optional fields in this file, then submit it with submit_chief_retro.py. "
-            "Keep input_id outside the payload file."
+            "先在这个文件中补全 `owner_summary`、`root_cause_ranking`、`role_judgements` 和 `learning_directives`，再用 submit_chief_retro.py 提交。"
+            " `input_id` 保持在 payload 文件外层，不要写进来。"
         ),
         "_retro_pack_snapshot": {
+            "cycle_id": str(retro_cycle_state.get("cycle_id") or retro_case.get("cycle_id") or ""),
             "case_id": str(retro_case.get("case_id") or ""),
             "retro_brief_count": len(retro_briefs),
             "pending_retro_brief_roles": pending_retro_brief_roles,
-            "retro_ready_for_synthesis": bool(payload.get("retro_ready_for_synthesis")),
+            "retro_briefs_ready": bool(payload.get("retro_briefs_ready") or payload.get("retro_ready_for_synthesis")),
             "news_event_count": len(retro_pack.get("news_events") or []),
             "execution_context_count": len(retro_pack.get("execution_contexts") or []),
             "recent_execution_result_count": len(retro_pack.get("recent_execution_results") or []),
@@ -40,6 +42,7 @@ def build_submission_scaffold(pack: dict) -> dict:
 def summarize_pack(pack: dict, output_path: Path, submission_scaffold_path: Path) -> dict:
     payload = dict(pack.get("payload") or {})
     retro_pack = dict(payload.get("retro_pack") or {})
+    retro_cycle_state = dict(payload.get("retro_cycle_state") or {})
     retro_case = dict(payload.get("retro_case") or {})
     retro_briefs = list(payload.get("retro_briefs") or [])
     pending_retro_brief_roles = list(payload.get("pending_retro_brief_roles") or [])
@@ -57,10 +60,18 @@ def summarize_pack(pack: dict, output_path: Path, submission_scaffold_path: Path
         }
         if retro_case
         else None,
+        "retro_cycle_state": {
+            "cycle_id": retro_cycle_state.get("cycle_id"),
+            "state": retro_cycle_state.get("state"),
+            "missing_brief_roles": retro_cycle_state.get("missing_brief_roles") or [],
+            "chief_dispatch_status": retro_cycle_state.get("chief_dispatch_status"),
+        }
+        if retro_cycle_state
+        else None,
         "retro_pack_summary": {
             "retro_brief_count": len(retro_briefs),
             "pending_retro_brief_roles": pending_retro_brief_roles,
-            "retro_ready_for_synthesis": bool(payload.get("retro_ready_for_synthesis")),
+            "retro_briefs_ready": bool(payload.get("retro_briefs_ready") or payload.get("retro_ready_for_synthesis")),
             "news_event_count": len(retro_pack.get("news_events") or []),
             "execution_context_count": len(retro_pack.get("execution_contexts") or []),
             "macro_memory_count": len(retro_pack.get("macro_memory") or []),
@@ -69,12 +80,12 @@ def summarize_pack(pack: dict, output_path: Path, submission_scaffold_path: Path
             "learning_target_count": len(retro_pack.get("learning_targets") or payload.get("learning_targets") or []),
             "strategy_id": dict(retro_pack.get("strategy") or {}).get("strategy_id"),
         },
-        "operator_hint": "Edit the scaffold file instead of hand-writing a long POST body on the command line.",
+        "operator_hint": "优先编辑脚手架文件，不要在命令行里手写长 JSON 请求体。",
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Pull Chief retro runtime pack and prepare a submit scaffold.")
+    parser = argparse.ArgumentParser(description="拉取 Chief retro 运行时包，并生成可直接编辑的提交脚手架。")
     parser.add_argument("--url", default="http://127.0.0.1:8788/api/agent/pull/chief-retro")
     parser.add_argument("--trigger-type", default="daily_retro")
     parser.add_argument("--output", default="/tmp/chief_retro_pack.json")
