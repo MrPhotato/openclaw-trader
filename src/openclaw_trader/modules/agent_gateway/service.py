@@ -627,19 +627,21 @@ class AgentGatewayService:
             last_submission_kind="news",
         )
         for item in canonical_news["events"]:
+            event_id = str(item["event_id"])
             self.memory_assets.save_asset(
                 asset_type="macro_event",
                 payload=item,
                 trace_id=lease.pack.trace_id,
                 actor_role="macro_event_analyst",
-                group_key=str(item["event_id"]),
+                group_key=event_id,
                 source_ref=str(canonical_news["submission_id"]),
+                asset_id=f"macro_event:{event_id}",
             )
         self.memory_assets.save_asset(
             asset_type="macro_daily_memory",
             payload={
                 "memory_day_utc": new_id("memory_day"),
-                "summary": "; ".join(str(event["summary"]) for event in canonical_news["events"][:5]),
+                "summary": "; ".join(str(event["summary"]) for event in canonical_news["events"]),
                 "event_ids": [str(event["event_id"]) for event in canonical_news["events"]],
             },
             trace_id=lease.pack.trace_id,
@@ -1768,6 +1770,7 @@ class AgentGatewayService:
             strategy_payload = strategy.model_dump(mode="json") if hasattr(strategy, "model_dump") else dict(strategy)
         rt_strategy_payload = self._compact_strategy_payload(strategy_payload, agent_role="risk_trader")
         chief_strategy_payload = self._compact_strategy_payload(strategy_payload, agent_role="crypto_chief")
+        mea_strategy_payload = self._compact_strategy_payload(strategy_payload, agent_role="macro_event_analyst")
         pm_market_payload = self._compact_market_payload(market, agent_role="pm")
         rt_market_payload = self._compact_market_payload(market, agent_role="risk_trader")
         mea_market_payload = self._compact_market_payload(market, agent_role="macro_event_analyst")
@@ -1822,6 +1825,8 @@ class AgentGatewayService:
                     "market": mea_market_payload,
                     "news_events": [item.model_dump(mode="json") for item in news_events],
                     "macro_memory": list(macro_memory or []),
+                    "latest_strategy": mea_strategy_payload,
+                    "recent_news_submissions": self._recent_mea_submissions_digest(limit=3),
                     "pending_learning_directive": self._latest_learning_directive_payload("macro_event_analyst"),
                 },
             ),
@@ -1925,6 +1930,36 @@ class AgentGatewayService:
             "learning_path": directive.get("learning_path"),
             "created_at_utc": directive.get("created_at_utc"),
         }
+
+    def _recent_mea_submissions_digest(self, *, limit: int = 3) -> list[dict[str, Any]]:
+        """Compact digest of MEA's own recent news submissions, for cross-turn dedup.
+
+        MEA reads this to answer: "did I already report this event_id / theme recently?"
+        and to avoid re-sending sessions_send about a theme already covered in the last pull.
+        """
+        if self.memory_assets is None:
+            return []
+        submissions = self.memory_assets.get_recent_news_submissions(limit=limit)
+        digest: list[dict[str, Any]] = []
+        for item in submissions:
+            events = list(item.get("events") or [])
+            digest.append(
+                {
+                    "submission_id": item.get("submission_id"),
+                    "generated_at_utc": item.get("generated_at_utc"),
+                    "event_count": len(events),
+                    "events": [
+                        {
+                            "event_id": str(ev.get("event_id") or ""),
+                            "category": str(ev.get("category") or ""),
+                            "impact_level": str(ev.get("impact_level") or ""),
+                            "summary": str(ev.get("summary") or "")[:160],
+                        }
+                        for ev in events
+                    ],
+                }
+            )
+        return digest
 
     def run_pm_submission(self, *, trace_id: str, runtime_input: AgentRuntimeInput) -> ValidatedSubmissionEnvelope:
         return self._run_submission_with_retry(
@@ -3271,6 +3306,19 @@ class AgentGatewayService:
                 "change_summary",
                 "targets",
                 "scheduled_rechecks",
+            },
+            "macro_event_analyst": {
+                "strategy_id",
+                "strategy_day_utc",
+                "generated_at_utc",
+                "revision_number",
+                "portfolio_mode",
+                "target_gross_exposure_band_pct",
+                "portfolio_thesis",
+                "portfolio_invalidation",
+                "flip_triggers",
+                "change_summary",
+                "targets",
             },
         }
         keep_keys = keep_keys_by_role.get(agent_role)
