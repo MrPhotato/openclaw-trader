@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field, model_validator
 
@@ -241,6 +241,7 @@ class NewsSubmissionEventAsset(BaseModel):
     category: str
     summary: str
     impact_level: str
+    thesis_alignment: Literal["reinforces", "weakens", "flip_trigger", "neutral"] | None = None
 
 
 class NewsSubmissionAsset(BaseModel):

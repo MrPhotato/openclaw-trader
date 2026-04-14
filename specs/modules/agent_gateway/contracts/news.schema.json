@@ -35,6 +35,17 @@
               "medium",
               "high"
             ]
+          },
+          "thesis_alignment": {
+            "type": ["string", "null"],
+            "enum": [
+              "reinforces",
+              "weakens",
+              "flip_trigger",
+              "neutral",
+              null
+            ],
+            "description": "How this event relates to PM's current strategy thesis. 'reinforces' = strengthens thesis (PM may expand); 'weakens' = erodes thesis (PM may reduce); 'flip_trigger' = hits PM's named flip condition (urgent review); 'neutral' = informational only. Omit for events unrelated to any active strategy."
           }
         }
       }

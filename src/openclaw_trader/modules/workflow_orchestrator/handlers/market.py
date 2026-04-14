@@ -392,19 +392,21 @@ class MarketWorkflowHandler(WorkflowEventRecorder):
             last_submission_kind="news",
         )
         for item in canonical_news["events"]:
+            event_id = str(item["event_id"])
             self.services.memory_assets.save_asset(
                 asset_type="macro_event",
                 payload=item,
                 trace_id=trace_id,
                 actor_role="macro_event_analyst",
-                group_key=str(item["event_id"]),
+                group_key=event_id,
                 source_ref=str(canonical_news["submission_id"]),
+                asset_id=f"macro_event:{event_id}",
             )
         self.services.memory_assets.save_asset(
             asset_type="macro_daily_memory",
             payload={
                 "memory_day_utc": new_id("memory_day"),
-                "summary": "; ".join(str(event["summary"]) for event in canonical_news["events"][:5]),
+                "summary": "; ".join(str(event["summary"]) for event in canonical_news["events"]),
                 "event_ids": [str(event["event_id"]) for event in canonical_news["events"]],
             },
             trace_id=trace_id,

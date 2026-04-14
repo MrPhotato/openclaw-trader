@@ -217,6 +217,7 @@ class NewsSubmissionEvent(BaseModel):
     category: str
     summary: str
     impact_level: str
+    thesis_alignment: Literal["reinforces", "weakens", "flip_trigger", "neutral"] | None = None
 
 
 class NewsSubmission(BaseModel):
