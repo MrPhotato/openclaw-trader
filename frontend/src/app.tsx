@@ -2181,15 +2181,10 @@ function buildBalanceHistory(
           },
         ];
 
-  const startingEquity =
-    toNumber(latestPortfolio["starting_equity_usd"]) ??
-    (rawPoints.length > 0 ? rawPoints[0].equity : fallbackEquity) ??
-    DISPLAY_PRINCIPAL_USD;
-
   let pointIndex = 0;
-  // Seed with starting_equity so buckets before the first raw point still render
-  // (otherwise the daily chart collapses to whatever short window the raw points cover).
-  let lastEquity: number = startingEquity;
+  // null until the first real data point is encountered — buckets before the first
+  // real point are skipped so we don't render fabricated carry-backward history.
+  let lastEquity: number | null = null;
   const series: BalancePoint[] = [];
 
   for (let bucketMs = startBucketMs; bucketMs <= endBucketMs; bucketMs += intervalMs) {
@@ -2197,6 +2192,11 @@ function buildBalanceHistory(
     while (pointIndex < seededPoints.length && seededPoints[pointIndex].createdAtMs <= bucketEndMs) {
       lastEquity = seededPoints[pointIndex].equity;
       pointIndex += 1;
+    }
+
+    // Skip buckets before the first real data point to avoid fake carry-backward lines.
+    if (lastEquity === null) {
+      continue;
     }
 
     series.push({
