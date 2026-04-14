@@ -166,6 +166,20 @@ export default function App() {
     };
   }, [balanceSeries.length]);
 
+  // Keep the balance chart pinned to the most recent data on granularity or data changes,
+  // like a stock chart that defaults to the right edge.
+  useEffect(() => {
+    const node = chartViewportRef.current;
+    if (!node) {
+      return;
+    }
+    // Defer to next frame so recharts has laid out before we scroll.
+    const raf = requestAnimationFrame(() => {
+      node.scrollLeft = node.scrollWidth;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [balanceGranularity, balanceSeries.length, balanceChartWidth]);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-command-grid bg-[size:160px_160px,24px_24px,24px_24px] text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-7xl min-w-0 flex-col gap-4 px-3 py-3 sm:gap-6 sm:px-6 sm:py-4 lg:px-8">
@@ -250,8 +264,17 @@ export default function App() {
                   />
                 </div>
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  {buildNominalExposurePills(latestPortfolio).map((item) => (
-                    <CoinExposurePill key={item.coin} coin={item.coin} exposure={item.exposure} share={item.share} />
+                  {buildNominalExposurePills(latestPortfolio, latestStrategy).map((item) => (
+                    <CoinExposurePill
+                      key={item.coin}
+                      coin={item.coin}
+                      direction={item.direction}
+                      directionTone={item.directionTone}
+                      exposure={item.exposure}
+                      strategyExposure={item.strategyExposure}
+                      share={item.share}
+                      strategyShare={item.strategyShare}
+                    />
                   ))}
                 </div>
                 <ChartShell>
@@ -609,12 +632,43 @@ function SummaryPill(props: { label: string; value: string }) {
   );
 }
 
-function CoinExposurePill(props: { coin: string; exposure: string; share: string }) {
+function CoinExposurePill(props: {
+  coin: string;
+  direction?: string;
+  directionTone?: "long" | "short" | "flat" | "muted";
+  exposure: string;
+  strategyExposure?: string;
+  share: string;
+  strategyShare?: string;
+}) {
+  const toneClass =
+    props.directionTone === "long"
+      ? "text-emerald-300"
+      : props.directionTone === "short"
+        ? "text-rose-300"
+        : props.directionTone === "flat"
+          ? "text-slate-300"
+          : "text-slate-500";
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-      <div className="text-[10px] tracking-[0.2em] text-slate-500">{props.coin}</div>
-      <div className="mt-1 text-base font-medium text-slate-200">{props.exposure}</div>
-      <div className="mt-1 text-xs text-slate-400">{props.share}</div>
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[10px] tracking-[0.2em] text-slate-500">{props.coin}</div>
+        {props.direction ? (
+          <div className={`text-[11px] font-medium ${toneClass}`}>{props.direction}</div>
+        ) : null}
+      </div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-base font-medium text-slate-200">
+        <span>{props.exposure}</span>
+        {props.strategyExposure ? (
+          <span className="text-xs font-normal text-slate-500">/ 策略 {props.strategyExposure}</span>
+        ) : null}
+      </div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xs text-slate-400">
+        <span>{props.share}</span>
+        {props.strategyShare ? (
+          <span className="text-slate-500">/ 策略 {props.strategyShare}</span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1492,12 +1546,12 @@ function balanceGranularityMs(granularity: BalanceGranularity) {
 
 function balanceBucketCount(granularity: BalanceGranularity) {
   if (granularity === "15m") {
-    return 48;
+    return 96; // 24 hours
   }
   if (granularity === "1h") {
-    return 48;
+    return 168; // 7 days
   }
-  return 7;
+  return 30; // 30 days (matches backend daily lookback)
 }
 
 function strategyIdentity(strategy: Record<string, unknown>) {
@@ -1737,7 +1791,20 @@ function formatBandValue(value: unknown) {
   return number === null ? "0%" : `${trimNumber(number)}%`;
 }
 
-function buildNominalExposurePills(latestPortfolio: Record<string, unknown>) {
+type ExposurePill = {
+  coin: string;
+  direction?: string;
+  directionTone?: "long" | "short" | "flat" | "muted";
+  exposure: string;
+  strategyExposure?: string;
+  share: string;
+  strategyShare?: string;
+};
+
+function buildNominalExposurePills(
+  latestPortfolio: Record<string, unknown>,
+  latestStrategy: Record<string, unknown>,
+): ExposurePill[] {
   const positions = Array.isArray(latestPortfolio["positions"]) ? latestPortfolio["positions"] : [];
   const positionMap = new Map(
     positions
@@ -1746,18 +1813,59 @@ function buildNominalExposurePills(latestPortfolio: Record<string, unknown>) {
       .map((position) => [String(position.coin ?? "").toUpperCase(), position]),
   );
 
+  const targets = Array.isArray(latestStrategy["targets"]) ? latestStrategy["targets"] : [];
+  const targetMap = new Map(
+    targets
+      .map((target) => asRecord(target))
+      .filter((target): target is Record<string, unknown> => target !== null)
+      .map((target) => [String(target.symbol ?? "").toUpperCase(), target]),
+  );
+
   return [
-    ...["BTC", "ETH", "SOL"].map((coin) => ({
-      coin,
-      exposure: positionNotionalLabel(positionMap.get(coin)),
-      share: nominalMarginPctLabel(positionNotionalValue(positionMap.get(coin))),
-    })),
+    ...["BTC", "ETH", "SOL"].map<ExposurePill>((coin) => {
+      const position = positionMap.get(coin);
+      const target = targetMap.get(coin);
+      const { label: direction, tone } = positionDirectionLabel(position, target);
+      return {
+        coin,
+        direction,
+        directionTone: tone,
+        exposure: positionNotionalLabel(position),
+        strategyExposure: targetExposureLabel(target),
+        share: nominalMarginPctLabel(positionNotionalValue(position)),
+        strategyShare: targetSharePctLabel(target),
+      };
+    }),
     {
       coin: "总敞口",
       exposure: usdCompactText(latestPortfolio["total_exposure_usd"]),
       share: nominalMarginPctLabel(latestPortfolio["total_exposure_usd"]),
     },
   ];
+}
+
+function positionDirectionLabel(
+  position?: Record<string, unknown>,
+  target?: Record<string, unknown>,
+): { label: string; tone: "long" | "short" | "flat" | "muted" } {
+  const side = position ? String(position.side ?? "").toLowerCase() : "";
+  if (side === "long") {
+    return { label: "做多", tone: "long" };
+  }
+  if (side === "short") {
+    return { label: "做空", tone: "short" };
+  }
+  const targetDirection = target ? String(target.direction ?? "").toLowerCase() : "";
+  if (targetDirection === "long") {
+    return { label: "待做多", tone: "muted" };
+  }
+  if (targetDirection === "short") {
+    return { label: "待做空", tone: "muted" };
+  }
+  if (targetDirection === "flat") {
+    return { label: "观望", tone: "flat" };
+  }
+  return { label: "空仓", tone: "muted" };
 }
 
 function positionNotionalLabel(position?: Record<string, unknown>) {
@@ -1776,6 +1884,34 @@ function positionNotionalValue(position?: Record<string, unknown>) {
     return 0;
   }
   return toNumber(position.notional_usd) ?? toNumber(position.current_notional_usd) ?? 0;
+}
+
+function targetExposureBandTop(target?: Record<string, unknown>): number | null {
+  if (!target) {
+    return null;
+  }
+  const band = Array.isArray(target.target_exposure_band_pct) ? target.target_exposure_band_pct : null;
+  if (!band || band.length < 2) {
+    return null;
+  }
+  return toNumber(band[1]);
+}
+
+function targetExposureLabel(target?: Record<string, unknown>): string | undefined {
+  const topPct = targetExposureBandTop(target);
+  if (topPct === null) {
+    return undefined;
+  }
+  const usd = (DISPLAY_NOMINAL_USD * topPct) / 100;
+  return usdCompactText(usd);
+}
+
+function targetSharePctLabel(target?: Record<string, unknown>): string | undefined {
+  const topPct = targetExposureBandTop(target);
+  if (topPct === null) {
+    return undefined;
+  }
+  return `${trimNumber(topPct)}%`;
 }
 
 function configuredLeverageLabel() {
@@ -1829,8 +1965,15 @@ function buildBalanceHistory(
           },
         ];
 
+  const startingEquity =
+    toNumber(latestPortfolio["starting_equity_usd"]) ??
+    (rawPoints.length > 0 ? rawPoints[0].equity : fallbackEquity) ??
+    DISPLAY_PRINCIPAL_USD;
+
   let pointIndex = 0;
-  let lastEquity: number | null = null;
+  // Seed with starting_equity so buckets before the first raw point still render
+  // (otherwise the daily chart collapses to whatever short window the raw points cover).
+  let lastEquity: number = startingEquity;
   const series: BalancePoint[] = [];
 
   for (let bucketMs = startBucketMs; bucketMs <= endBucketMs; bucketMs += intervalMs) {
@@ -1838,13 +1981,6 @@ function buildBalanceHistory(
     while (pointIndex < seededPoints.length && seededPoints[pointIndex].createdAtMs <= bucketEndMs) {
       lastEquity = seededPoints[pointIndex].equity;
       pointIndex += 1;
-    }
-
-    if (lastEquity === null && rawPoints.length === 0 && fallbackEquity !== null) {
-      lastEquity = fallbackEquity;
-    }
-    if (lastEquity === null) {
-      continue;
     }
 
     series.push({
