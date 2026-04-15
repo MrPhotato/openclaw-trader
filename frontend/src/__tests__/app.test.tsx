@@ -390,11 +390,12 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: /Openclaw Trader AI交易/ })).toBeInTheDocument());
     expect(screen.getByTestId("overview-view")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("账户余额（本金$1000）")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText("5x（名义$5000）")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("账户余额（当前总权益）")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("5x（名义$5,012.5）")).toBeInTheDocument());
     expect(screen.queryByText("当前敞口")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("$161.3").length).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(screen.getAllByText("名义占用 3.23%").length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getByText(/150\.38/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("名义占用 3.22%").length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.getByRole("button", { name: "展开更多成交回执" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: "展开更多高优先事件" })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("卖出 BTC")).toBeInTheDocument());

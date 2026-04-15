@@ -62,9 +62,8 @@ const moduleLabels: Record<string, string> = {
   quant_intelligence: "量化洞察",
 };
 
-const DISPLAY_PRINCIPAL_USD = 1000;
+const DEFAULT_DISPLAY_EQUITY_USD = 1000;
 const DISPLAY_LEVERAGE = 5;
-const DISPLAY_NOMINAL_USD = DISPLAY_PRINCIPAL_USD * DISPLAY_LEVERAGE;
 type BalanceGranularity = "15m" | "1h" | "1d";
 type BalancePoint = { label: string; equity: number; createdAtMs: number };
 
@@ -258,12 +257,12 @@ export default function App() {
               <Panel title="账户余额轨迹">
                 <div className="mb-4 grid gap-3 sm:grid-cols-2">
                   <SummaryPill
-                    label="账户余额（本金$1000）"
+                    label="账户余额（当前总权益）"
                     value={usdCompactText(latestPortfolio["total_equity_usd"])}
                   />
                   <SummaryPill
                     label="当前杠杆"
-                    value={configuredLeverageLabel()}
+                    value={configuredLeverageLabel(latestPortfolio)}
                   />
                 </div>
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1787,7 +1786,7 @@ function balanceNarrative(
   const first = points[0];
   const last = points[points.length - 1];
   const delta = last.equity - first.equity;
-  const exposure = nominalMarginPctLabel(latestPortfolio["total_exposure_usd"]);
+  const exposure = nominalMarginPctLabel(latestPortfolio["total_exposure_usd"], latestPortfolio);
   const direction = delta > 0 ? "上升" : delta < 0 ? "回落" : "基本持平";
   return `${balanceWindowLabel(granularity)}视角下，横轴已经按固定粒度重排。账户余额目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
     Math.abs(delta),
@@ -2047,15 +2046,15 @@ function buildNominalExposurePills(
         direction,
         directionTone: tone,
         exposure: positionNotionalLabel(position),
-        strategyExposure: targetExposureLabel(target),
-        share: nominalMarginPctLabel(positionNotionalValue(position)),
+        strategyExposure: targetExposureLabel(target, latestPortfolio),
+        share: nominalMarginPctLabel(positionNotionalValue(position), latestPortfolio),
         strategyShare: targetSharePctLabel(target),
       };
     }),
     {
       coin: "总敞口",
       exposure: usdCompactText(latestPortfolio["total_exposure_usd"]),
-      share: nominalMarginPctLabel(latestPortfolio["total_exposure_usd"]),
+      share: nominalMarginPctLabel(latestPortfolio["total_exposure_usd"], latestPortfolio),
     },
   ];
 }
@@ -2113,12 +2112,20 @@ function targetExposureBandTop(target?: Record<string, unknown>): number | null 
   return toNumber(band[1]);
 }
 
-function targetExposureLabel(target?: Record<string, unknown>): string | undefined {
+function displayEquityBudget(latestPortfolio: Record<string, unknown>) {
+  return toNumber(latestPortfolio["total_equity_usd"]) ?? DEFAULT_DISPLAY_EQUITY_USD;
+}
+
+function displayNominalBudget(latestPortfolio: Record<string, unknown>) {
+  return displayEquityBudget(latestPortfolio) * DISPLAY_LEVERAGE;
+}
+
+function targetExposureLabel(target: Record<string, unknown> | undefined, latestPortfolio: Record<string, unknown>): string | undefined {
   const topPct = targetExposureBandTop(target);
   if (topPct === null) {
     return undefined;
   }
-  const usd = (DISPLAY_NOMINAL_USD * topPct) / 100;
+  const usd = (displayNominalBudget(latestPortfolio) * topPct) / 100;
   return usdCompactText(usd);
 }
 
@@ -2130,13 +2137,14 @@ function targetSharePctLabel(target?: Record<string, unknown>): string | undefin
   return `${trimNumber(topPct)}%`;
 }
 
-function configuredLeverageLabel() {
-  return `${DISPLAY_LEVERAGE}x（名义$${DISPLAY_NOMINAL_USD}）`;
+function configuredLeverageLabel(latestPortfolio: Record<string, unknown>) {
+  return `${DISPLAY_LEVERAGE}x（名义${usdCompactText(displayNominalBudget(latestPortfolio))}）`;
 }
 
-function nominalMarginPctLabel(value: unknown) {
+function nominalMarginPctLabel(value: unknown, latestPortfolio: Record<string, unknown>) {
   const notional = toNumber(value) ?? 0;
-  const pct = DISPLAY_NOMINAL_USD > 0 ? (notional / DISPLAY_NOMINAL_USD) * 100 : 0;
+  const nominalBudget = displayNominalBudget(latestPortfolio);
+  const pct = nominalBudget > 0 ? (notional / nominalBudget) * 100 : 0;
   return `名义占用 ${pct.toLocaleString("zh-CN", { minimumFractionDigits: pct === 0 ? 0 : 2, maximumFractionDigits: 2 })}%`;
 }
 
