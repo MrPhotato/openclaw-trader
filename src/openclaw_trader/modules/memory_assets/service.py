@@ -134,6 +134,9 @@ class MemoryAssetsService:
     def recent_portfolios(self, *, limit: int = 24) -> list[dict]:
         return self.repository.recent_portfolios(limit=limit)
 
+    def portfolio_equity_timeseries(self, *, since: str, bucket_minutes: int = 15) -> list[dict]:
+        return self.repository.portfolio_equity_timeseries(since=since, bucket_minutes=bucket_minutes)
+
     def save_asset(
         self,
         *,
@@ -917,12 +920,16 @@ class MemoryAssetsService:
             except ValueError:
                 data_age_seconds = None
         is_stale = bool(data_age_seconds is not None and data_age_seconds > 30 * 60)
+        # Pull ~31 days of equity history, downsampled to 15-minute buckets so the
+        # daily chart can actually see multi-day trends without hauling millions of
+        # raw snapshots across the wire.
+        history_since = (datetime.now(UTC) - timedelta(days=31)).isoformat()
         portfolio_history = [
             {
                 "created_at": item["created_at"],
-                "total_equity_usd": item.get("payload", {}).get("total_equity_usd"),
+                "total_equity_usd": item.get("total_equity_usd"),
             }
-            for item in self.recent_portfolios(limit=1000)
+            for item in self.portfolio_equity_timeseries(since=history_since, bucket_minutes=15)
         ]
         return OverviewQueryView(
             system={

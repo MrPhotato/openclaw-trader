@@ -56,3 +56,44 @@ class PortfolioRepository:
             }
             for row in rows
         ]
+
+    def equity_timeseries(self, *, since: str, bucket_minutes: int = 15) -> list[dict]:
+        """Return one equity sample per bucket_minutes interval since the given ISO timestamp.
+
+        Uses SQL window functions to downsample millions of snapshots into a compact
+        frontend-friendly series: for each (date + hour + bucket-of-minute) partition we
+        keep the earliest row. Bucket math is pure string arithmetic so it works on
+        SQLite's ISO-8601 text timestamps without json1-free date functions.
+        """
+        bucket = max(1, int(bucket_minutes))
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                """
+                WITH ranked AS (
+                    SELECT
+                        created_at,
+                        json_extract(payload_json, '$.total_equity_usd') AS total_equity_usd,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY (
+                                substr(created_at, 1, 14) ||
+                                printf('%02d', CAST(substr(created_at, 15, 2) AS INTEGER) / ? * ?)
+                            )
+                            ORDER BY created_at
+                        ) AS rn
+                    FROM portfolio_snapshots
+                    WHERE created_at >= ?
+                )
+                SELECT created_at, total_equity_usd
+                FROM ranked
+                WHERE rn = 1
+                ORDER BY created_at ASC
+                """,
+                (bucket, bucket, since),
+            ).fetchall()
+        return [
+            {
+                "created_at": row["created_at"],
+                "total_equity_usd": row["total_equity_usd"],
+            }
+            for row in rows
+        ]

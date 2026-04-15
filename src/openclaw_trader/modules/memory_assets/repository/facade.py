@@ -64,6 +64,9 @@ class MemoryAssetsRepository:
     def recent_portfolios(self, *, limit: int = 24) -> list[dict]:
         return self.portfolio.recent(limit=limit)
 
+    def portfolio_equity_timeseries(self, *, since: str, bucket_minutes: int = 15) -> list[dict]:
+        return self.portfolio.equity_timeseries(since=since, bucket_minutes=bucket_minutes)
+
     def save_notification_result(self, result: NotificationResult, payload: dict) -> None:
         self.notifications.save_result(result, payload)
 
