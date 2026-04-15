@@ -150,11 +150,15 @@ class CoinbaseIntxMarketDataProvider:
         contexts: dict[str, MarketContextNormalized] = {}
         for coin in coins:
             product_id = self.runtime_client.product_id(coin)
+            # Pull enough candles per window to render an actual K-line chart in the
+            # frontend. Coinbase caps each request at ~300 candles; these lookbacks
+            # stay comfortably under that while giving each timeframe a real span
+            # (24h / 7d / 30d / 90d).
             series_payload = {
-                "15m": self._fetch_series(product_id, granularity="FIFTEEN_MINUTE", lookback=24, interval_seconds=900),
-                "1h": self._fetch_series(product_id, granularity="ONE_HOUR", lookback=24, interval_seconds=3600),
-                "4h": self._fetch_series(product_id, granularity="FOUR_HOUR", lookback=24, interval_seconds=14400),
-                "24h": self._fetch_series(product_id, granularity="ONE_DAY", lookback=30, interval_seconds=86400),
+                "15m": self._fetch_series(product_id, granularity="FIFTEEN_MINUTE", lookback=96, interval_seconds=900),
+                "1h": self._fetch_series(product_id, granularity="ONE_HOUR", lookback=168, interval_seconds=3600),
+                "4h": self._fetch_series(product_id, granularity="FOUR_HOUR", lookback=180, interval_seconds=14400),
+                "24h": self._fetch_series(product_id, granularity="ONE_DAY", lookback=90, interval_seconds=86400),
             }
             liquidity = self._liquidity_snapshot(coin)
             contexts[coin] = MarketContextNormalized(
