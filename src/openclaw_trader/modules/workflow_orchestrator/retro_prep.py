@@ -299,7 +299,21 @@ class RetroPrepMonitor:
         while not self._stop.wait(max(int(self.config.scan_interval_seconds), 1)):
             try:
                 self.scan_once()
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                # Surface uncaught failures through retro_prep_state so ops can
+                # diagnose from the asset alone instead of needing a force-run to
+                # reproduce. Best-effort: if the state save itself fails, swallow
+                # to keep the loop alive.
+                try:
+                    now_iso = datetime.now(UTC).isoformat()
+                    state = self._load_state()
+                    state["last_scan_at_utc"] = now_iso
+                    state["last_status"] = "error"
+                    state["last_error"] = str(exc)
+                    state["last_error_at_utc"] = now_iso
+                    self._save_state(state)
+                except Exception:  # noqa: BLE001
+                    pass
                 continue
 
     def _within_prep_window(self, current: datetime) -> bool:
@@ -593,17 +607,24 @@ class RetroPrepMonitor:
                 completed_at_utc = None
             else:
                 continue
-            updated = self.memory_assets.save_learning_directive(
-                trace_id=None,
-                directive_id=str(directive.get("directive_id") or directive.get("asset_id") or ""),
-                actor_role="system",
-                source_ref=str(directive.get("source_ref") or "") or None,
-                payload={
-                    **directive,
-                    "completion_state": completion_state,
-                    "completed_at_utc": completed_at_utc,
-                },
-            )
+            # Never let a single malformed legacy directive (e.g. missing a field
+            # required by a tightened schema) kill the whole scan: log + continue
+            # so subsequent directives and the retro_case / chief dispatch path
+            # can still make progress.
+            try:
+                updated = self.memory_assets.save_learning_directive(
+                    trace_id=None,
+                    directive_id=str(directive.get("directive_id") or directive.get("asset_id") or ""),
+                    actor_role="system",
+                    source_ref=str(directive.get("source_ref") or "") or None,
+                    payload={
+                        **directive,
+                        "completion_state": completion_state,
+                        "completed_at_utc": completed_at_utc,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                continue
             updates.append(updated)
         return updates
 
