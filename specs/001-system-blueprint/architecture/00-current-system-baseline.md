@@ -53,7 +53,7 @@ flowchart LR
 - 永续行情快照与 K 线读取
 - paper / live 开平仓
 - 风险检查与 panic 保护
-- BTC/ETH/SOL 多币支持
+- BTC/ETH 多币支持
 
 ### 4.2 量化与策略能力
 

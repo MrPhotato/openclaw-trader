@@ -182,7 +182,6 @@ def _seed_strategy(harness, *, gross_band: list[float] | None = None, targets: l
             "targets": [
                 merged_targets["BTC"],
                 merged_targets["ETH"],
-                merged_targets["SOL"],
             ],
             "scheduled_rechecks": [],
         },
@@ -854,17 +853,17 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                         "priority": 1,
                     },
                     {
-                        "symbol": "SOL",
+                        "symbol": "ETH",
                         "state": "watch",
                         "direction": "flat",
                         "target_exposure_band_pct": [0.0, 0.0],
                         "rt_discretion_band_pct": 0.0,
-                        "priority": 3,
+                        "priority": 2,
                     },
                 ],
             )
             provider = MutableMarketDataProvider()
-            provider.breakout_by_coin = {"BTC": "up_breakout", "SOL": "up_breakout"}
+            provider.breakout_by_coin = {"BTC": "up_breakout", "ETH": "up_breakout"}
             _seed_trigger_state(
                 harness,
                 {
@@ -872,7 +871,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "last_trigger_at_utc": (now - timedelta(hours=2)).isoformat(),
                     "last_market_state_by_coin": {
                         "BTC": {"mark_price": 100.0, "breakout_state": "range", "volatility_state": "normal"},
-                        "SOL": {"mark_price": 100.0, "breakout_state": "range", "volatility_state": "normal"},
+                        "ETH": {"mark_price": 100.0, "breakout_state": "range", "volatility_state": "normal"},
                     },
                 },
             )
@@ -884,7 +883,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
-    def test_rt_trigger_ignores_flat_watch_sol_breakout_without_position(self) -> None:
+    def test_rt_trigger_ignores_flat_watch_breakout_without_position(self) -> None:
         harness = build_test_harness()
         try:
             now = datetime(2026, 4, 7, 1, 0, tzinfo=UTC)
@@ -892,25 +891,25 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 harness,
                 targets=[
                     {
-                        "symbol": "SOL",
+                        "symbol": "ETH",
                         "state": "watch",
                         "direction": "flat",
                         "target_exposure_band_pct": [0.0, 0.0],
                         "rt_discretion_band_pct": 0.0,
-                        "priority": 3,
+                        "priority": 2,
                     }
                 ],
             )
             provider = MutableMarketDataProvider()
             provider.flat = True
-            provider.breakout_by_coin = {"SOL": "up_breakout"}
+            provider.breakout_by_coin = {"ETH": "up_breakout"}
             _seed_trigger_state(
                 harness,
                 {
                     "last_seen_strategy_key": _strategy_key(strategy),
                     "last_trigger_at_utc": now.isoformat(),
                     "last_market_state_by_coin": {
-                        "SOL": {"mark_price": 100.0, "breakout_state": "range", "volatility_state": "normal"},
+                        "ETH": {"mark_price": 100.0, "breakout_state": "range", "volatility_state": "normal"},
                     },
                 },
             )

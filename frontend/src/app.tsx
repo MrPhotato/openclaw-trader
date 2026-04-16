@@ -266,7 +266,11 @@ export default function App() {
                   />
                 </div>
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  {buildNominalExposurePills(latestPortfolio, latestStrategy).map((item) => (
+                  {buildNominalExposurePills(
+                    latestPortfolio,
+                    latestStrategy,
+                    (overview?.system as { supported_coins?: readonly string[] } | undefined)?.supported_coins,
+                  ).map((item) => (
                     <CoinExposurePill
                       key={item.coin}
                       coin={item.coin}
@@ -1893,7 +1897,7 @@ function rtDeskHeadline(brief: Record<string, unknown> | null, latestStrategy: R
 function rtNoviceGuide(brief: Record<string, unknown> | null, latestStrategy: Record<string, unknown>) {
   const posture = rtPortfolioPostureLabel(brief?.portfolio_posture, latestStrategy["portfolio_mode"]);
   const risk = rtRiskBiasLabel(brief?.risk_bias);
-  return `当前整体以${posture}为主。下方 3 张卡分别写清 BTC、ETH、SOL 现在更偏向加仓、减仓还是继续观察；如果市场走坏，先按“${compactText(risk, 30)}”这一条执行。`;
+  return `当前整体以${posture}为主。下方 2 张卡分别写清 BTC、ETH 现在更偏向加仓、减仓还是继续观察；如果市场走坏，先按“${compactText(risk, 30)}”这一条执行。`;
 }
 
 function rtMetadataPills(brief: Record<string, unknown> | null, trigger: Record<string, unknown> | null) {
@@ -2019,6 +2023,7 @@ type ExposurePill = {
 function buildNominalExposurePills(
   latestPortfolio: Record<string, unknown>,
   latestStrategy: Record<string, unknown>,
+  supportedCoins?: readonly string[],
 ): ExposurePill[] {
   const positions = Array.isArray(latestPortfolio["positions"]) ? latestPortfolio["positions"] : [];
   const positionMap = new Map(
@@ -2036,8 +2041,13 @@ function buildNominalExposurePills(
       .map((target) => [String(target.symbol ?? "").toUpperCase(), target]),
   );
 
+  const coins = (supportedCoins && supportedCoins.length > 0
+    ? supportedCoins
+    : ["BTC", "ETH"]
+  ).map((coin) => String(coin).toUpperCase());
+
   return [
-    ...["BTC", "ETH", "SOL"].map<ExposurePill>((coin) => {
+    ...coins.map<ExposurePill>((coin) => {
       const position = positionMap.get(coin);
       const target = targetMap.get(coin);
       const { label: direction, tone } = positionDirectionLabel(position, target);

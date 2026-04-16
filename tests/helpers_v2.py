@@ -193,7 +193,7 @@ class FakeQuantProvider:
         }
 
     def retrain(self, coins: list[str] | None = None) -> dict[str, dict]:
-        target = coins or ["BTC", "ETH", "SOL"]
+        target = coins or ["BTC", "ETH"]
         return {coin: {"status": "ok"} for coin in target}
 
 
@@ -274,7 +274,7 @@ def build_test_settings(sqlite_path: Path) -> SystemSettings:
         ),
         execution=ExecutionSettings(
             exchange="coinbase_intx",
-            supported_coins=["BTC", "ETH", "SOL"],
+            supported_coins=["BTC", "ETH"],
             live_enabled=True,
             max_leverage=5.0,
             max_total_exposure_pct_of_exposure_budget=100.0,

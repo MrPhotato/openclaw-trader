@@ -19,7 +19,7 @@ from openclaw_trader.modules.quant_intelligence.support import (
 from openclaw_trader.shared.protocols.market_types import Candle
 
 
-COINS = ("BTC", "ETH", "SOL")
+COINS = ("BTC", "ETH")
 MANIFEST_NAME = "history_bundle_manifest.json"
 
 

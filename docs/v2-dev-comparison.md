@@ -15,7 +15,7 @@
   - `min_long_short_probability = 0.39`
   - `meta_min_confidence = 0.48`
 - 交易所主路径：`coinbase_intx`
-- 支持币种：`BTC / ETH / SOL`
+- 支持币种：`BTC / ETH`
 - 杠杆上限：`5x`
 - 动作集合：`open / add / reduce / close / flip`
 - OpenClaw 仍作为外部适配器存在，但边界已收口到 `agent_gateway/adapters/openclaw.py`

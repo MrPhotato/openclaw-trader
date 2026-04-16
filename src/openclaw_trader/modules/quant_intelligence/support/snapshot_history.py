@@ -20,7 +20,7 @@ from .candle_loader import GRANULARITY_BY_INTERVAL, normalize_candle_timestamp, 
 
 BINANCE_FAPI_BASE = "https://fapi.binance.com"
 TARDIS_DATASET_BASE = "https://datasets.tardis.dev/v1"
-BINANCE_SYMBOL_BY_COIN = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT"}
+BINANCE_SYMBOL_BY_COIN = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
 ROLLING_DAY_BARS = 96
 OUTLIER_ZSCORE = 8.0
 TARDIS_DATASET = "derivative_ticker"

@@ -78,7 +78,6 @@ def _profile_checks(
         "eth_ece_lte_0_026": eth_ece <= 0.026,
         "eth_flat_class_ece_improved": eth_flat_ece < baseline_flat_ece,
         "btc_not_worse_than_minus_1pp": float(vs_baseline["by_coin"]["BTC"]["4h"]["delta_precision_30"]) >= -0.01,
-        "sol_not_worse_than_minus_1pp": float(vs_baseline["by_coin"]["SOL"]["4h"]["delta_precision_30"]) >= -0.01,
         "avg_12h_precision_30_delta_gte_10pp": float(vs_dev["headline"]["avg_12h_precision_30_delta"]) >= 0.10,
     }
 

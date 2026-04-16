@@ -80,7 +80,6 @@ def main() -> None:
         _probe("BTCUSDT", day=datetime(2025, 1, 1, tzinfo=UTC)),
         _probe("BTCUSDT", day=datetime(2025, 1, 2, tzinfo=UTC)),
         _probe("ETHUSDT", day=datetime(2024, 12, 1, tzinfo=UTC)),
-        _probe("SOLUSDT", day=datetime(2025, 1, 1, tzinfo=UTC)),
     ]
     payload = {
         "generated_at": datetime.now(UTC).isoformat(),

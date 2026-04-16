@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
 from pathlib import Path
 from typing import Any
@@ -17,14 +16,12 @@ def _settings_for(
     runtime_root: Path,
     *,
     eth_threshold: float,
-    sol_threshold: float,
     specialist_coin_horizons: list[str] | None = None,
     probability_calibration_mode_by_coin_horizon: dict[str, str] | None = None,
 ) -> Any:
     overrides = {
         "ETH:4h": 0.0025,
         "ETH:12h": float(eth_threshold),
-        "SOL:12h": float(sol_threshold),
     }
     return bench.build_benchmark_settings(
         runtime_root,
@@ -47,7 +44,6 @@ def _headline(summary: dict[str, Any], baseline: dict[str, Any]) -> dict[str, An
         "avg_4h_precision_30_delta": float(delta["headline"]["avg_4h_precision_30_delta"]),
         "ece_improvement_ratio": float(delta["headline"]["ece_improvement_ratio"]),
         "eth_12h_delta": float(delta["by_coin"]["ETH"]["12h"]["delta_precision_30"]),
-        "sol_12h_delta": float(delta["by_coin"]["SOL"]["12h"]["delta_precision_30"]),
     }
 
 
@@ -57,7 +53,6 @@ def _profile_checks(summary: dict[str, Any], *, baseline_summary: dict[str, Any]
     return {
         "avg_12h_precision_30_delta_gte_3pp": float(vs_dev["headline"]["avg_12h_precision_30_delta"]) >= 0.03,
         "eth_12h_not_negative": float(vs_dev["by_coin"]["ETH"]["12h"]["delta_precision_30"]) >= 0.0,
-        "sol_12h_not_negative": float(vs_dev["by_coin"]["SOL"]["12h"]["delta_precision_30"]) >= 0.0,
         "avg_4h_not_worse_than_minus_1pp_vs_baseline": float(vs_baseline["headline"]["avg_4h_precision_30_delta"]) >= -0.01,
         "ece_improvement_gte_85pct": float(vs_dev["headline"]["ece_improvement_ratio"]) >= 0.85,
     }
@@ -71,17 +66,14 @@ def _profile_sort_key(summary: dict[str, Any], *, baseline_summary: dict[str, An
     vs_dev = bench.build_delta_report(summary, dev_summary)
     return (
         float(vs_dev["headline"]["avg_12h_precision_30_delta"]),
-        min(
-            float(vs_dev["by_coin"]["ETH"]["12h"]["delta_precision_30"]),
-            float(vs_dev["by_coin"]["SOL"]["12h"]["delta_precision_30"]),
-        ),
+        float(vs_dev["by_coin"]["ETH"]["12h"]["delta_precision_30"]),
         float(vs_dev["headline"]["avg_4h_precision_30_delta"]),
         float(vs_dev["headline"]["ece_improvement_ratio"]),
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Focused 12h benchmark with frozen data window.")
+    parser = argparse.ArgumentParser(description="Focused ETH:12h benchmark with frozen data window.")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--shared-cache-root", type=Path, required=True)
     parser.add_argument("--baseline-json", type=Path, default=None)
@@ -94,7 +86,6 @@ def main() -> None:
     baseline_settings = _settings_for(
         output_dir / BASELINE_PROFILE,
         eth_threshold=0.0025,
-        sol_threshold=0.0025,
     )
     bench.prepare_history_bundle(shared_cache_root, settings=baseline_settings)
 
@@ -113,15 +104,14 @@ def main() -> None:
         )
 
     current_profiles: dict[str, dict[str, Any]] = {BASELINE_PROFILE: baseline_current}
-    for eth_threshold, sol_threshold in itertools.product(THRESHOLD_CANDIDATES, repeat=2):
-        profile = f"th12_eth_{str(eth_threshold).replace('.', 'p')}_sol_{str(sol_threshold).replace('.', 'p')}"
+    for eth_threshold in THRESHOLD_CANDIDATES:
+        profile = f"th12_eth_{str(eth_threshold).replace('.', 'p')}"
         current_profiles[profile] = bench.run_current_benchmark(
             output_dir,
             profile=profile,
             settings=_settings_for(
                 output_dir / profile,
                 eth_threshold=eth_threshold,
-                sol_threshold=sol_threshold,
             ),
             shared_cache_root=shared_cache_root,
         )
@@ -148,17 +138,15 @@ def main() -> None:
     selected_vs_dev = bench.build_delta_report(selected_summary, baseline_dev)
     if selected_profile == BASELINE_PROFILE or (
         float(selected_vs_dev["by_coin"]["ETH"]["12h"]["delta_precision_30"]) < 0.0
-        or float(selected_vs_dev["by_coin"]["SOL"]["12h"]["delta_precision_30"]) < 0.0
     ):
-        specialist_profile = "th12_specialist_eth_sol"
+        specialist_profile = "th12_specialist_eth"
         current_profiles[specialist_profile] = bench.run_current_benchmark(
             output_dir,
             profile=specialist_profile,
             settings=_settings_for(
                 output_dir / specialist_profile,
                 eth_threshold=float(selected_summary["coins"]["ETH"]["12h"].get("label_threshold_pct", 0.0025)),
-                sol_threshold=float(selected_summary["coins"]["SOL"]["12h"].get("label_threshold_pct", 0.0025)),
-                specialist_coin_horizons=["ETH:12h", "SOL:12h"],
+                specialist_coin_horizons=["ETH:12h"],
             ),
             shared_cache_root=shared_cache_root,
         )
@@ -175,9 +163,7 @@ def main() -> None:
                 "headline_vs_baseline": _headline(summary, baseline_current),
                 "checks": _profile_checks(summary, baseline_summary=baseline_current, dev_summary=baseline_dev),
                 "eth12_threshold": summary["coins"]["ETH"]["12h"].get("label_threshold_pct"),
-                "sol12_threshold": summary["coins"]["SOL"]["12h"].get("label_threshold_pct"),
                 "eth12_specialist": summary["coins"]["ETH"]["12h"].get("specialist_summary", {}),
-                "sol12_specialist": summary["coins"]["SOL"]["12h"].get("specialist_summary", {}),
             }
             for name, summary in current_profiles.items()
         },

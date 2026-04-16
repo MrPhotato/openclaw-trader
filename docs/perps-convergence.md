@@ -62,7 +62,7 @@ These are the active rewrite and notification semantics in production:
 ## Migration Order
 
 1. Add regression protection around dispatcher, strategy-day parsing, perps runtime, and config loading.
-2. Keep docs aligned with the actual production path: Coinbase INTX live, BTC/ETH/SOL, strategy-day-driven exposure budgets.
+2. Keep docs aligned with the actual production path: Coinbase INTX live, BTC/ETH, strategy-day-driven exposure budgets.
 3. Convert remaining tactical sizing and naming drift to exposure-budget semantics everywhere.
 4. Decide explicitly whether Hyperliquid stays as a secondary adapter/test path or should be removed.
 5. Only then physically delete unused spot-era code and stale compatibility layers.

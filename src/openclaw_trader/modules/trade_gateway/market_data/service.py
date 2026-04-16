@@ -22,7 +22,7 @@ class DataIngestService:
 
     def collect(self, *, trace_id: str | None = None, coins: list[str] | None = None) -> DataIngestBundle:
         trace = trace_id or new_id("trace")
-        target_coins = coins or ["BTC", "ETH", "SOL"]
+        target_coins = coins or ["BTC", "ETH"]
         market = self.provider.collect_market(target_coins)
         accounts = self.provider.collect_accounts(target_coins)
         portfolio = self.provider.collect_portfolio()
@@ -44,7 +44,7 @@ class DataIngestService:
         *,
         coins: list[str] | None = None,
     ) -> dict[str, MarketContextNormalized]:
-        target_coins = coins or ["BTC", "ETH", "SOL"]
+        target_coins = coins or ["BTC", "ETH"]
         return self.provider.collect_market_context(target_coins)
 
     def collect_execution_history(
@@ -52,7 +52,7 @@ class DataIngestService:
         *,
         coins: list[str] | None = None,
     ) -> dict[str, ExecutionHistorySnapshot]:
-        target_coins = coins or ["BTC", "ETH", "SOL"]
+        target_coins = coins or ["BTC", "ETH"]
         return self.provider.collect_execution_history(target_coins)
 
     def collect_product_metadata(
@@ -60,7 +60,7 @@ class DataIngestService:
         *,
         coins: list[str] | None = None,
     ) -> dict[str, ProductMetadataSnapshot]:
-        target_coins = coins or ["BTC", "ETH", "SOL"]
+        target_coins = coins or ["BTC", "ETH"]
         return self.provider.collect_product_metadata(target_coins)
 
     def build_market_events(self, bundle: DataIngestBundle):

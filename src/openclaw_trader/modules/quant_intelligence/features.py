@@ -223,7 +223,6 @@ def build_asset_indicator_columns(*, coin: str, length: int) -> dict[str, np.nda
     return {
         "asset_is_btc": np.full(length, 1.0 if target == "BTC" else 0.0, dtype=np.float64),
         "asset_is_eth": np.full(length, 1.0 if target == "ETH" else 0.0, dtype=np.float64),
-        "asset_is_sol": np.full(length, 1.0 if target == "SOL" else 0.0, dtype=np.float64),
     }
 
 

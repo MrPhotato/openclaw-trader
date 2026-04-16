@@ -12,12 +12,12 @@
 - `otrader dispatch-once`
 - `otrader strategy-refresh --reason manual_refresh --deliver`
 - `otrader strategy-show`
-- `otrader perp-snapshot --coin BTC|ETH|SOL`
-- `otrader perp-account --coin BTC|ETH|SOL`
-- `otrader perp-signal --coin BTC|ETH|SOL`
-- `otrader perp-shadow-policy --coin BTC|ETH|SOL`
-- `otrader perp-model-status --coin BTC|ETH|SOL`
-- `otrader perp-model-train --coin BTC|ETH|SOL [--all-horizons]`
+- `otrader perp-snapshot --coin BTC|ETH`
+- `otrader perp-account --coin BTC|ETH`
+- `otrader perp-signal --coin BTC|ETH`
+- `otrader perp-shadow-policy --coin BTC|ETH`
+- `otrader perp-model-status --coin BTC|ETH`
+- `otrader perp-model-train --coin BTC|ETH [--all-horizons]`
 - `otrader maintenance`
 
 ### 1.2 FastAPI

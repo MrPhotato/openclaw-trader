@@ -113,7 +113,7 @@ class QuantSettings(BaseModel):
     coinalyze_api_key: str | None = None
     coinalyze_enabled: bool = True
     coinalyze_symbols_by_coin: dict[str, str] = Field(
-        default_factory=lambda: {"BTC": "BTC", "ETH": "ETH", "SOL": "SOL"}
+        default_factory=lambda: {"BTC": "BTC", "ETH": "ETH"}
     )
     daily_macro_features_enabled: bool = False
     history_backfill_days: int = 540
@@ -581,7 +581,7 @@ class StrategySettings(BaseModel):
         ]
     )
     rewrite_severities: list[str] = Field(default_factory=lambda: ["high"])
-    track_products: list[str] = Field(default_factory=lambda: ["BTC", "ETH", "SOL"])
+    track_products: list[str] = Field(default_factory=lambda: ["BTC", "ETH"])
 
     @model_validator(mode="before")
     @classmethod

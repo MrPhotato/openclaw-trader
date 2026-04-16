@@ -103,7 +103,7 @@
 
 ### 5.5 BTC 参考特征
 
-ETH / SOL 额外带 BTC 参考项：
+ETH 额外带 BTC 参考项：
 
 - `btc_market_*`
 - `rel_*_vs_btc`
@@ -157,22 +157,6 @@ ETH / SOL 额外带 BTC 参考项：
   - rows: `5883`
   - `0.431 / 0.3708`
   - global `objective = 4.371136`
-
-### 7.3 SOL
-
-- `1h`
-  - rows: `5927`
-  - `0.423 / 0.3851`
-  - global `objective = -0.078371`
-- `4h`
-  - rows: `5915`
-  - `0.3841 / 0.3498`
-  - global `objective = 1.396227`
-- `12h`
-  - rows: `5883`
-  - `0.4147 / 0.3369`
-  - global `objective = -0.066325`
-  - 但部分 regime 有正 edge
 
 ## 8. 当前训练入口与使用入口
 

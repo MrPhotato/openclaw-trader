@@ -40,7 +40,7 @@ This repository is the trading runtime and dispatcher. It is not the full OpenCl
 ### Perps runtime
 
 - The active execution path is Coinbase INTX perpetuals
-- Tracks BTC, ETH, and SOL by default
+- Tracks BTC and ETH by default
 - Converts strategy targets and signal/risk context into concrete open, add, reduce, close, or flip plans
 
 ### Market intelligence

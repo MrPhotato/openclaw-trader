@@ -26,7 +26,7 @@
 - 即使判断未变，仍需发出一份新的策略提交。
 - 不要添加执行战术，如订单类型、订单数量或入场路径。
 - `flip_triggers` 是一个专用必填字段。用它来阐述什么具体条件能够证明方向性偏向的翻转——从做多到做空、从做空到做多、或从主动持仓到平仓/仅减仓。
-- `targets` 必须恰好包含 3 个条目，且必须始终覆盖 `BTC`、`ETH` 和 `SOL`。
+- `targets` 必须恰好包含 2 个条目，且必须始终覆盖 `BTC` 和 `ETH`。
 - 如果某币种不活跃，仍需显式包含，设置 `state = watch` 或 `disabled` 并标记平仓方向。不要省略符号。
 - 将所有敞口百分比视为 `占敞口预算的百分比`，其中敞口预算 = `total_equity_usd * max_leverage`。
 - 在此内部约定下，归一化总敞口和归一化单品种敞口不应超过 `100%`。
@@ -44,10 +44,10 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
     "input_id": "input_from_pull_pack",
     "portfolio_mode": "defensive",
     "target_gross_exposure_band_pct": [0, 15],
-    "portfolio_thesis": "震荡市、跟进力度弱。BTC 保持活跃，ETH 和 SOL 观望，维持防守直到 4h 趋势确认。",
+    "portfolio_thesis": "震荡市、跟进力度弱。BTC 保持活跃，ETH 观望，维持防守直到 4h 趋势确认。",
     "portfolio_invalidation": "出现干净的 4h 放量突破，或政策/风控边界变化推翻防守立场。",
     "flip_triggers": "若 BTC 失守高时间框架突破位且 4h/12h 结构同步转空，或宏观冲击明确将制度切换到 risk-off，则从谨慎做多偏向转为防御做空偏向。",
-    "change_summary": "维持防守姿态，将活跃风险收窄至 BTC，ETH 和 SOL 保持观望。",
+    "change_summary": "维持防守姿态，将活跃风险收窄至 BTC，ETH 保持观望。",
     "targets": [
       {
         "symbol": "BTC",
@@ -64,14 +64,6 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
         "target_exposure_band_pct": [0, 5],
         "rt_discretion_band_pct": 5,
         "priority": 2
-      },
-      {
-        "symbol": "SOL",
-        "state": "disabled",
-        "direction": "flat",
-        "target_exposure_band_pct": [0, 0],
-        "rt_discretion_band_pct": 0,
-        "priority": 3
       }
     ],
     "scheduled_rechecks": [

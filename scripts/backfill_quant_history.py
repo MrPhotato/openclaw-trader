@@ -27,7 +27,7 @@ def build_settings(runtime_root: Path) -> SystemSettings:
         quant=QuantSettings(bootstrap_snapshot_exchange="binance_usdm"),
         execution=ExecutionSettings(
             exchange="coinbase_intx",
-            supported_coins=["BTC", "ETH", "SOL"],
+            supported_coins=["BTC", "ETH"],
             live_enabled=False,
             max_leverage=5.0,
             max_total_exposure_pct_of_exposure_budget=100.0,

@@ -138,7 +138,7 @@ class ReplayFrontendServiceTests(unittest.TestCase):
                     "updated_at_utc": "2026-04-09T06:08:59Z",
                     "refresh_reason": "pm_strategy_revision",
                     "portfolio_posture": "常规推进",
-                    "desk_focus": "先沿着 BTC / ETH / SOL 逐步建仓。",
+                    "desk_focus": "先沿着 BTC / ETH 逐步建仓。",
                     "risk_bias": "风险状态正常，可按策略节奏推进。",
                     "next_review_hint": "等待下一轮 RT cadence。",
                     "coins": [

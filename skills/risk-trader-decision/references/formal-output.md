@@ -75,7 +75,7 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/execution \
     "tactical_map_update": {
       "map_refresh_reason": "pm_strategy_revision",
       "portfolio_posture": "防守偏多，优先控制追价冲动。",
-      "desk_focus": "BTC / ETH 只在回踩承接时推进，SOL 保持观察。",
+      "desk_focus": "BTC 优先推进，ETH 在回踩承接位再介入。",
       "risk_bias": "若 headline risk 再升级，先减风险再联系 PM。",
       "next_review_hint": "下次重点看 BTC 回踩后的承接质量和 ETH 是否重新站回结构位。",
       "coins": [

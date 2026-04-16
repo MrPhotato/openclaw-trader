@@ -115,10 +115,6 @@ def _valid_strategy_targets(
     eth_direction: str = "flat",
     eth_band: tuple[float, float] = (0.0, 0.0),
     eth_rt: float = 0.0,
-    sol_state: str = "watch",
-    sol_direction: str = "flat",
-    sol_band: tuple[float, float] = (0.0, 0.0),
-    sol_rt: float = 0.0,
 ) -> list[dict[str, object]]:
     return [
         {
@@ -136,14 +132,6 @@ def _valid_strategy_targets(
             "target_exposure_band_pct": list(eth_band),
             "rt_discretion_band_pct": eth_rt,
             "priority": 2,
-        },
-        {
-            "symbol": "SOL",
-            "state": sol_state,
-            "direction": sol_direction,
-            "target_exposure_band_pct": list(sol_band),
-            "rt_discretion_band_pct": sol_rt,
-            "priority": 3,
         },
     ]
 
@@ -620,14 +608,6 @@ class AgentGatewayServiceTests(unittest.TestCase):
                         "target_exposure_band_pct": [0.0, 0.0],
                         "rt_discretion_band_pct": 0.0,
                         "priority": 2,
-                    },
-                    {
-                        "symbol": "SOL",
-                        "state": "watch",
-                        "direction": "flat",
-                        "target_exposure_band_pct": [0.0, 0.0],
-                        "rt_discretion_band_pct": 0.0,
-                        "priority": 3,
                     },
                 ],
                 "scheduled_rechecks": [
@@ -1326,10 +1306,10 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 harness.container.agent_gateway.submit_strategy(
                     input_id=pack.input_id,
                     payload=_valid_strategy_submission_payload(
-                        targets=_valid_strategy_targets()[:2],
+                        targets=_valid_strategy_targets()[:1],
                     ),
                 )
-            self.assertIn("targets must contain exactly 3 entries", str(raised.exception.errors[0]))
+            self.assertIn("targets must contain exactly 2 entries", str(raised.exception.errors[0]))
         finally:
             harness.cleanup()
 

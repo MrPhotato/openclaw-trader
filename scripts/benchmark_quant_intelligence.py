@@ -36,10 +36,10 @@ from _quant_history_bundle import manifest_path as history_manifest_path
 from _quant_history_bundle import prepare_history_bundle
 
 
-COINS = ("BTC", "ETH", "SOL")
+COINS = ("BTC", "ETH")
 HORIZONS = ("4h", "12h")
 COVERAGE_BUCKETS = ("20%", "30%", "40%")
-BINANCE_SYMBOL_BY_COIN = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT"}
+BINANCE_SYMBOL_BY_COIN = {"BTC": "BTCUSDT", "ETH": "ETHUSDT"}
 CURRENT_PROFILES = ("baseline_long_history",)
 ETH4H_REGIME_CAPS = {"ETH:4h": {"bearish_breakdown": 0.08, "bullish_trend": 0.10, "neutral_consolidation": 0.16}}
 ETH4H_ACCEPTANCE_SCORE_WEIGHTS = {"ETH:4h": {"meta_trade_quality_probability": 1.0}}
@@ -140,7 +140,7 @@ def build_benchmark_settings(
         "tardis_api_key": os.environ.get("TARDIS_API_KEY"),
         "coinalyze_api_key": os.environ.get("COINALYZE_API_KEY"),
         "coinalyze_enabled": True,
-        "coinalyze_symbols_by_coin": {"BTC": "BTC", "ETH": "ETH", "SOL": "SOL"},
+        "coinalyze_symbols_by_coin": {"BTC": "BTC", "ETH": "ETH"},
         "daily_macro_features_enabled": daily_macro_features_enabled,
         "history_backfill_days": int(history_backfill_days),
         "high_confidence_target_coverage": 0.30,
@@ -852,14 +852,12 @@ def eth4h_profile_is_viable(vs_baseline: dict[str, Any] | None, vs_dev: dict[str
     eth_vs_dev = float(vs_dev["by_coin"]["ETH"]["4h"]["delta_precision_30"])
     eth_ece_delta = float(vs_baseline["by_coin"]["ETH"]["4h"]["delta_ece"])
     btc_vs_baseline = float(vs_baseline["by_coin"]["BTC"]["4h"]["delta_precision_30"])
-    sol_vs_baseline = float(vs_baseline["by_coin"]["SOL"]["4h"]["delta_precision_30"])
     avg_12h_vs_dev = float(vs_dev["headline"]["avg_12h_precision_30_delta"])
     return (
         eth_vs_baseline >= 0.03
         and eth_vs_dev >= 0.02
         and eth_ece_delta <= 0.005
         and btc_vs_baseline >= -0.01
-        and sol_vs_baseline >= -0.01
         and avg_12h_vs_dev >= 0.10
     )
 
@@ -1066,9 +1064,8 @@ def render_markdown_report(
             "## 12h Slow Feature Summary",
             "",
             f"- `ETH`: `{selected_current['coins']['ETH']['12h'].get('12h_feature_family_summary', {})}`",
-            f"- `SOL`: `{selected_current['coins']['SOL']['12h'].get('12h_feature_family_summary', {})}`",
-            f"- `coinalyze_coverage`: `{{'ETH': {selected_current['coins']['ETH']['12h'].get('coinalyze_history_summary', {})}, 'SOL': {selected_current['coins']['SOL']['12h'].get('coinalyze_history_summary', {})}}}`",
-            f"- `monthly_oi_anchor_coverage`: `{{'ETH': {selected_current['coins']['ETH']['12h'].get('tardis_monthly_anchor_summary', {})}, 'SOL': {selected_current['coins']['SOL']['12h'].get('tardis_monthly_anchor_summary', {})}}}`",
+            f"- `coinalyze_coverage`: `{{'ETH': {selected_current['coins']['ETH']['12h'].get('coinalyze_history_summary', {})}}}`",
+            f"- `monthly_oi_anchor_coverage`: `{{'ETH': {selected_current['coins']['ETH']['12h'].get('tardis_monthly_anchor_summary', {})}}}`",
         ]
     )
     return "\n".join(lines).strip() + "\n"

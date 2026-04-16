@@ -28,7 +28,7 @@
 
 - `perps.exchange = coinbase_intx`
 - `perps.mode = live`
-- 跟踪币种：`BTC / ETH / SOL`
+- 跟踪币种：`BTC / ETH`
 - dispatcher 扫描周期：`60s`
 - strategy 固定刷新时段：`09:00`、`21:00`（`Asia/Shanghai`）
 - 模型重训阈值：`360` 分钟

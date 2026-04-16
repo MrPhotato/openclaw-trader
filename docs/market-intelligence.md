@@ -103,7 +103,7 @@ For non-BTC coins, the service also aligns BTC candles and adds:
 - BTC feature mirrors such as `btc_ret_24`
 - relative spreads such as `rel_ret_24_vs_btc`
 
-This lets ETH and SOL reasoning incorporate a simple market leader reference without building a fully separate multi-asset model.
+This lets ETH reasoning incorporate a simple market leader reference without building a fully separate multi-asset model.
 
 ### Time-context features
 
@@ -245,7 +245,7 @@ The decision stack now also computes two extra summaries before exposing a final
 
 ### Portfolio risk
 
-This summary is built from the live BTC/ETH/SOL perp portfolio and answers:
+This summary is built from the live BTC/ETH perp portfolio and answers:
 
 - how much net directional exposure already exists
 - how concentrated same-direction risk is
@@ -267,7 +267,7 @@ Current aggressive defaults are:
 - `caution` at about `50%` net directional budget usage
 - `freeze` at about `75%` net directional budget usage
 
-This preserves total portfolio utilization up to the hard budget, but stops the runtime from treating repeated BTC/ETH/SOL exposure as three fully independent bets.
+This preserves total portfolio utilization up to the hard budget, but stops the runtime from treating repeated BTC/ETH exposure as two fully independent bets.
 
 ### Model uncertainty
 

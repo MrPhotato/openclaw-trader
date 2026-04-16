@@ -29,7 +29,7 @@
 - 仓库本体是交易 runtime 与 dispatcher，不是完整 OpenClaw。
 - 实际 live 真相源主要位于 `~/.openclaw-trader/` 的本地运行态目录，而不是 git 仓库。
 - 活跃执行路径是 `OpenClaw / WeCom -> crypto-chief -> dispatcher -> perps runtime -> market-intelligence -> Coinbase INTX`。
-- 当前主要交易对象为 `BTC / ETH / SOL` 永续；系统同时保留部分 spot 和兼容路径。
+- 当前主要交易对象为 `BTC / ETH` 永续；系统同时保留部分 spot 和兼容路径。
 - 当前系统的核心能力已覆盖：新闻同步、市场智能、多时域量化判断、风险约束、策略生成、执行判断、执行、通知、brief/report、SQLite 状态存储。
 - 当前系统的关键结构问题是：编排逻辑、运行时决策、LLM 集成、状态记录和可观测性还没有被彻底拉开边界。
 

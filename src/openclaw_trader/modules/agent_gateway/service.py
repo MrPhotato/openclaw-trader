@@ -2758,7 +2758,7 @@ class AgentGatewayService:
         market_context = dict(payload.get("market_context") or {})
         execution_history = dict(payload.get("execution_history") or {})
         summary: dict[str, Any] = {}
-        for coin in ("BTC", "ETH", "SOL"):
+        for coin in ("BTC", "ETH"):
             snapshot = dict(market.get(coin) or {})
             account = dict(accounts.get(coin) or {})
             context = dict(market_context.get(coin) or {})

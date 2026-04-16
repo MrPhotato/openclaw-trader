@@ -126,12 +126,12 @@ class StrategySubmission(BaseModel):
     @model_validator(mode="after")
     def _validate_targets_cover_supported_symbols(self) -> "StrategySubmission":
         symbols = [str(item.symbol or "").strip().upper() for item in self.targets]
-        expected = {"BTC", "ETH", "SOL"}
+        expected = {"BTC", "ETH"}
         actual = set(symbols)
         missing = sorted(expected - actual)
         extras = sorted(actual - expected)
         duplicates = sorted({symbol for symbol in symbols if symbol and symbols.count(symbol) > 1})
-        if missing or extras or duplicates or len(self.targets) != 3:
+        if missing or extras or duplicates or len(self.targets) != 2:
             problems: list[str] = []
             if missing:
                 problems.append(f"missing targets for {', '.join(missing)}")
@@ -139,8 +139,8 @@ class StrategySubmission(BaseModel):
                 problems.append(f"unsupported target symbols {', '.join(extras)}")
             if duplicates:
                 problems.append(f"duplicate target symbols {', '.join(duplicates)}")
-            if len(self.targets) != 3:
-                problems.append("targets must contain exactly 3 entries (BTC, ETH, SOL)")
+            if len(self.targets) != 2:
+                problems.append("targets must contain exactly 2 entries (BTC, ETH)")
             raise ValueError("; ".join(problems))
         return self
 

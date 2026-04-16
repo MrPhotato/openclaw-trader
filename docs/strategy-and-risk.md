@@ -222,7 +222,7 @@ It no longer auto-kills an already valid `probe`.
 The design goal is:
 
 - keep total capital utilization available up to the hard portfolio budget
-- stop the system from treating BTC/ETH/SOL same-direction exposure as three separate high-conviction bets
+- stop the system from treating BTC/ETH same-direction exposure as two separate high-conviction bets
 
 ## Model Uncertainty Overlay
 

@@ -229,12 +229,12 @@ class QuantIntelligenceServiceTests(unittest.TestCase):
                 snapshot_feature_provider=_FakeSnapshotFeatureProvider(),
             )
 
-            result = trainer.retrain(["BTC", "ETH", "SOL"])
+            result = trainer.retrain(["BTC", "ETH"])
 
-            self.assertEqual(set(result.keys()), {"BTC", "ETH", "SOL"})
+            self.assertEqual(set(result.keys()), {"BTC", "ETH"})
             meta = json.loads((artifact_root / "ETH" / "4h" / "meta.json").read_text())
             self.assertEqual(meta["training_scope"], "panel")
-            self.assertEqual(meta["panel_coins"], ["BTC", "ETH", "SOL"])
+            self.assertEqual(meta["panel_coins"], ["BTC", "ETH"])
             self.assertIn("high_confidence_metrics", meta)
             self.assertIn("regime_metrics", meta)
             self.assertIn("interaction_features", meta)

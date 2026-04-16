@@ -22,7 +22,7 @@ description: PM 策略审查与正式策略提交。当 PM 需要审查结构化
 - 即使判断未变，也要提交新鲜的策略判断。
 - `input_id` 是不透明的 lease token——从 runtime pack 原样复制，绝不猜测、推导或重写。
 - 必须始终填写 `flip_triggers` 字段：具体说明什么条件下翻转方向（long→short、short→long、或从 active risk 转为 flat/only_reduce）。
-- 必须始终提交恰好 3 个 `targets`：`BTC`、`ETH`、`SOL` 各一个。不可操作的币种标记 `watch` 或 `disabled` 加 flat 方向，不要省略。
+- 必须始终提交恰好 2 个 `targets`：`BTC`、`ETH` 各一个。不可操作的币种标记 `watch` 或 `disabled` 加 flat 方向，不要省略。
 - **你的策略直接决定团队这轮赚多少钱。给了方向就给足空间——当 thesis 正在被验证时，主动扩大敞口带宽是纪律，不是冒险。RT 需要足够的 discretion 空间才能把判断变成利润。**
 
 ## 工作流

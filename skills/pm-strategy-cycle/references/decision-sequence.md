@@ -33,7 +33,7 @@
 - portfolio mode
 - 总敞口带宽
 - 单品种方向
-- 明确的 `BTC / ETH / SOL` 目标状态，即使部分仅为 `watch` 或 `disabled`
+- 明确的 `BTC / ETH` 目标状态，即使部分仅为 `watch` 或 `disabled`
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
 - `flip_triggers`

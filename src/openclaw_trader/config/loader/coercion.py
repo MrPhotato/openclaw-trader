@@ -79,7 +79,7 @@ def coerce_system_settings(source: object | None) -> SystemSettings:
         ),
         execution=ExecutionSettings(
             exchange=str(getattr(perps, "exchange", "coinbase_intx")),
-            supported_coins=[str(coin).upper() for coin in list(getattr(perps, "coins", ["BTC", "ETH", "SOL"]))],
+            supported_coins=[str(coin).upper() for coin in list(getattr(perps, "coins", ["BTC", "ETH"]))],
             live_enabled=bool(getattr(perps, "live_enabled", True)),
             max_leverage=float(getattr(perps, "max_leverage", 5.0)),
             max_total_exposure_pct_of_exposure_budget=float(

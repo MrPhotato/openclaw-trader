@@ -60,7 +60,7 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
         execution=ExecutionSettings(
             enabled=bool(perps_payload.get("enabled", True)),
             exchange=str(perps_payload.get("exchange", "coinbase_intx")),
-            supported_coins=[str(coin).upper() for coin in list(perps_payload.get("coins") or ["BTC", "ETH", "SOL"])],
+            supported_coins=[str(coin).upper() for coin in list(perps_payload.get("coins") or ["BTC", "ETH"])],
             live_enabled=bool(perps_payload.get("live_enabled", True)),
             max_leverage=float(perps_payload.get("max_leverage", 5.0)),
             max_total_exposure_pct_of_exposure_budget=float(

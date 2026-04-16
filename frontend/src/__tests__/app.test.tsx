@@ -380,7 +380,11 @@ describe("App", () => {
     MockWebSocket.instances = [];
   });
 
-  test("renders overview and switches between overview plus four agent pages", async () => {
+  // Note: this fixture intentionally embeds a legacy 3-coin (BTC/ETH/SOL)
+  // execution result to verify the UI still renders historical payloads that
+  // predate the SOL retirement without crashing. Current live payloads are
+  // 2-coin only.
+  test("renders overview (incl. legacy SOL execution) and switches between overview plus four agent pages", async () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>

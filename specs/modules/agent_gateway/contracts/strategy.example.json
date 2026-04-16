@@ -7,7 +7,7 @@
   "portfolio_thesis": "BTC and ETH remain the core risk-on exposure for the day.",
   "portfolio_invalidation": "If macro risk rises sharply or BTC loses structure, rebuild the book.",
   "flip_triggers": "Flip to defensive short bias only if BTC loses higher-timeframe structure together with a clear macro risk-off shift; flip back long only after structure reclaims and macro stress eases.",
-  "change_summary": "Reduce SOL focus and keep BTC as primary anchor.",
+  "change_summary": "Keep BTC as the primary anchor with ETH held as a secondary watch.",
   "targets": [
     {
       "symbol": "BTC",
@@ -30,17 +30,6 @@
       ],
       "rt_discretion_band_pct": 6.0,
       "priority": 2
-    },
-    {
-      "symbol": "SOL",
-      "state": "disabled",
-      "direction": "flat",
-      "target_exposure_band_pct": [
-        0.0,
-        0.0
-      ],
-      "rt_discretion_band_pct": 0.0,
-      "priority": 3
     }
   ],
   "scheduled_rechecks": [

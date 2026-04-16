@@ -19,6 +19,12 @@ class ReplayFrontendService:
             fallback = self._fallback_risk_overlay(overview)
             if fallback is not None:
                 overview["risk_overlay"] = fallback
+        if self.settings is not None:
+            system = overview.get("system") or {}
+            if not isinstance(system, dict):
+                system = {}
+            system["supported_coins"] = list(self.settings.execution.supported_coins)
+            overview["system"] = system
         return overview
 
     def current_news(self) -> dict:
