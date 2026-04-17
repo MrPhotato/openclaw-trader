@@ -177,39 +177,35 @@ export function KlineChart(props: {
               </Bar>
               <Customized
                 component={(chartCtx: unknown) => {
-                  // Recharts' ComposedChart-with-Bar uses a numeric-index scale
-                  // for the category X axis — calling scale("11:00") returns
-                  // NaN. Falls back to scaling the candle's own index in the
-                  // rendered data if categoricalDomain isn't exposed.
+                  // Depending on the data shape Recharts' scaleBand domain is
+                  // sometimes the label strings, sometimes the numeric index.
+                  // Try the label first; if that returns NaN, fall back to
+                  // scaling the label's index in the rendered data.
                   const ctx = chartCtx as {
                     xAxisMap?: Record<string, {
                       scale: ((value: unknown) => number) & { bandwidth?: () => number };
-                      categoricalDomain?: string[];
                     }>;
                     yAxisMap?: Record<string, { scale: (value: number) => number }>;
                   };
-                  if (typeof window !== "undefined") {
-                    (window as { __rechartsCtx?: unknown }).__rechartsCtx = ctx;
-                  }
                   const xAxis = ctx.xAxisMap ? Object.values(ctx.xAxisMap)[0] : undefined;
                   const yAxis = ctx.yAxisMap ? Object.values(ctx.yAxisMap)[0] : undefined;
                   if (!xAxis || !yAxis) return null;
-                  const categorical = xAxis.categoricalDomain ?? [];
-                  // Build a lookup for candle-label → candle-index (0..N-1)
-                  // as a fallback when categoricalDomain is empty.
                   const labelToIndex = new Map<string, number>();
                   props.candles.forEach((candle, i) => labelToIndex.set(candle.label, i));
+                  const bandwidth =
+                    typeof xAxis.scale.bandwidth === "function" ? xAxis.scale.bandwidth() : 0;
                   return (
                     <g>
                       {markers.map((marker) => {
-                        const categoricalIdx = categorical.indexOf(marker.label);
-                        const idx = categoricalIdx >= 0 ? categoricalIdx : labelToIndex.get(marker.label) ?? -1;
-                        if (idx < 0) return null;
-                        const rawX = xAxis.scale(idx);
+                        let rawX = xAxis.scale(marker.label);
+                        if (!Number.isFinite(rawX)) {
+                          const idx = labelToIndex.get(marker.label);
+                          if (idx === undefined) return null;
+                          rawX = xAxis.scale(idx);
+                          if (!Number.isFinite(rawX)) return null;
+                        }
                         const y = yAxis.scale(marker.price);
-                        if (!Number.isFinite(rawX) || !Number.isFinite(y)) return null;
-                        const bandwidth =
-                          typeof xAxis.scale.bandwidth === "function" ? xAxis.scale.bandwidth() : 0;
+                        if (!Number.isFinite(y)) return null;
                         const cx = rawX + bandwidth / 2;
                         return (
                           <KlineTradeMarkerShape

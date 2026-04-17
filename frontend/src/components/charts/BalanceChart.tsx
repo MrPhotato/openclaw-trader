@@ -183,30 +183,36 @@ export function BalanceChart(props: {
               />
               <Customized
                 component={(chartCtx: unknown) => {
+                  // Recharts' axis scale for ComposedChart-with-Bar-and-category
+                  // data here is a scaleBand over the actual label strings, so
+                  // we can call scale(label) directly. If it ever returns NaN
+                  // (e.g. Recharts switched to a numeric-index scale internally),
+                  // we fall back to scaling the numeric index as a safety net.
                   const ctx = chartCtx as {
                     xAxisMap?: Record<string, {
                       scale: ((value: unknown) => number) & { bandwidth?: () => number };
-                      categoricalDomain?: string[];
                     }>;
                     yAxisMap?: Record<string, { scale: (value: number) => number }>;
                   };
                   const xAxis = ctx.xAxisMap ? Object.values(ctx.xAxisMap)[0] : undefined;
                   const yAxis = ctx.yAxisMap ? Object.values(ctx.yAxisMap)[0] : undefined;
                   if (!xAxis || !yAxis) return null;
-                  const categorical = xAxis.categoricalDomain ?? [];
                   const labelToIndex = new Map<string, number>();
                   props.series.forEach((point, i) => labelToIndex.set(point.label, i));
+                  const bandwidth =
+                    typeof xAxis.scale.bandwidth === "function" ? xAxis.scale.bandwidth() : 0;
                   return (
                     <g>
                       {markers.map((marker) => {
-                        const categoricalIdx = categorical.indexOf(marker.label);
-                        const idx = categoricalIdx >= 0 ? categoricalIdx : labelToIndex.get(marker.label) ?? -1;
-                        if (idx < 0) return null;
-                        const rawX = xAxis.scale(idx);
+                        let rawX = xAxis.scale(marker.label);
+                        if (!Number.isFinite(rawX)) {
+                          const idx = labelToIndex.get(marker.label);
+                          if (idx === undefined) return null;
+                          rawX = xAxis.scale(idx);
+                          if (!Number.isFinite(rawX)) return null;
+                        }
                         const y = yAxis.scale(marker.equity);
-                        if (!Number.isFinite(rawX) || !Number.isFinite(y)) return null;
-                        const bandwidth =
-                          typeof xAxis.scale.bandwidth === "function" ? xAxis.scale.bandwidth() : 0;
+                        if (!Number.isFinite(y)) return null;
                         const cx = rawX + bandwidth / 2;
                         return (
                           <TradeMarkerShape
