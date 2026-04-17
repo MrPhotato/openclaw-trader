@@ -127,3 +127,53 @@ export function buildKlinePriceTicks(domain: [number, number] | []): number[] {
   const step = (max - min) / (tickCount - 1);
   return Array.from({ length: tickCount }, (_, index) => Number((min + step * index).toFixed(4)));
 }
+
+/**
+ * Re-bucket candles onto an external time grid (typically the balance
+ * chart's bucketed series) so that two side-by-side charts render on a
+ * PIXEL-IDENTICAL X axis. The output has one slot per grid entry:
+ *
+ *   - the candle whose raw timestamp falls inside that bucket, or
+ *   - a "phantom" entry with NaN OHLC — Recharts skips drawing anything
+ *     for NaN values, which leaves the slot empty without breaking the
+ *     shared category axis.
+ *
+ * Labels are taken from the grid (not the candle's own label) so
+ * XAxis / Tooltip / ReferenceLine are interchangeable across charts.
+ */
+export function alignCandlesToBucketGrid(
+  candles: CandlePoint[],
+  grid: Array<{ label: string; createdAtMs: number }>,
+  bucketMs: number,
+): CandlePoint[] {
+  if (grid.length === 0) return [];
+  const sorted = [...candles].sort((a, b) => a.timestamp - b.timestamp);
+  const aligned: CandlePoint[] = [];
+  let idx = 0;
+  for (const slot of grid) {
+    const bucketStart = slot.createdAtMs;
+    const bucketEnd = bucketStart + bucketMs;
+    while (idx < sorted.length && sorted[idx].timestamp < bucketStart) idx++;
+    let hit: CandlePoint | null = null;
+    while (idx < sorted.length && sorted[idx].timestamp < bucketEnd) {
+      hit = sorted[idx];
+      idx++;
+    }
+    if (hit) {
+      aligned.push({ ...hit, label: slot.label, timestamp: bucketStart });
+    } else {
+      aligned.push({
+        timestamp: bucketStart,
+        label: slot.label,
+        open: Number.NaN,
+        high: Number.NaN,
+        low: Number.NaN,
+        close: Number.NaN,
+        body: [Number.NaN, Number.NaN],
+        wick: [Number.NaN, Number.NaN],
+        isUp: false,
+      });
+    }
+  }
+  return aligned;
+}

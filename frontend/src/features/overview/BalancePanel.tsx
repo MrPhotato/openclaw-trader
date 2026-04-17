@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 
 import type { AssetRecord, MarketContextData, OverviewData } from "../../lib/types";
 import {
+  alignCandlesToBucketGrid,
+  balanceGranularityMs,
   balanceScrollCaption,
   buildBalanceDomain,
   buildBalanceHistory,
@@ -13,7 +15,6 @@ import {
   classifyTradeDirection,
   computeBalanceChartWidth,
   computeDailyChange,
-  computeKlineChartWidth,
   configuredLeverageLabel,
   extractTradeTimeMs,
   firstFill,
@@ -21,7 +22,6 @@ import {
   trimNumber,
   usdCompactText,
   type BalanceGranularity,
-  type CandlePoint,
   type DailyChange,
   type KlineTimeframe,
 } from "../../lib/format";
@@ -52,23 +52,6 @@ const GRANULARITY_TO_KLINE_BACKEND: Record<BalanceGranularity, string> = {
   "1h": "1h",
   "1d": "24h",
 };
-
-function snapCandleLabel(tsMs: number, candles: CandlePoint[]): string | null {
-  if (candles.length === 0) return null;
-  const bucketMs = candles.length >= 2 ? Math.abs(candles[1].timestamp - candles[0].timestamp) : 60 * 60 * 1000;
-  let nearest = candles[0];
-  let bestDelta = Math.abs(candles[0].timestamp - tsMs);
-  for (const candle of candles) {
-    const delta = Math.abs(candle.timestamp - tsMs);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      nearest = candle;
-    }
-  }
-  // Only keep markers within ~1 bucket of a candle so we don't pin labels
-  // that fall outside the chart's visible window.
-  return bestDelta <= bucketMs * 1.5 ? nearest.label : null;
-}
 
 function DailyChangeChip(props: { label: string; change: DailyChange | null }) {
   if (props.change === null) return null;
@@ -141,15 +124,22 @@ export function BalancePanel(props: {
   const backendKey = GRANULARITY_TO_KLINE_BACKEND[granularity];
   const klineTimeframe = GRANULARITY_TO_KLINE_TIMEFRAME[granularity];
   const klineSeries = contextForCoin?.compressed_price_series?.[backendKey];
-  const candles = useMemo(
+  const rawCandles = useMemo(
     () => buildCandlePoints(klineSeries?.points ?? [], klineTimeframe),
     [klineSeries, klineTimeframe],
   );
-  const klineChartWidth = useMemo(() => computeKlineChartWidth(candles.length), [candles.length]);
-  const priceDomain = useMemo(() => buildKlinePriceDomain(candles), [candles]);
+  // Re-bucket candles onto the balance time grid so both charts share a
+  // pixel-identical X axis. `candles` is the grid-aligned view used for
+  // rendering + scroll-sync; `rawCandles` is used only for domain/ticks
+  // so the Y axis isn't polluted by phantom NaN slots.
+  const candles = useMemo(
+    () => alignCandlesToBucketGrid(rawCandles, series, balanceGranularityMs(granularity)),
+    [rawCandles, series, granularity],
+  );
+  const priceDomain = useMemo(() => buildKlinePriceDomain(rawCandles), [rawCandles]);
   const priceTicks = useMemo(() => buildKlinePriceTicks(priceDomain), [priceDomain]);
-  const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
-  const firstCandle = candles.length > 0 ? candles[0] : null;
+  const lastCandle = rawCandles.length > 0 ? rawCandles[rawCandles.length - 1] : null;
+  const firstCandle = rawCandles.length > 0 ? rawCandles[0] : null;
   const candleChangePct =
     firstCandle && lastCandle && firstCandle.open !== 0
       ? ((lastCandle.close - firstCandle.open) / firstCandle.open) * 100
@@ -180,7 +170,7 @@ export function BalancePanel(props: {
   }, [executionRecords, series, granularity]);
 
   const klineMarkers = useMemo<KlineTradeMarker[]>(() => {
-    if (candles.length === 0 || !activeCoin) return [];
+    if (series.length === 0 || !activeCoin) return [];
     return executionRecords
       .map((record, idx) => {
         const coin = String(record.payload["coin"] ?? record.payload["symbol"] ?? "").toUpperCase();
@@ -189,7 +179,9 @@ export function BalancePanel(props: {
         if (direction === null) return null;
         const ts = extractTradeTimeMs(record);
         if (ts === null) return null;
-        const label = snapCandleLabel(ts, candles);
+        // Both charts share the balance bucket grid, so the same snap
+        // helper gives us a label that matches a slot in both charts.
+        const label = snapTimestampToBucketLabel(ts, series, granularity);
         if (label === null) return null;
         const price = firstFill(record)?.price ?? null;
         if (price === null) return null;
@@ -201,14 +193,16 @@ export function BalancePanel(props: {
         };
       })
       .filter((m): m is KlineTradeMarker => m !== null);
-  }, [executionRecords, candles, activeCoin]);
+  }, [executionRecords, series, granularity, activeCoin]);
 
   // Shared scroll + wheel-hijack + pin-to-right across both chart viewports.
+  // Both charts now use the SAME width (balanceChartWidth) — so scrolling
+  // either by N pixels advances BOTH to the same time slot.
   const { balanceRef, klineRef } = useSyncedScrollPinnedCharts({
-    pinDeps: [granularity, series.length, balanceChartWidth, activeCoin, candles.length, klineChartWidth],
+    pinDeps: [granularity, series.length, balanceChartWidth, activeCoin],
     wheelHijack: {
-      active: series.length > 1 || candles.length > 1,
-      deps: [series.length, candles.length],
+      active: series.length > 1,
+      deps: [series.length],
     },
   });
 
@@ -312,7 +306,7 @@ export function BalancePanel(props: {
         {klineSeries?.window ? <span className="text-slate-500">窗口 {klineSeries.window}</span> : null}
       </div>
 
-      {candles.length === 0 ? (
+      {rawCandles.length === 0 ? (
         <EmptyState
           message={
             availableCoins.length === 0
@@ -323,7 +317,7 @@ export function BalancePanel(props: {
       ) : (
         <KlineChart
           candles={candles}
-          chartWidth={klineChartWidth}
+          chartWidth={balanceChartWidth}
           priceDomain={priceDomain}
           priceTicks={priceTicks}
           tradeMarkers={klineMarkers}

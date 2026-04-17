@@ -1,5 +1,5 @@
 import type { Ref } from "react";
-import { CartesianGrid, Line, LineChart, ReferenceDot, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, CartesianGrid, ComposedChart, Customized, Line, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
   balanceAxisTickLabel,
@@ -55,7 +55,7 @@ export type BalanceTradeMarker = {
  */
 function TradeMarkerShape(props: { cx?: number; cy?: number; direction: "buy" | "sell"; coin: string }) {
   const { cx, cy, direction, coin } = props;
-  if (cx === undefined || cy === undefined) return null;
+  if (cx === undefined || cy === undefined || !Number.isFinite(cx) || !Number.isFinite(cy)) return null;
   const fill = direction === "buy" ? "#22c55e" : "#ef4444";
   const stroke = direction === "buy" ? "#14532d" : "#7f1d1d";
   const letter = direction === "buy" ? "B" : "S";
@@ -135,11 +135,19 @@ export function BalanceChart(props: {
           style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
         >
           <div style={{ width: `${props.chartWidth}px`, minWidth: "100%" }}>
-            <LineChart
+            {/*
+              ComposedChart (not LineChart) + an invisible Bar forces the
+              internal XAxis scale to scaleBand with the SAME bandwidth
+              Recharts uses on the K-line below — that way every bucket
+              index maps to the exact same pixel on both charts, and
+              mirroring scrollLeft yields pixel-perfect time alignment.
+            */}
+            <ComposedChart
               width={props.chartWidth}
               height={260}
               data={props.series}
               margin={{ top: 12, right: 8, bottom: 0, left: 0 }}
+              barCategoryGap={2}
             >
               <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
               <XAxis
@@ -161,6 +169,8 @@ export function BalanceChart(props: {
                 labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                 wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
               />
+              {/* Hidden Bar — exists only to force scaleBand alignment. */}
+              <Bar dataKey="equity" fill="transparent" barSize={0} isAnimationActive={false} legendType="none" />
               <Line
                 type="monotone"
                 dataKey="equity"
@@ -169,19 +179,50 @@ export function BalanceChart(props: {
                 dot={false}
                 connectNulls
                 activeDot={{ r: 4 }}
+                isAnimationActive={false}
               />
-              {markers.map((marker) => (
-                <ReferenceDot
-                  key={marker.key}
-                  x={marker.label}
-                  y={marker.equity}
-                  isFront
-                  shape={(dotProps: { cx?: number; cy?: number }) => (
-                    <TradeMarkerShape cx={dotProps.cx} cy={dotProps.cy} direction={marker.direction} coin={marker.coin} />
-                  )}
-                />
-              ))}
-            </LineChart>
+              <Customized
+                component={(chartCtx: unknown) => {
+                  const ctx = chartCtx as {
+                    xAxisMap?: Record<string, {
+                      scale: ((value: unknown) => number) & { bandwidth?: () => number };
+                      categoricalDomain?: string[];
+                    }>;
+                    yAxisMap?: Record<string, { scale: (value: number) => number }>;
+                  };
+                  const xAxis = ctx.xAxisMap ? Object.values(ctx.xAxisMap)[0] : undefined;
+                  const yAxis = ctx.yAxisMap ? Object.values(ctx.yAxisMap)[0] : undefined;
+                  if (!xAxis || !yAxis) return null;
+                  const categorical = xAxis.categoricalDomain ?? [];
+                  const labelToIndex = new Map<string, number>();
+                  props.series.forEach((point, i) => labelToIndex.set(point.label, i));
+                  return (
+                    <g>
+                      {markers.map((marker) => {
+                        const categoricalIdx = categorical.indexOf(marker.label);
+                        const idx = categoricalIdx >= 0 ? categoricalIdx : labelToIndex.get(marker.label) ?? -1;
+                        if (idx < 0) return null;
+                        const rawX = xAxis.scale(idx);
+                        const y = yAxis.scale(marker.equity);
+                        if (!Number.isFinite(rawX) || !Number.isFinite(y)) return null;
+                        const bandwidth =
+                          typeof xAxis.scale.bandwidth === "function" ? xAxis.scale.bandwidth() : 0;
+                        const cx = rawX + bandwidth / 2;
+                        return (
+                          <TradeMarkerShape
+                            key={marker.key}
+                            cx={cx}
+                            cy={y}
+                            direction={marker.direction}
+                            coin={marker.coin}
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                }}
+              />
+            </ComposedChart>
           </div>
         </div>
       </div>
