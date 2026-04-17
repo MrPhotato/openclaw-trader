@@ -12,6 +12,10 @@ export function OverviewView(props: {
   agentDataByRole: Record<string, AgentLatestData | undefined>;
   marketContext?: MarketContextData;
   executionRecords: AssetRecord[];
+  /** Broader executions pool for chart markers — the `executionRecords`
+   * slice is a top-8 view for the card feed and skips trades with fills that
+   * live deeper in the history. */
+  executionMarkerRecords?: AssetRecord[];
   macroEventRecords: AssetRecord[];
   balanceGranularity: BalanceGranularity;
   onBalanceGranularityChange: (value: BalanceGranularity) => void;
@@ -28,7 +32,7 @@ export function OverviewView(props: {
           latestStrategy={props.latestStrategy}
           granularity={props.balanceGranularity}
           onGranularityChange={props.onBalanceGranularityChange}
-          executionRecords={props.executionRecords}
+          executionRecords={props.executionMarkerRecords ?? props.executionRecords}
           marketContext={props.marketContext}
         />
         <SystemPulsePanel

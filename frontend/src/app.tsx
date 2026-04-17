@@ -72,9 +72,13 @@ export default function App() {
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
 
-  const executionRecords = (
-    executionsQuery.data?.results ?? overview?.recent_execution_results ?? []
-  ).slice(0, 8);
+  // Full list drives the chart overlay markers — many recent executions
+  // are success-without-fills records so if we sliced first we'd miss every
+  // trade that actually filled. The feed panel still takes its own top-8
+  // slice locally.
+  const allExecutionRecords =
+    executionsQuery.data?.results ?? overview?.recent_execution_results ?? [];
+  const executionRecords = allExecutionRecords.slice(0, 8);
   const macroEventRecords = (
     newsQuery.data?.macro_events ?? overview?.current_macro_events ?? []
   ).slice(0, 6);
@@ -140,6 +144,7 @@ export default function App() {
           agentDataByRole={agentDataByRole}
           marketContext={marketContextQuery.data}
           executionRecords={executionRecords}
+          executionMarkerRecords={allExecutionRecords}
           macroEventRecords={macroEventRecords}
           balanceGranularity={balanceGranularity}
           onBalanceGranularityChange={setBalanceGranularity}
