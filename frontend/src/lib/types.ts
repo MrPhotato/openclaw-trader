@@ -29,6 +29,8 @@ export type OverviewData = {
   latest_portfolio?: AssetRecord | null;
   risk_overlay?: {
     state?: string;
+    ladder_high_state?: string | null;
+    instantaneous_state?: string | null;
     day_peak_equity_usd?: string | number | null;
     current_equity_usd?: string | number | null;
     observe?: { drawdown_pct?: number | null; equity_usd?: string | number | null } | null;

@@ -10,7 +10,6 @@ export function Sidebar(props: {
   connectionTone: StatusDotTone;
   strategyValue: string;
   activeAgents: number;
-  eventCount: number;
 }) {
   return (
     <aside className="hidden w-[240px] shrink-0 flex-col border-r border-white/5 bg-gradient-to-b from-white/[0.04] to-transparent px-4 pb-4 pt-5 lg:sticky lg:top-0 lg:flex lg:h-screen">
@@ -61,10 +60,6 @@ export function Sidebar(props: {
         <div className="flex items-center justify-between text-xs text-slate-400">
           <span>席位</span>
           <span className="tabular-nums text-slate-200">{props.activeAgents}/4</span>
-        </div>
-        <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>事件</span>
-          <span className="tabular-nums text-slate-200">{props.eventCount} 条</span>
         </div>
       </div>
     </aside>

@@ -19,9 +19,9 @@ export function MetricCard(props: { label: string; value: string; detail: string
 
 export function SummaryPill(props: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 ring-hairline">
-      <div className="text-[10px] uppercase tracking-[0.24em] text-slate-500">{props.label}</div>
-      <div className="mt-1 text-lg font-semibold tabular-nums text-slate-100 sm:text-xl">{props.value}</div>
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 ring-hairline">
+      <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">{props.label}</div>
+      <div className="mt-0.5 text-base font-semibold tabular-nums leading-tight text-slate-100 sm:text-lg">{props.value}</div>
     </div>
   );
 }

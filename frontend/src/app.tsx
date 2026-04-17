@@ -30,7 +30,6 @@ export default function App() {
   const [balanceGranularity, setBalanceGranularity] = useState<BalanceGranularity>("1h");
   const activeView = useMissionControlStore((state) => state.activeView);
   const connectionState = useMissionControlStore((state) => state.connectionState);
-  const liveEvents = useMissionControlStore((state) => state.liveEvents);
   const streamOverview = useMissionControlStore((state) => state.streamOverview);
   const setView = useMissionControlStore((state) => state.setView);
   const setConnectionState = useMissionControlStore((state) => state.setConnectionState);
@@ -70,8 +69,6 @@ export default function App() {
   }, [setConnectionState, setStreamPayload]);
 
   const overview = newerOverview(streamOverview, overviewQuery.data);
-  const eventFeed =
-    overview === streamOverview && liveEvents.length ? liveEvents : overview?.recent_events ?? [];
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
 
@@ -132,7 +129,6 @@ export default function App() {
       onSelect={setView}
       connectionLabel={connectionLabel}
       connectionDotTone={connectionDotTone}
-      eventCount={eventFeed.length}
       strategyValue={strategyBadgeValue(latestStrategy)}
       activeAgents={countActiveAgents(overview?.agent_sessions ?? [])}
     >
