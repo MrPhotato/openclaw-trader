@@ -68,6 +68,18 @@ export default function App() {
     return close;
   }, [setConnectionState, setStreamPayload]);
 
+  // Splash lifecycle: the inline splash in index.html is still covering
+  // the page until we call releaseSplash. Call it the moment the first
+  // overview payload resolves (success OR error — both mean we have
+  // something real to show, and a stuck splash is worse than an error
+  // panel). The index.html script also auto-releases after 5s as a
+  // safety net.
+  useEffect(() => {
+    if (overviewQuery.isSuccess || overviewQuery.isError) {
+      window.releaseSplash?.();
+    }
+  }, [overviewQuery.isSuccess, overviewQuery.isError]);
+
   const overview = newerOverview(streamOverview, overviewQuery.data);
   const latestStrategy = overview?.latest_strategy?.payload ?? {};
   const latestPortfolio = overview?.latest_portfolio?.payload ?? {};
