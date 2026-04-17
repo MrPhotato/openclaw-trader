@@ -19,7 +19,8 @@ description: PM 策略审查与正式策略提交。当 PM 需要审查结构化
 - 读取结构化事实，不是原始对话噪音。
 - 决定目标投资组合状态。
 - 用当前 `input_id` 提交恰好一个纯 JSON `strategy` 对象。
-- 即使判断未变，也要提交新鲜的策略判断。
+- ~~即使判断未变，也要提交新鲜的策略判断。~~ **已废除**：判断未变 + 无新信号 + RT 尚未执行完上一版 = 不要强行 rev++。参考 runtime pack 里的 `since_last_strategy` 面板做必要性判断；详见 [decision-sequence.md](references/decision-sequence.md) 第 0 步。"新鲜"的价值在于反映新信号，不在于刷版本号。
+- **每次拉到 runtime pack 后先读 `since_last_strategy` 面板**。它告诉你距上一版策略过了多久、期间 MEA 推了多少条（其中多少条真改变了 flip_trigger）、RT 有没有执行完、你今天已经修订过几次、带宽震荡了多少 pp。**这些数字必须先看，再决定是否继续往下组合新策略**。
 - `input_id` 是不透明的 lease token——从 runtime pack 原样复制，绝不猜测、推导或重写。
 - 必须始终填写 `flip_triggers` 字段：具体说明什么条件下翻转方向（long→short、short→long、或从 active risk 转为 flat/only_reduce）。
 - 必须始终提交恰好 2 个 `targets`：`BTC`、`ETH` 各一个。不可操作的币种标记 `watch` 或 `disabled` 加 flat 方向，不要省略。

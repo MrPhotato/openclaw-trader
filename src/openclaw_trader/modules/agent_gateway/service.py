@@ -801,6 +801,211 @@ class AgentGatewayService:
         self._consume_runtime_lease(lease=lease, submission_kind="retro_brief")
         return result
 
+    # ------------------------------------------------------------------
+    # Harness panels: "mirror" data shown to PM / MEA so they can gate
+    # their own action on recent behavioral patterns instead of treating
+    # every wake as a fresh blank-slate decision.
+    # ------------------------------------------------------------------
+
+    def _build_pm_since_last_strategy_panel(self) -> dict[str, Any]:
+        """Surface 'what has materially changed since my last strategy?' data to PM.
+
+        Purpose is harness-engineering: PM sees the deltas (MEA activity,
+        RT executions, its own revision count today) BEFORE composing a
+        new strategy. No action is blocked; the panel is read-only data
+        meant to prompt the necessity question.
+        """
+        now = datetime.now(UTC)
+        latest_strategy = (
+            self.memory_assets.latest_asset(asset_type="strategy", actor_role="pm")
+            or self.memory_assets.latest_asset(asset_type="strategy")
+        )
+        latest_created_at_raw = str((latest_strategy or {}).get("created_at") or "").strip()
+        try:
+            latest_created_at = datetime.fromisoformat(latest_created_at_raw.replace("Z", "+00:00")) if latest_created_at_raw else None
+        except ValueError:
+            latest_created_at = None
+        elapsed_minutes = (
+            int((now - latest_created_at).total_seconds() // 60) if latest_created_at is not None else None
+        )
+
+        cutoff_iso = latest_created_at.isoformat() if latest_created_at is not None else None
+        today_utc = now.date().isoformat()
+
+        # MEA submissions since last strategy
+        mea_since = [
+            asset
+            for asset in self.memory_assets.recent_assets(asset_type="news_submission", limit=30)
+            if cutoff_iso is None or str(asset.get("created_at") or "") > cutoff_iso
+        ]
+        impact_counter: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
+        flip_trigger_impacting = 0
+        for asset in mea_since:
+            payload = dict(asset.get("payload") or {})
+            for ev in payload.get("events") or []:
+                if not isinstance(ev, dict):
+                    continue
+                impact = str(ev.get("impact") or "").lower().strip()
+                if impact in impact_counter:
+                    impact_counter[impact] += 1
+                if str(ev.get("thesis_alignment") or "").lower().strip() == "flip_trigger":
+                    flip_trigger_impacting += 1
+
+        # RT executions since last strategy
+        rt_executions_since = [
+            asset
+            for asset in self.memory_assets.recent_assets(asset_type="execution_batch", actor_role="risk_trader", limit=30)
+            if cutoff_iso is None or str(asset.get("created_at") or "") > cutoff_iso
+        ]
+
+        # Your revision pattern today
+        today_strategies = [
+            asset
+            for asset in self.memory_assets.recent_assets(asset_type="strategy", actor_role="pm", limit=40)
+            if str(asset.get("created_at") or "").startswith(today_utc)
+        ]
+        revisions_today = len(today_strategies)
+        # bandwidth oscillation: range of target_gross_exposure_band_pct lower/upper across today
+        lowers: list[float] = []
+        uppers: list[float] = []
+        portfolio_modes: list[str] = []
+        invalidation_triggered_today = 0
+        for asset in today_strategies:
+            p = dict(asset.get("payload") or {})
+            band = p.get("target_gross_exposure_band_pct") or []
+            if isinstance(band, list) and len(band) >= 2:
+                try:
+                    lowers.append(float(band[0]))
+                    uppers.append(float(band[1]))
+                except (TypeError, ValueError):
+                    pass
+            portfolio_modes.append(str(p.get("portfolio_mode") or ""))
+            # crude heuristic: if metadata/trigger indicates invalidation, count it
+            meta = asset.get("metadata") or {}
+            trigger = str((meta.get("trigger_type") if isinstance(meta, dict) else "") or "").lower()
+            if "invalidation" in trigger or "brake" in trigger or "risk" in trigger:
+                invalidation_triggered_today += 1
+        same_mode_count = (
+            len({m for m in portfolio_modes if m}) == 1 and len(portfolio_modes) > 1
+        )
+        oscillation_pp: float | None = None
+        if lowers and uppers:
+            oscillation_pp = round(
+                max(max(lowers) - min(lowers), max(uppers) - min(uppers)),
+                2,
+            )
+
+        # Build the reflection hint — this is the natural-language mirror
+        # PM reads BEFORE composing a new strategy.
+        hint_parts: list[str] = []
+        if latest_created_at is None:
+            hint_parts.append("还没有任何策略历史，本次是首次提交。")
+        else:
+            hint_parts.append(
+                f"距上一版策略 {elapsed_minutes} 分钟。"
+                if elapsed_minutes is not None
+                else "距上一版策略时间未知。"
+            )
+            hint_parts.append(
+                f"期间 MEA 提交 {len(mea_since)} 条（其中 {flip_trigger_impacting} 条标注 flip_trigger 影响）。"
+            )
+            hint_parts.append(f"期间 RT 提交 {len(rt_executions_since)} 次执行批次。")
+        if revisions_today >= 3:
+            hint_parts.append(
+                f"今天已经提交 {revisions_today} 版策略"
+                + (f"，同组合模式 {portfolio_modes[0]}" if same_mode_count else "")
+                + (f"，带宽震荡 {oscillation_pp}pp" if oscillation_pp is not None else "")
+                + f"，invalidation 触发次数 {invalidation_triggered_today}。"
+            )
+        if (
+            revisions_today >= 3
+            and flip_trigger_impacting == 0
+            and invalidation_triggered_today == 0
+        ):
+            hint_parts.append(
+                "⚠ 今日多次修订均非 invalidation 触发且无 MEA flip_trigger 影响事件——"
+                "先确认本次修订是新信号、还是继续微调；如果只是增量确认，考虑跳过本轮提交。"
+            )
+
+        return {
+            "last_revision_id": str((latest_strategy or {}).get("payload", {}).get("strategy_id") or "") or None,
+            "last_revision_at_utc": latest_created_at_raw or None,
+            "elapsed_minutes_since_last_revision": elapsed_minutes,
+            "mea_submissions_since": len(mea_since),
+            "mea_submissions_by_impact": impact_counter,
+            "mea_flip_trigger_impacting_since": flip_trigger_impacting,
+            "rt_executions_since": len(rt_executions_since),
+            "your_revisions_today": revisions_today,
+            "your_portfolio_modes_today": portfolio_modes,
+            "your_bandwidth_oscillation_pp_today": oscillation_pp,
+            "invalidation_triggered_count_today": invalidation_triggered_today,
+            "necessity_hint": " ".join(hint_parts) if hint_parts else "",
+        }
+
+    def _build_mea_recent_impact_panel(self) -> dict[str, Any]:
+        """Surface 'how often have my submissions actually changed PM state?' data to MEA.
+
+        Purpose is harness-engineering: MEA sees its own signal-to-action
+        ratio BEFORE deciding to submit / sessions_send again. No submission
+        is blocked.
+        """
+        now = datetime.now(UTC)
+        since_cutoff = (now - timedelta(hours=24)).isoformat()
+
+        recent_submissions = [
+            asset
+            for asset in self.memory_assets.recent_assets(asset_type="news_submission", limit=30)
+            if str(asset.get("created_at") or "") >= since_cutoff
+        ]
+        category_counter: dict[str, int] = {}
+        high_impact_events_past_24h = 0
+        for asset in recent_submissions:
+            for ev in dict(asset.get("payload") or {}).get("events") or []:
+                if not isinstance(ev, dict):
+                    continue
+                cat = str(ev.get("category") or "uncategorized").strip().lower() or "uncategorized"
+                category_counter[cat] = category_counter.get(cat, 0) + 1
+                if str(ev.get("impact") or "").lower().strip() == "high":
+                    high_impact_events_past_24h += 1
+
+        recent_pm_strategies = [
+            asset
+            for asset in self.memory_assets.recent_assets(asset_type="strategy", actor_role="pm", limit=30)
+            if str(asset.get("created_at") or "") >= since_cutoff
+        ]
+        pm_revisions_past_24h = len(recent_pm_strategies)
+
+        # Theme fatigue: any category with >= 3 submissions in 24h AND fewer
+        # PM revisions than submissions means the signal is being ignored / over-produced.
+        fatigued_categories = sorted(
+            [(cat, count) for cat, count in category_counter.items() if count >= 3],
+            key=lambda pair: -pair[1],
+        )
+
+        hint_parts: list[str] = []
+        hint_parts.append(
+            f"过去 24h 你提交 {len(recent_submissions)} 份 news（含 {high_impact_events_past_24h} 条 high impact 事件）。"
+        )
+        hint_parts.append(f"同期 PM 提交 {pm_revisions_past_24h} 版策略。")
+        if fatigued_categories:
+            top_cat, top_count = fatigued_categories[0]
+            hint_parts.append(
+                f"⚠ category=`{top_cat}` 24h 内已出现 {top_count} 次。"
+                "提交新条目前先问：这次是新事实还是同一叙事的补充报道？"
+                "如果只是补充/措辞/二次来源，考虑合并为已有 composite event 的 status 更新，不单独成条。"
+            )
+
+        return {
+            "submissions_past_24h": len(recent_submissions),
+            "high_impact_events_past_24h": high_impact_events_past_24h,
+            "submissions_by_category_past_24h": category_counter,
+            "pm_revisions_past_24h": pm_revisions_past_24h,
+            "theme_fatigue_candidates": [
+                {"category": cat, "count": count} for cat, count in fatigued_categories
+            ],
+            "necessity_hint": " ".join(hint_parts),
+        }
+
     def _issue_runtime_pack(
         self,
         *,
@@ -914,6 +1119,21 @@ class AgentGatewayService:
             latest_risk_brake_event = self._latest_risk_brake_event()
             if latest_risk_brake_event is not None and agent_role in {"pm", "risk_trader"}:
                 payload["latest_risk_brake_event"] = latest_risk_brake_event
+            if agent_role == "pm":
+                # Harness "mirror": show PM its own recent behavior so it can
+                # gate revision on necessity instead of treating every wake as
+                # a fresh blank-slate decision. Read-only; blocks nothing.
+                try:
+                    payload["since_last_strategy"] = self._build_pm_since_last_strategy_panel()
+                except Exception:  # noqa: BLE001
+                    pass
+            if agent_role == "macro_event_analyst":
+                # Harness "mirror": show MEA its signal-to-action ratio so it
+                # can filter noise before composing / notifying. Read-only.
+                try:
+                    payload["your_recent_impact"] = self._build_mea_recent_impact_panel()
+                except Exception:  # noqa: BLE001
+                    pass
             if agent_role == "risk_trader":
                 payload["recent_execution_thoughts"] = self.memory_assets.get_recent_execution_thoughts(limit=5)
                 latest_trigger_event = self._latest_rt_trigger_event()
