@@ -1051,7 +1051,10 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
-    def test_risk_brake_portfolio_reduce_executes_system_order_and_dual_dispatches(self) -> None:
+    def test_risk_brake_portfolio_reduce_cuts_half_and_pings_pm_only(self) -> None:
+        """Portfolio reduce auto-executes a 50% cut on losing positions and
+        dispatches ONLY PM — RT isn't re-woken because the system already
+        placed the safety order itself."""
         harness = build_test_harness()
         try:
             now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
@@ -1074,9 +1077,9 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertTrue(result["triggered"])
             self.assertEqual(result["scope"], "portfolio")
             self.assertEqual(result["state"], "reduce")
-            self.assertTrue(result["rt_dispatched"])
+            self.assertFalse(result["rt_dispatched"])
             self.assertTrue(result["pm_dispatched"])
-            self.assertEqual(runner.runs, ["rt-job", "pm-job"])
+            self.assertEqual(runner.runs, ["pm-job"])
             self.assertTrue(str(result["pm_trigger_event_id"]).startswith("pm_trigger"))
             self.assertEqual(len(harness.fake_broker.executed), 1)
             self.assertEqual(harness.fake_broker.executed[0].action, "reduce")
@@ -1093,6 +1096,90 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(pm_trigger_asset["payload"]["trigger_type"], "risk_brake")
             self.assertEqual(pm_trigger_asset["payload"]["reason"], "portfolio_peak_reduce")
             self.assertTrue(pm_trigger_asset["payload"]["claimable"])
+        finally:
+            harness.cleanup()
+
+    def test_risk_brake_portfolio_observe_pings_rt_only(self) -> None:
+        """The observe line is an early warning: no auto-order, no portfolio
+        lock, no PM dispatch — only RT gets nudged so the tactical map can
+        be refreshed before things get worse."""
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
+            provider = MutableMarketDataProvider()
+            # Peak=1025, current=1012 → drawdown 1.27%, above observe (1.2%)
+            # but below reduce (2.0%).
+            provider.portfolio_total_equity_usd = "1012"
+            provider.unrealized_pnl_usd = "-1"
+            _seed_strategy(harness)
+            _seed_risk_brake_state(
+                harness,
+                {
+                    "portfolio_day_utc": now.date().isoformat(),
+                    "portfolio_day_peak_equity_usd": "1025",
+                    "last_portfolio_state": "normal",
+                    "portfolio_state_ladder_high": "normal",
+                    "last_position_state_by_coin": {"BTC": "normal"},
+                },
+            )
+            monitor, runner = _build_risk_brake_monitor(harness, provider=provider)
+            result = monitor.scan_once(now=now)
+
+            self.assertTrue(result["triggered"])
+            self.assertEqual(result["scope"], "portfolio")
+            self.assertEqual(result["state"], "observe")
+            self.assertTrue(result["rt_dispatched"])
+            self.assertFalse(result["pm_dispatched"])
+            self.assertEqual(runner.runs, ["rt-job"])
+            self.assertNotIn("pm_trigger_event_id", result)
+            # No auto-order, no portfolio lock.
+            self.assertEqual(len(harness.fake_broker.executed), 0)
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
+            self.assertEqual(state_asset["payload"].get("portfolio_lock") or {}, {})
+            # Ladder ratcheted to observe so subsequent small dips don't re-fire.
+            self.assertEqual(state_asset["payload"]["portfolio_state_ladder_high"], "observe")
+        finally:
+            harness.cleanup()
+
+    def test_risk_brake_portfolio_exit_closes_all_and_pings_pm_only(self) -> None:
+        """Exit liquidates every open position and dispatches only PM. No RT
+        — RT has nothing left to decide; PM gets woken to rebuild the
+        plan from scratch."""
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
+            provider = MutableMarketDataProvider()
+            # Peak=1025, current=985 → drawdown 3.9%, above exit (3.2%).
+            provider.portfolio_total_equity_usd = "985"
+            provider.unrealized_pnl_usd = "-5"
+            _seed_strategy(harness)
+            _seed_risk_brake_state(
+                harness,
+                {
+                    "portfolio_day_utc": now.date().isoformat(),
+                    "portfolio_day_peak_equity_usd": "1025",
+                    "last_portfolio_state": "normal",
+                    "portfolio_state_ladder_high": "normal",
+                    "last_position_state_by_coin": {"BTC": "normal"},
+                },
+            )
+            monitor, runner = _build_risk_brake_monitor(harness, provider=provider)
+            result = monitor.scan_once(now=now)
+
+            self.assertTrue(result["triggered"])
+            self.assertEqual(result["scope"], "portfolio")
+            self.assertEqual(result["state"], "exit")
+            self.assertFalse(result["rt_dispatched"])
+            self.assertTrue(result["pm_dispatched"])
+            self.assertEqual(runner.runs, ["pm-job"])
+            self.assertEqual(len(harness.fake_broker.executed), 1)
+            self.assertEqual(harness.fake_broker.executed[0].action, "close")
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
+            self.assertEqual(state_asset["payload"]["portfolio_lock"]["mode"], "flat_only")
+            self.assertEqual(state_asset["payload"]["portfolio_state_ladder_high"], "exit")
+            pm_trigger_asset = harness.container.memory_assets.latest_asset(asset_type="pm_trigger_event", actor_role="system")
+            self.assertIsNotNone(pm_trigger_asset)
+            self.assertEqual(pm_trigger_asset["payload"]["lock_mode"], "flat_only")
         finally:
             harness.cleanup()
 

@@ -156,7 +156,25 @@ class RiskBrakeMonitor:
             "pm_skip_reason": None,
         }
 
-        if plan["state"] in {"reduce", "exit"} and plan["actions"]:
+        # Dispatch routing matches the three-line semantic:
+        #   observe (portfolio) → RT only, no orders
+        #   reduce  (portfolio) → auto-cut losing positions in half, then PM
+        #   exit    (portfolio) → auto-close all positions, then PM
+        #   position-level breach → both RT and PM (tactical per-coin)
+        scope = plan["scope"]
+        state_name = plan["state"]
+        if scope == "portfolio" and state_name == "observe":
+            dispatch_rt = True
+            dispatch_pm = False
+        elif scope == "portfolio" and state_name in {"reduce", "exit"}:
+            dispatch_rt = False
+            dispatch_pm = True
+        else:
+            # position-level (and any future scope): keep both arms in play
+            dispatch_rt = True
+            dispatch_pm = True
+
+        if state_name in {"reduce", "exit"} and plan["actions"]:
             batch_summary = self._execute_system_orders(
                 trace_id=trace_id,
                 event_id=event_id,
@@ -167,16 +185,19 @@ class RiskBrakeMonitor:
                 reason_label=plan["reason_label"],
             )
             payload.update(batch_summary)
-            dispatch_summary = self._dispatch_rt_and_pm(
-                trace_id=trace_id,
-                now=now,
-                reason=plan["reason_label"],
-                strategy_key=current_strategy_key,
-                scope=plan["scope"],
-                state_name=plan["state"],
-                coins=sorted(plan["actions"].keys()),
-            )
-            payload.update(dispatch_summary)
+
+        dispatch_summary = self._dispatch_to_agents(
+            trace_id=trace_id,
+            now=now,
+            reason=plan["reason_label"],
+            strategy_key=current_strategy_key,
+            scope=scope,
+            state_name=state_name,
+            coins=sorted(plan["actions"].keys()),
+            dispatch_rt=dispatch_rt,
+            dispatch_pm=dispatch_pm,
+        )
+        payload.update(dispatch_summary)
         self.memory_assets.save_asset(
             asset_type="risk_brake_event",
             asset_id=event_id,
@@ -236,6 +257,9 @@ class RiskBrakeMonitor:
         state_name = "normal"
         reason_label = ""
 
+        # Portfolio ladder: pick the HIGHEST level that's rising this scan.
+        # Firing only one level avoids double events on a direct normal→reduce
+        # jump and guarantees the ladder ratchets cleanly.
         if self._is_rising(previous_portfolio_state, current_portfolio_state, "exit"):
             scope = "portfolio"
             state_name = "exit"
@@ -250,23 +274,33 @@ class RiskBrakeMonitor:
                 "strategy_key": current_strategy_key,
                 "triggered_at_utc": datetime.now(UTC).isoformat(),
             }
-        else:
-            if self._is_rising(previous_portfolio_state, current_portfolio_state, "reduce"):
-                scope = "portfolio"
-                state_name = "reduce"
-                reason_label = "portfolio_peak_reduce"
-                for position in market.portfolio.positions:
-                    if _to_decimal(position.unrealized_pnl_usd) < 0:
-                        action_map[str(position.coin).upper()] = {
-                            "action": "reduce",
-                            "reason": "portfolio_peak_reduce",
-                        }
-                if action_map:
-                    risk_lock_updates["portfolio_lock"] = {
-                        "mode": "reduce_only",
-                        "strategy_key": current_strategy_key,
-                        "triggered_at_utc": datetime.now(UTC).isoformat(),
+        elif self._is_rising(previous_portfolio_state, current_portfolio_state, "reduce"):
+            scope = "portfolio"
+            state_name = "reduce"
+            reason_label = "portfolio_peak_reduce"
+            for position in market.portfolio.positions:
+                if _to_decimal(position.unrealized_pnl_usd) < 0:
+                    action_map[str(position.coin).upper()] = {
+                        "action": "reduce",
+                        "reason": "portfolio_peak_reduce",
                     }
+            if action_map:
+                risk_lock_updates["portfolio_lock"] = {
+                    "mode": "reduce_only",
+                    "strategy_key": current_strategy_key,
+                    "triggered_at_utc": datetime.now(UTC).isoformat(),
+                }
+        elif self._is_rising(previous_portfolio_state, current_portfolio_state, "observe"):
+            # Observe: heads-up signal only. No orders, no lock, no PM
+            # dispatch — RT is asked to take a look in case the tactical
+            # map needs a refresh.
+            scope = "portfolio"
+            state_name = "observe"
+            reason_label = "portfolio_peak_observe"
+
+        # Position-level ladder runs regardless of portfolio outcome so a
+        # per-coin breach can still fire even when the portfolio didn't.
+        if state_name != "exit":
             for coin, current_state in current_position_states.items():
                 previous_state = previous_position_states.get(coin, "normal")
                 if self._is_rising(previous_state, current_state, "exit"):
@@ -298,7 +332,10 @@ class RiskBrakeMonitor:
                         state_name = "reduce"
                         reason_label = "position_peak_reduce"
 
-        if not action_map:
+        # scope stays "none" when nothing rose this scan — no-op.
+        # Observe fires at scope="portfolio" with no actions, which is
+        # intentional: the event goes out, RT gets pinged, nothing else.
+        if scope == "none":
             return None
         return {
             "scope": scope,
@@ -457,7 +494,7 @@ class RiskBrakeMonitor:
             "execution_result_ids": result_asset_ids,
         }
 
-    def _dispatch_rt_and_pm(
+    def _dispatch_to_agents(
         self,
         *,
         trace_id: str,
@@ -467,68 +504,93 @@ class RiskBrakeMonitor:
         scope: str,
         state_name: str,
         coins: list[str],
+        dispatch_rt: bool,
+        dispatch_pm: bool,
     ) -> dict[str, Any]:
-        rt_running = self.cron_runner.is_running(job_id=self.config.rt_job_id)
-        pm_running = self.cron_runner.is_running(job_id=self.config.pm_job_id)
+        """Dispatch one or both of RT / PM, depending on the line that just
+        tripped. Observe pings only RT; portfolio reduce / exit ping only PM
+        (after the system has already auto-executed the order); position-
+        level events still ping both arms."""
+        rt_running: bool | None = None
+        pm_running: bool | None = None
         rt_result: CronRunResult | None = None
         pm_result: CronRunResult | None = None
         rt_skip_reason: str | None = None
         pm_skip_reason: str | None = None
         rt_dispatched = False
         pm_dispatched = False
-        if rt_running:
-            rt_skip_reason = "cron_running"
-        else:
-            rt_result = self.cron_runner.run_now(job_id=self.config.rt_job_id)
-            rt_dispatched = bool(rt_result.ok)
-            if not rt_dispatched:
-                rt_skip_reason = "cron_run_failed"
+
+        if dispatch_rt:
+            rt_running = self.cron_runner.is_running(job_id=self.config.rt_job_id)
+            if rt_running:
+                rt_skip_reason = "cron_running"
             else:
-                self._record_rt_dispatch(now=now, trace_id=trace_id, reason=reason)
-        if pm_running:
-            pm_skip_reason = "cron_running"
+                rt_result = self.cron_runner.run_now(job_id=self.config.rt_job_id)
+                rt_dispatched = bool(rt_result.ok)
+                if not rt_dispatched:
+                    rt_skip_reason = "cron_run_failed"
+                else:
+                    self._record_rt_dispatch(now=now, trace_id=trace_id, reason=reason)
         else:
-            pm_result = self.cron_runner.run_now(job_id=self.config.pm_job_id)
-            pm_dispatched = bool(pm_result.ok)
-            if not pm_dispatched:
-                pm_skip_reason = "cron_run_failed"
-        pm_event = record_pm_trigger_event(
-            memory_assets=self.memory_assets,
-            event_bus=self.event_bus,
-            trace_id=trace_id,
-            payload={
-                "event_id": new_id("pm_trigger"),
-                "detected_at_utc": now.isoformat(),
-                "trigger_type": "risk_brake",
-                "trigger_category": "workflow",
-                "reason": reason,
-                "severity": "high",
-                "wake_source": "workflow_orchestrator",
-                "claimable": bool(pm_dispatched or pm_running),
-                "strategy_key": strategy_key,
-                "scope": scope,
-                "state": state_name,
-                "coins": list(coins),
-                "lock_mode": "flat_only" if state_name == "exit" else "reduce_only",
-                "dispatched": pm_dispatched,
-                "skipped_reason": pm_skip_reason,
-                "cron_running": pm_running,
-                "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),
-                "pm_cron_stderr": _truncate(pm_result.stderr if pm_result else "", 800),
-            },
-            metadata={"trigger_type": "risk_brake", "reason": reason},
-        )
-        return {
+            rt_skip_reason = "not_required_for_this_line"
+
+        summary: dict[str, Any] = {
             "rt_dispatched": rt_dispatched,
             "rt_skip_reason": rt_skip_reason,
             "rt_cron_stdout": _truncate(rt_result.stdout if rt_result else "", 800),
             "rt_cron_stderr": _truncate(rt_result.stderr if rt_result else "", 800),
-            "pm_trigger_event_id": pm_event["event_id"],
             "pm_dispatched": pm_dispatched,
-            "pm_skip_reason": pm_skip_reason,
-            "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),
-            "pm_cron_stderr": _truncate(pm_result.stderr if pm_result else "", 800),
+            "pm_skip_reason": None,
         }
+
+        if dispatch_pm:
+            pm_running = self.cron_runner.is_running(job_id=self.config.pm_job_id)
+            if pm_running:
+                pm_skip_reason = "cron_running"
+            else:
+                pm_result = self.cron_runner.run_now(job_id=self.config.pm_job_id)
+                pm_dispatched = bool(pm_result.ok)
+                if not pm_dispatched:
+                    pm_skip_reason = "cron_run_failed"
+            pm_event = record_pm_trigger_event(
+                memory_assets=self.memory_assets,
+                event_bus=self.event_bus,
+                trace_id=trace_id,
+                payload={
+                    "event_id": new_id("pm_trigger"),
+                    "detected_at_utc": now.isoformat(),
+                    "trigger_type": "risk_brake",
+                    "trigger_category": "workflow",
+                    "reason": reason,
+                    "severity": "high",
+                    "wake_source": "workflow_orchestrator",
+                    "claimable": bool(pm_dispatched or pm_running),
+                    "strategy_key": strategy_key,
+                    "scope": scope,
+                    "state": state_name,
+                    "coins": list(coins),
+                    "lock_mode": "flat_only" if state_name == "exit" else "reduce_only",
+                    "dispatched": pm_dispatched,
+                    "skipped_reason": pm_skip_reason,
+                    "cron_running": pm_running,
+                    "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),
+                    "pm_cron_stderr": _truncate(pm_result.stderr if pm_result else "", 800),
+                },
+                metadata={"trigger_type": "risk_brake", "reason": reason},
+            )
+            summary.update(
+                {
+                    "pm_trigger_event_id": pm_event["event_id"],
+                    "pm_dispatched": pm_dispatched,
+                    "pm_skip_reason": pm_skip_reason,
+                    "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),
+                    "pm_cron_stderr": _truncate(pm_result.stderr if pm_result else "", 800),
+                }
+            )
+        else:
+            summary["pm_skip_reason"] = "not_required_for_this_line"
+
+        return summary
 
     def _record_rt_dispatch(self, *, now: datetime, trace_id: str, reason: str) -> None:
         asset = self.memory_assets.get_asset("rt_trigger_state")
