@@ -1,6 +1,5 @@
 import type { AgentLatestData, AssetRecord, MarketContextData, OverviewData } from "../../lib/types";
 import type { BalanceGranularity } from "../../lib/format";
-import { KlineChart } from "../../components/charts/KlineChart";
 import { BalancePanel } from "./BalancePanel";
 import { SystemPulsePanel } from "./SystemPulsePanel";
 import { ExecutionFeedPanel } from "./ExecutionFeedPanel";
@@ -29,8 +28,9 @@ export function OverviewView(props: {
           latestStrategy={props.latestStrategy}
           granularity={props.balanceGranularity}
           onGranularityChange={props.onBalanceGranularityChange}
+          executionRecords={props.executionRecords}
+          marketContext={props.marketContext}
         />
-        <KlineChart marketContext={props.marketContext} />
         <SystemPulsePanel
           overview={props.overview}
           latestPortfolio={props.latestPortfolio}

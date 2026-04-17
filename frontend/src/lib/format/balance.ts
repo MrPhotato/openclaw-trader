@@ -182,6 +182,31 @@ export function balanceAxisTickLabel(value: number): string {
   return `$${trimNumber(value)}`;
 }
 
+/**
+ * Snap a trade timestamp to the label of the chart bucket that
+ * contains it. Returns null when the trade is outside the chart's
+ * current time window (so we don't draw markers at the chart edge).
+ * Series is assumed sorted ascending by createdAtMs (the shape
+ * buildBalanceHistory already produces).
+ */
+export function snapTimestampToBucketLabel(
+  timestampMs: number,
+  series: BalancePoint[],
+  granularity: BalanceGranularity,
+): string | null {
+  if (series.length === 0) return null;
+  const bucketMs = balanceGranularityMs(granularity);
+  const first = series[0].createdAtMs;
+  const last = series[series.length - 1].createdAtMs;
+  if (timestampMs < first - bucketMs || timestampMs > last + bucketMs) return null;
+  // Binary search — or linear: series is typically ≤ 200 points
+  const idx = Math.min(
+    series.length - 1,
+    Math.max(0, Math.round((timestampMs - first) / bucketMs)),
+  );
+  return series[idx].label;
+}
+
 export type DailyChange = {
   pct: number;
   direction: "up" | "down" | "flat";
@@ -189,36 +214,46 @@ export type DailyChange = {
 
 /**
  * Day-over-equity change. Anchors off the earliest portfolio_history
- * snapshot taken today (UTC); if today hasn't been sampled yet, falls
- * back to the most-recent snapshot from before today (yesterday's close).
- * Returns null when there's no usable baseline.
+ * snapshot taken during the current day; if today hasn't been sampled
+ * yet, falls back to the most-recent snapshot from before today
+ * (yesterday's close). `offsetHours` shifts the day boundary: 0 for
+ * UTC day, 8 for Beijing-time day. Returns null when there's no
+ * usable baseline.
  */
 export function computeDailyChange(
   currentEquity: unknown,
   portfolioHistory: Array<{ created_at: string; total_equity_usd?: string | number | null }>,
+  options: { offsetHours?: number } = {},
 ): DailyChange | null {
   const current = toNumber(currentEquity);
   if (current === null || current <= 0 || portfolioHistory.length === 0) {
     return null;
   }
 
-  const todayUtc = new Date().toISOString().slice(0, 10);
+  const offsetMs = (options.offsetHours ?? 0) * 3_600_000;
+  const shiftedDateString = (iso: string): string => {
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return iso.slice(0, 10);
+    return new Date(t + offsetMs).toISOString().slice(0, 10);
+  };
+  const todayKey = new Date(Date.now() + offsetMs).toISOString().slice(0, 10);
+
   const parsed = portfolioHistory
     .map((item) => {
       if (typeof item.created_at !== "string" || item.created_at.length < 10) return null;
       const equity = toNumber(item.total_equity_usd);
       if (equity === null || equity <= 0) return null;
-      return { createdAt: item.created_at, dateUtc: item.created_at.slice(0, 10), equity };
+      return { createdAt: item.created_at, dayKey: shiftedDateString(item.created_at), equity };
     })
-    .filter((item): item is { createdAt: string; dateUtc: string; equity: number } => item !== null)
+    .filter((item): item is { createdAt: string; dayKey: string; equity: number } => item !== null)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
-  const todays = parsed.filter((item) => item.dateUtc === todayUtc);
+  const todays = parsed.filter((item) => item.dayKey === todayKey);
   let baseline: number | null = null;
   if (todays.length > 0) {
     baseline = todays[0].equity;
   } else {
-    const earlier = parsed.filter((item) => item.dateUtc < todayUtc);
+    const earlier = parsed.filter((item) => item.dayKey < todayKey);
     if (earlier.length > 0) {
       baseline = earlier[earlier.length - 1].equity;
     }

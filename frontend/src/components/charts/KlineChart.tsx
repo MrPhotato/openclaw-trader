@@ -1,21 +1,8 @@
-import { useState } from "react";
-import { Bar, CartesianGrid, Cell, ComposedChart, Tooltip, XAxis, YAxis } from "recharts";
+import type { Ref } from "react";
+import { Bar, CartesianGrid, Cell, ComposedChart, Customized, Tooltip, XAxis, YAxis } from "recharts";
 
-import type { MarketContextData } from "../../lib/types";
-import {
-  buildCandlePoints,
-  buildKlinePriceDomain,
-  buildKlinePriceTicks,
-  computeKlineChartWidth,
-  KLINE_TIMEFRAME_LABEL,
-  KLINE_TIMEFRAME_TO_BACKEND,
-  trimNumber,
-  type CandlePoint,
-  type KlineTimeframe,
-} from "../../lib/format";
+import { trimNumber, type CandlePoint } from "../../lib/format";
 import { ChartShell } from "../primitives/ChartShell";
-import { EmptyState } from "../primitives/EmptyState";
-import { Panel } from "../primitives/Panel";
 import {
   CHART_TOOLTIP_CONTENT_STYLE,
   CHART_TOOLTIP_ITEM_STYLE,
@@ -23,6 +10,13 @@ import {
   CHART_TOOLTIP_WRAPPER_STYLE,
 } from "./chartConstants";
 import { useScrollPinnedChart } from "./useScrollPinnedChart";
+
+export type KlineTradeMarker = {
+  key: string;
+  label: string;
+  price: number;
+  direction: "buy" | "sell";
+};
 
 function FixedKlineAxis(props: { ticks: number[] }) {
   const labels = props.ticks.length > 0 ? [...props.ticks].reverse() : [0];
@@ -71,141 +65,169 @@ function CandleTooltip(props: {
   );
 }
 
-export function KlineChart(props: { marketContext?: MarketContextData }) {
-  const contexts = props.marketContext?.market_context ?? {};
-  const availableCoins = Object.keys(contexts);
-  const [coin, setCoin] = useState<string>("");
-  const [timeframe, setTimeframe] = useState<KlineTimeframe>("1h");
+/**
+ * Pin-style trade badge (see BalanceChart for rationale): rounded top
+ * with a downward tail touching the candle's fill price. `B` / `S` in
+ * the badge, no coin label (each K-line only shows its own coin's
+ * trades, so the coin is implied).
+ */
+function KlineTradeMarkerShape(props: { cx?: number; cy?: number; direction: "buy" | "sell" }) {
+  const { cx, cy, direction } = props;
+  if (cx === undefined || cy === undefined) return null;
+  const fill = direction === "buy" ? "#22c55e" : "#ef4444";
+  const stroke = direction === "buy" ? "#14532d" : "#7f1d1d";
+  const letter = direction === "buy" ? "B" : "S";
+  const top = cy - 20;
+  const bottom = cy - 6;
+  const path = [
+    `M ${cx - 8} ${top + 3}`,
+    `Q ${cx - 8} ${top} ${cx - 5} ${top}`,
+    `L ${cx + 5} ${top}`,
+    `Q ${cx + 8} ${top} ${cx + 8} ${top + 3}`,
+    `L ${cx + 8} ${bottom}`,
+    `L ${cx} ${cy}`,
+    `L ${cx - 8} ${bottom}`,
+    "Z",
+  ].join(" ");
+  return (
+    <g>
+      <path d={path} fill={fill} stroke={stroke} strokeWidth={0.8} opacity={0.95} />
+      <text
+        x={cx}
+        y={cy - 10}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={9}
+        fontWeight={700}
+        fill="#fff"
+      >
+        {letter}
+      </text>
+    </g>
+  );
+}
 
-  const activeCoin = coin && contexts[coin] ? coin : availableCoins[0] ?? "";
-  const contextForCoin = activeCoin ? contexts[activeCoin] : undefined;
-  const backendKey = KLINE_TIMEFRAME_TO_BACKEND[timeframe];
-  const series = contextForCoin?.compressed_price_series?.[backendKey];
-  const candles = buildCandlePoints(series?.points ?? [], timeframe);
-  const chartWidth = computeKlineChartWidth(candles.length);
-  const priceDomain = buildKlinePriceDomain(candles);
-  const priceTicks = buildKlinePriceTicks(priceDomain);
-  const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
-  const firstCandle = candles.length > 0 ? candles[0] : null;
-  const changePct =
-    firstCandle && lastCandle && firstCandle.open !== 0
-      ? ((lastCandle.close - firstCandle.open) / firstCandle.open) * 100
-      : null;
-
-  const viewportRef = useScrollPinnedChart<HTMLDivElement>({
-    pinDeps: [activeCoin, timeframe, candles.length, chartWidth],
+/**
+ * Candle chart body — no internal state, no surrounding Panel. The parent
+ * owns the coin / timeframe / width so it can keep this chart in lockstep
+ * with the balance chart above it (same data key, same physical width, same
+ * scroll container size).
+ */
+export function KlineChart(props: {
+  candles: CandlePoint[];
+  chartWidth: number;
+  priceDomain: [number, number] | [];
+  priceTicks: number[];
+  /** Parent-managed scroll ref when syncing with another chart. */
+  scrollViewportRef?: Ref<HTMLDivElement>;
+  tradeMarkers?: KlineTradeMarker[];
+}) {
+  const internalRef = useScrollPinnedChart<HTMLDivElement>({
+    pinDeps: [props.candles.length, props.chartWidth],
   });
-
-  if (availableCoins.length === 0) {
-    return (
-      <Panel title="行情 K 线">
-        <EmptyState message="还没有拿到行情序列，等待下一轮市场数据采集。" />
-      </Panel>
-    );
-  }
+  const viewportRef = props.scrollViewportRef ?? internalRef;
+  const markers = props.tradeMarkers ?? [];
 
   return (
-    <Panel title="行情 K 线" eyebrow="Market">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2" data-testid="kline-coin-tabs">
-          {availableCoins.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setCoin(option)}
-              className={`rounded-full px-3 py-1.5 text-xs transition ${
-                option === activeCoin
-                  ? "bg-neon/90 text-ink shadow-[0_0_12px_rgba(113,246,209,0.35)]"
-                  : "border border-white/10 bg-white/5 text-slate-300 hover:border-neon/30 hover:bg-white/10 hover:text-white"
-              }`}
+    <ChartShell>
+      <div className="grid min-w-0 grid-cols-[56px,minmax(0,1fr)] gap-2 sm:grid-cols-[72px,minmax(0,1fr)] sm:gap-3">
+        <FixedKlineAxis ticks={props.priceTicks} />
+        <div
+          ref={viewportRef}
+          data-testid="kline-chart-viewport"
+          className="w-full max-w-full overflow-x-auto overflow-y-hidden"
+          style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
+        >
+          <div style={{ width: `${props.chartWidth}px`, minWidth: "100%" }}>
+            <ComposedChart
+              width={props.chartWidth}
+              height={260}
+              data={props.candles}
+              margin={{ top: 12, right: 8, bottom: 0, left: 0 }}
+              barCategoryGap={2}
             >
-              {option}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2" data-testid="kline-timeframe-tabs">
-          {(Object.keys(KLINE_TIMEFRAME_LABEL) as KlineTimeframe[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTimeframe(key)}
-              className={`rounded-full px-3 py-1.5 text-xs transition ${
-                timeframe === key
-                  ? "bg-neon/90 text-ink shadow-[0_0_12px_rgba(113,246,209,0.35)]"
-                  : "border border-white/10 bg-white/5 text-slate-300 hover:border-neon/30 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              {KLINE_TIMEFRAME_LABEL[key]}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-slate-300">
-        <span className="text-base font-semibold text-slate-100">{activeCoin}</span>
-        {lastCandle ? <span className="text-slate-200 tabular-nums">最新 ${trimNumber(lastCandle.close)}</span> : null}
-        {changePct !== null ? (
-          <span className={`tabular-nums ${changePct >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-            {changePct >= 0 ? "+" : ""}
-            {changePct.toFixed(2)}%
-          </span>
-        ) : null}
-        {series?.window ? <span className="text-slate-500">窗口 {series.window}</span> : null}
-      </div>
-      <ChartShell>
-        {candles.length === 0 ? (
-          <EmptyState message="此周期暂无行情采样点。" />
-        ) : (
-          <div className="grid min-w-0 grid-cols-[56px,minmax(0,1fr)] gap-2 sm:grid-cols-[72px,minmax(0,1fr)] sm:gap-3">
-            <FixedKlineAxis ticks={priceTicks} />
-            <div
-              ref={viewportRef}
-              data-testid="kline-chart-viewport"
-              className="w-full max-w-full overflow-x-auto overflow-y-hidden"
-              style={{ touchAction: "pan-x", overscrollBehaviorX: "contain", overscrollBehaviorY: "contain" }}
-            >
-              <div style={{ width: `${chartWidth}px`, minWidth: "100%" }}>
-                <ComposedChart
-                  width={chartWidth}
-                  height={260}
-                  data={candles}
-                  margin={{ top: 12, right: 8, bottom: 0, left: 0 }}
-                  barCategoryGap={2}
-                >
-                  <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: "#9fb0c7", fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                    minTickGap={28}
-                    height={32}
-                  />
-                  <YAxis hide domain={priceDomain} ticks={priceTicks} />
-                  <Tooltip
-                    cursor={{ stroke: "rgba(113,246,209,0.35)" }}
-                    content={<CandleTooltip />}
-                    contentStyle={CHART_TOOLTIP_CONTENT_STYLE}
-                    itemStyle={CHART_TOOLTIP_ITEM_STYLE}
-                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
-                    wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
-                  />
-                  <Bar dataKey="wick" barSize={1} isAnimationActive={false}>
-                    {candles.map((candle, index) => (
-                      <Cell key={`wick-${index}`} fill={candle.isUp ? "#34d399" : "#f87171"} />
-                    ))}
-                  </Bar>
-                  <Bar dataKey="body" barSize={10} isAnimationActive={false}>
-                    {candles.map((candle, index) => (
-                      <Cell key={`body-${index}`} fill={candle.isUp ? "#34d399" : "#f87171"} />
-                    ))}
-                  </Bar>
-                </ComposedChart>
-              </div>
-            </div>
+              <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: "#9fb0c7", fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+                interval="preserveStartEnd"
+                minTickGap={28}
+                height={32}
+              />
+              <YAxis hide domain={props.priceDomain} ticks={props.priceTicks} />
+              <Tooltip
+                cursor={{ stroke: "rgba(113,246,209,0.35)" }}
+                content={<CandleTooltip />}
+                contentStyle={CHART_TOOLTIP_CONTENT_STYLE}
+                itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+              />
+              <Bar dataKey="wick" barSize={1} isAnimationActive={false}>
+                {props.candles.map((candle, index) => (
+                  <Cell key={`wick-${index}`} fill={candle.isUp ? "#34d399" : "#f87171"} />
+                ))}
+              </Bar>
+              <Bar dataKey="body" barSize={10} isAnimationActive={false}>
+                {props.candles.map((candle, index) => (
+                  <Cell key={`body-${index}`} fill={candle.isUp ? "#34d399" : "#f87171"} />
+                ))}
+              </Bar>
+              <Customized
+                component={(chartCtx: unknown) => {
+                  // Recharts' ComposedChart-with-Bar uses a numeric-index scale
+                  // for the category X axis — calling scale("11:00") returns
+                  // NaN. Falls back to scaling the candle's own index in the
+                  // rendered data if categoricalDomain isn't exposed.
+                  const ctx = chartCtx as {
+                    xAxisMap?: Record<string, {
+                      scale: ((value: unknown) => number) & { bandwidth?: () => number };
+                      categoricalDomain?: string[];
+                    }>;
+                    yAxisMap?: Record<string, { scale: (value: number) => number }>;
+                  };
+                  if (typeof window !== "undefined") {
+                    (window as { __rechartsCtx?: unknown }).__rechartsCtx = ctx;
+                  }
+                  const xAxis = ctx.xAxisMap ? Object.values(ctx.xAxisMap)[0] : undefined;
+                  const yAxis = ctx.yAxisMap ? Object.values(ctx.yAxisMap)[0] : undefined;
+                  if (!xAxis || !yAxis) return null;
+                  const categorical = xAxis.categoricalDomain ?? [];
+                  // Build a lookup for candle-label → candle-index (0..N-1)
+                  // as a fallback when categoricalDomain is empty.
+                  const labelToIndex = new Map<string, number>();
+                  props.candles.forEach((candle, i) => labelToIndex.set(candle.label, i));
+                  return (
+                    <g>
+                      {markers.map((marker) => {
+                        const categoricalIdx = categorical.indexOf(marker.label);
+                        const idx = categoricalIdx >= 0 ? categoricalIdx : labelToIndex.get(marker.label) ?? -1;
+                        if (idx < 0) return null;
+                        const rawX = xAxis.scale(idx);
+                        const y = yAxis.scale(marker.price);
+                        if (!Number.isFinite(rawX) || !Number.isFinite(y)) return null;
+                        const bandwidth =
+                          typeof xAxis.scale.bandwidth === "function" ? xAxis.scale.bandwidth() : 0;
+                        const cx = rawX + bandwidth / 2;
+                        return (
+                          <KlineTradeMarkerShape
+                            key={marker.key}
+                            cx={cx}
+                            cy={y}
+                            direction={marker.direction}
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                }}
+              />
+            </ComposedChart>
           </div>
-        )}
-      </ChartShell>
-    </Panel>
+        </div>
+      </div>
+    </ChartShell>
   );
 }

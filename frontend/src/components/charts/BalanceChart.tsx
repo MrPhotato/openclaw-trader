@@ -1,4 +1,5 @@
-import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import type { Ref } from "react";
+import { CartesianGrid, Line, LineChart, ReferenceDot, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
   balanceAxisTickLabel,
@@ -38,20 +39,90 @@ function FixedBalanceAxis(props: { ticks: number[] }) {
   );
 }
 
+export type BalanceTradeMarker = {
+  key: string;
+  label: string; // x-axis label (bucket label) the marker snaps to
+  equity: number; // y value on the equity curve at that bucket
+  direction: "buy" | "sell";
+  coin: string;
+};
+
+/**
+ * Pin-style trade badge: rounded top with a downward tail that touches
+ * the price point. `B` for buy (green) / `S` for sell (red).
+ * Coin label sits beneath the tail tip so both BTC and ETH trades can
+ * coexist on the equity line without visual confusion.
+ */
+function TradeMarkerShape(props: { cx?: number; cy?: number; direction: "buy" | "sell"; coin: string }) {
+  const { cx, cy, direction, coin } = props;
+  if (cx === undefined || cy === undefined) return null;
+  const fill = direction === "buy" ? "#22c55e" : "#ef4444";
+  const stroke = direction === "buy" ? "#14532d" : "#7f1d1d";
+  const letter = direction === "buy" ? "B" : "S";
+  // Pin footprint: rounded rectangle (width 16, height 14) above the
+  // data point, then a small triangular tail pointing down into it.
+  // Coordinates are anchored so the tail tip sits at (cx, cy).
+  const top = cy - 20;
+  const bottom = cy - 6;
+  const path = [
+    `M ${cx - 8} ${top + 3}`,
+    `Q ${cx - 8} ${top} ${cx - 5} ${top}`,
+    `L ${cx + 5} ${top}`,
+    `Q ${cx + 8} ${top} ${cx + 8} ${top + 3}`,
+    `L ${cx + 8} ${bottom}`,
+    `L ${cx} ${cy}`,
+    `L ${cx - 8} ${bottom}`,
+    "Z",
+  ].join(" ");
+  return (
+    <g>
+      <path d={path} fill={fill} stroke={stroke} strokeWidth={0.8} opacity={0.95} />
+      <text
+        x={cx}
+        y={cy - 10}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={9}
+        fontWeight={700}
+        fill="#fff"
+      >
+        {letter}
+      </text>
+      <text
+        x={cx}
+        y={cy + 13}
+        textAnchor="middle"
+        fontSize={9}
+        fill="#cbd5e1"
+        opacity={0.8}
+      >
+        {coin}
+      </text>
+    </g>
+  );
+}
+
 export function BalanceChart(props: {
   series: BalancePoint[];
   ticks: number[];
   domain: number[];
   chartWidth: number;
   granularity: BalanceGranularity;
+  tradeMarkers?: BalanceTradeMarker[];
+  /** When provided, uses the parent-supplied ref instead of managing its own — lets the parent sync scroll across multiple charts. */
+  scrollViewportRef?: Ref<HTMLDivElement>;
 }) {
-  const viewportRef = useScrollPinnedChart<HTMLDivElement>({
+  const internalRef = useScrollPinnedChart<HTMLDivElement>({
     pinDeps: [props.granularity, props.series.length, props.chartWidth],
     wheelHijack: {
       active: props.series.length > 1,
       deps: [props.series.length],
     },
   });
+  // Prefer the external ref when the parent wants to control scrolling (sync mode).
+  const viewportRef = props.scrollViewportRef ?? internalRef;
+
+  const markers = props.tradeMarkers ?? [];
 
   return (
     <ChartShell>
@@ -99,6 +170,17 @@ export function BalanceChart(props: {
                 connectNulls
                 activeDot={{ r: 4 }}
               />
+              {markers.map((marker) => (
+                <ReferenceDot
+                  key={marker.key}
+                  x={marker.label}
+                  y={marker.equity}
+                  isFront
+                  shape={(dotProps: { cx?: number; cy?: number }) => (
+                    <TradeMarkerShape cx={dotProps.cx} cy={dotProps.cy} direction={marker.direction} coin={marker.coin} />
+                  )}
+                />
+              ))}
             </LineChart>
           </div>
         </div>
