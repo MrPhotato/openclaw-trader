@@ -8,6 +8,7 @@ import {
   buildBalanceTicks,
   buildNominalExposurePills,
   computeBalanceChartWidth,
+  computeDailyChange,
   configuredLeverageLabel,
   usdCompactText,
   type BalanceGranularity,
@@ -49,11 +50,43 @@ export function BalancePanel(props: {
       ),
     [latestPortfolio, latestStrategy, overview?.system],
   );
+  const dailyChange = useMemo(
+    () => computeDailyChange(latestPortfolio["total_equity_usd"], overview?.portfolio_history ?? []),
+    [latestPortfolio, overview?.portfolio_history],
+  );
+
+  const changeToneClass =
+    dailyChange === null
+      ? ""
+      : dailyChange.direction === "up"
+        ? "text-emerald-300"
+        : dailyChange.direction === "down"
+          ? "text-rose-300"
+          : "text-slate-400";
+  const changeMarker =
+    dailyChange === null ? "" : dailyChange.direction === "up" ? "▲" : dailyChange.direction === "down" ? "▼" : "■";
+  const changeSign = dailyChange !== null && dailyChange.direction === "up" ? "+" : "";
 
   return (
     <Panel title="账户余额轨迹" eyebrow="Equity Track" variant="hero">
       <div className="mb-3 grid gap-2 sm:grid-cols-2">
-        <SummaryPill label="账户余额（当前总权益）" value={usdCompactText(latestPortfolio["total_equity_usd"])} />
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 ring-hairline">
+          <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">账户余额（当前总权益）</div>
+          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2">
+            <span className="text-base font-semibold tabular-nums leading-tight text-slate-100 sm:text-lg">
+              {usdCompactText(latestPortfolio["total_equity_usd"])}
+            </span>
+            {dailyChange !== null ? (
+              <span
+                className={`text-xs font-medium tabular-nums ${changeToneClass}`}
+                aria-label="当日涨跌"
+              >
+                {changeMarker} {changeSign}
+                {dailyChange.pct.toFixed(2)}%
+              </span>
+            ) : null}
+          </div>
+        </div>
         <SummaryPill label="当前杠杆" value={configuredLeverageLabel(latestPortfolio)} />
       </div>
       <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">

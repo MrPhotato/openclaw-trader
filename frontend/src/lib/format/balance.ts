@@ -181,3 +181,55 @@ export function buildBalanceTicks(points: Array<{ equity: number }>): number[] {
 export function balanceAxisTickLabel(value: number): string {
   return `$${trimNumber(value)}`;
 }
+
+export type DailyChange = {
+  pct: number;
+  direction: "up" | "down" | "flat";
+};
+
+/**
+ * Day-over-equity change. Anchors off the earliest portfolio_history
+ * snapshot taken today (UTC); if today hasn't been sampled yet, falls
+ * back to the most-recent snapshot from before today (yesterday's close).
+ * Returns null when there's no usable baseline.
+ */
+export function computeDailyChange(
+  currentEquity: unknown,
+  portfolioHistory: Array<{ created_at: string; total_equity_usd?: string | number | null }>,
+): DailyChange | null {
+  const current = toNumber(currentEquity);
+  if (current === null || current <= 0 || portfolioHistory.length === 0) {
+    return null;
+  }
+
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const parsed = portfolioHistory
+    .map((item) => {
+      if (typeof item.created_at !== "string" || item.created_at.length < 10) return null;
+      const equity = toNumber(item.total_equity_usd);
+      if (equity === null || equity <= 0) return null;
+      return { createdAt: item.created_at, dateUtc: item.created_at.slice(0, 10), equity };
+    })
+    .filter((item): item is { createdAt: string; dateUtc: string; equity: number } => item !== null)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  const todays = parsed.filter((item) => item.dateUtc === todayUtc);
+  let baseline: number | null = null;
+  if (todays.length > 0) {
+    baseline = todays[0].equity;
+  } else {
+    const earlier = parsed.filter((item) => item.dateUtc < todayUtc);
+    if (earlier.length > 0) {
+      baseline = earlier[earlier.length - 1].equity;
+    }
+  }
+
+  if (baseline === null || baseline <= 0) {
+    return null;
+  }
+
+  const pct = ((current - baseline) / baseline) * 100;
+  const direction: DailyChange["direction"] =
+    pct > 0.005 ? "up" : pct < -0.005 ? "down" : "flat";
+  return { pct, direction };
+}
