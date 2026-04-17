@@ -350,7 +350,7 @@ class MarketWorkflowHandler(WorkflowEventRecorder):
             last_task_kind="event_summary",
         )
         try:
-            envelope, reminders = self.services.agent_gateway.run_mea_submission(
+            envelope = self.services.agent_gateway.run_mea_submission(
                 trace_id=trace_id,
                 runtime_input=context.agent_inputs["macro_event_analyst"],
             )
@@ -415,34 +415,10 @@ class MarketWorkflowHandler(WorkflowEventRecorder):
             source_ref=envelope.envelope_id,
         )
 
-        reminder_events = []
-        for reminder in reminders:
-            self.services.memory_assets.save_asset(
-                asset_type="direct_reminder",
-                payload=reminder.model_dump(mode="json"),
-                trace_id=trace_id,
-                actor_role="macro_event_analyst",
-                group_key=reminder.to_agent_role,
-                source_ref=str(canonical_news["submission_id"]),
-            )
-            reminder_events.append(
-                EventFactory.build(
-                    trace_id=trace_id,
-                    event_type="agent.reminder.created",
-                    source_module="agent_gateway",
-                    entity_type="direct_reminder",
-                    entity_id=reminder.reminder_id,
-                    payload=reminder.model_dump(mode="json"),
-                )
-            )
-        if reminder_events:
-            self.record_events(reminder_events)
-
         return {
             "submission_id": canonical_news["submission_id"],
             "macro_event_count": len(canonical_news["events"]),
             "high_impact_count": len([item for item in canonical_news["events"] if item["impact_level"] == "high"]),
-            "reminder_count": len(reminders),
         }
 
     def _persist_market_snapshots(self, *, command_type: str, trace_id: str, market: Any) -> None:

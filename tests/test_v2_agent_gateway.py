@@ -1526,7 +1526,15 @@ class AgentGatewayServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
-    def test_submit_news_materializes_news_and_reminders(self) -> None:
+    def test_submit_news_materializes_news_without_auto_reminders(self) -> None:
+        """News submission no longer auto-creates DirectAgentReminder assets.
+
+        Historical behaviour: every high-impact event produced 2 reminders
+        (one each for PM and RT). Nothing consumed those reminders, so they
+        were deleted (see service.submit_news). MEA→PM/RT wake is now
+        driven exclusively by MEA's skill-guided sessions_send, gated by
+        the your_recent_impact harness panel + the skill's 必要性检查.
+        """
         from .helpers_v2 import build_test_harness
 
         harness = build_test_harness(news_severity="high")
@@ -1546,8 +1554,12 @@ class AgentGatewayServiceTests(unittest.TestCase):
                 },
             )
             self.assertEqual(result["high_impact_count"], 1)
-            reminders = harness.container.memory_assets.recent_assets(asset_type="direct_reminder", limit=10)
-            self.assertEqual(len(reminders), 2)
+            news_only_reminders = [
+                asset
+                for asset in harness.container.memory_assets.recent_assets(asset_type="direct_reminder", limit=10)
+                if str(asset.get("actor_role") or "") == "macro_event_analyst"
+            ]
+            self.assertEqual(news_only_reminders, [])
         finally:
             harness.cleanup()
 

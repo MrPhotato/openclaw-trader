@@ -659,28 +659,12 @@ class AgentGatewayService:
             group_key="macro_daily_memory",
             source_ref=envelope.envelope_id,
         )
-        reminder_events = []
-        for reminder in self._build_direct_reminders_from_news(canonical_news):
-            self.memory_assets.save_asset(
-                asset_type="direct_reminder",
-                payload=reminder.model_dump(mode="json"),
-                trace_id=lease.pack.trace_id,
-                actor_role="macro_event_analyst",
-                group_key=reminder.to_agent_role,
-                source_ref=str(canonical_news["submission_id"]),
-            )
-            reminder_events.append(
-                EventFactory.build(
-                    trace_id=lease.pack.trace_id,
-                    event_type="agent.reminder.created",
-                    source_module="agent_gateway",
-                    entity_type="direct_reminder",
-                    entity_id=reminder.reminder_id,
-                    payload=reminder.model_dump(mode="json"),
-                )
-            )
-        if reminder_events:
-            self._record_events(reminder_events)
+        # Historical note: this flow used to auto-create DirectAgentReminder
+        # assets for every high-impact news event. Nothing ever consumed those
+        # assets — no runtime pack surfaced them, no monitor dispatched them
+        # to PM/RT sessions. Removed 2026-04-17 so the only MEA→PM/RT wake
+        # path is MEA's own skill-guided `sessions_send`, which the skill's
+        # 必要性检查 段 now gates via the `your_recent_impact` harness panel.
         self._consume_runtime_lease(lease=lease, submission_kind="news")
         return {
             "trace_id": lease.pack.trace_id,
@@ -2049,23 +2033,6 @@ class AgentGatewayService:
         )
         return self._rt_pending_entry_symbols(lease)
 
-    @staticmethod
-    def _build_direct_reminders_from_news(canonical_news: dict[str, Any]) -> list[DirectAgentReminder]:
-        reminders: list[DirectAgentReminder] = []
-        for item in list(canonical_news.get("events") or []):
-            if str(item.get("impact_level") or "").lower() != "high":
-                continue
-            for role in ("pm", "risk_trader"):
-                reminders.append(
-                    DirectAgentReminder(
-                        reminder_id=new_id("reminder"),
-                        from_agent_role="macro_event_analyst",
-                        to_agent_role=role,
-                        importance="high",
-                        message=str(item.get("summary") or ""),
-                    )
-                )
-        return reminders
 
     def build_runtime_inputs(
         self,
@@ -2356,8 +2323,8 @@ class AgentGatewayService:
         *,
         trace_id: str,
         runtime_input: AgentRuntimeInput,
-    ) -> tuple[ValidatedSubmissionEnvelope, list[DirectAgentReminder]]:
-        envelope = self._run_submission_with_retry(
+    ) -> ValidatedSubmissionEnvelope:
+        return self._run_submission_with_retry(
             trace_id=trace_id,
             runtime_input=runtime_input,
             submission_kind="news",
@@ -2365,22 +2332,6 @@ class AgentGatewayService:
             task_kind="event_summary",
             runner=self.macro_runner,
         )
-        reminders: list[DirectAgentReminder] = []
-        news_payload = NewsSubmission.model_validate(envelope.payload)
-        for item in news_payload.events:
-            if item.impact_level != "high":
-                continue
-            for target_role in ("pm", "risk_trader"):
-                reminders.append(
-                    DirectAgentReminder(
-                        reminder_id=new_id("reminder"),
-                        from_agent_role="macro_event_analyst",
-                        to_agent_role=target_role,
-                        importance=item.impact_level,
-                        message=item.summary,
-                    )
-                )
-        return envelope, reminders
 
     def prepare_retro_cycle(
         self,
