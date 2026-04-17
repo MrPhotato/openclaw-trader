@@ -131,18 +131,19 @@
         opacity: 0;
         transition-delay: 440ms;
       }
+      /* Exit transforms prefer JS-measured values (--exit-*), with
+         vw/vh fallbacks in case the real DOM element wasn't found. */
       html[data-app-ready="true"] .app-splash__logo {
-        /* Lands near the sidebar logo slot on desktop (~34,38 from
-           top-left). Scale 148→36 = ~0.243. */
-        transform: translate(-47.6vw, -45.8vh) scale(0.243);
+        transform: translate(var(--logo-exit-x, -47.6vw), var(--logo-exit-y, -45.8vh))
+          scale(var(--logo-exit-scale, 0.243));
       }
       html[data-app-ready="true"] .app-splash__title {
-        /* Lands near the main h1 slot (~420,90). Scale 46→36. */
-        transform: translate(-21vw, -40vh) scale(0.783);
+        transform: translate(var(--title-exit-x, -21vw), var(--title-exit-y, -40vh))
+          scale(var(--title-exit-scale, 0.783));
       }
       html[data-app-ready="true"] .app-splash__byline {
-        /* Lands just below the title (~420,125). Size matches. */
-        transform: translate(-21vw, -36vh) scale(1);
+        transform: translate(var(--byline-exit-x, -21vw), var(--byline-exit-y, -36vh))
+          scale(var(--byline-exit-scale, 1));
       }
       /* Eyebrow isn't a "real" element in the final UI — fade it out. */
       html[data-app-ready="true"] .app-splash__eyebrow {
@@ -150,16 +151,19 @@
         opacity: 0;
       }
 
-      /* Mobile: logo lands at the top-bar, not the sidebar. */
+      /* Mobile fallback values — only used if JS measurement fails. */
       @media (max-width: 1023px) {
         html[data-app-ready="true"] .app-splash__logo {
-          transform: translate(-44vw, -48vh) scale(0.28);
+          transform: translate(var(--logo-exit-x, -44vw), var(--logo-exit-y, -48vh))
+            scale(var(--logo-exit-scale, 0.28));
         }
         html[data-app-ready="true"] .app-splash__title {
-          transform: translate(-26vw, -44vh) scale(0.65);
+          transform: translate(var(--title-exit-x, -26vw), var(--title-exit-y, -44vh))
+            scale(var(--title-exit-scale, 0.65));
         }
         html[data-app-ready="true"] .app-splash__byline {
-          transform: translate(-26vw, -38vh) scale(0.9);
+          transform: translate(var(--byline-exit-x, -26vw), var(--byline-exit-y, -38vh))
+            scale(var(--byline-exit-scale, 0.9));
         }
       }
 
@@ -190,7 +194,8 @@
       </div>
       <div class="app-splash__eyebrow">OPENCLAW</div>
       <div class="app-splash__title">Openclaw Trader AI交易</div>
-      <div class="app-splash__byline">基于 OpenClaw 的 4 Agent Crypto永续合约交易集群实验 · 作者 <em>MrPhotato</em></div>
+      <!-- Matches the real Shell byline so the DOM-removal crossover is invisible. -->
+      <div class="app-splash__byline">基于 OpenClaw 的 4 Agent Crypto永续合约交易集群实验，本金为 $1000。 GitHub · 作者 MrPhotato</div>
     </div>
     <div id="root"></div>
     <script>
@@ -205,12 +210,80 @@
         var MIN_MS = 900;
         var MAX_MS = 5000;
         var released = false;
+
+        // FLIP-style measurement: look up the real UI targets (sidebar
+        // logo, header h1, description byline) and write CSS variables
+        // with the exact translate + scale needed for each splash
+        // element to land on its counterpart. If a target isn't found
+        // (e.g. React hasn't mounted yet), we silently leave the CSS
+        // fallback values in place.
+        function measureExitTargets() {
+          var root = document.getElementById("root");
+          var splash = document.getElementById("app-splash");
+          if (!root || !splash) return;
+
+          // For text elements, getBoundingClientRect returns the
+          // BLOCK bounds (full container width when the element is
+          // `display: block`). We want the TEXT bounds — otherwise a
+          // block-wide h1 centered at block-center won't line up with
+          // a tight-centered splash title. Range.selectNodeContents
+          // gives us the rendered text box.
+          function textRect(el) {
+            if (!el) return null;
+            try {
+              var range = document.createRange();
+              range.selectNodeContents(el);
+              var r = range.getBoundingClientRect();
+              if (r.width > 0 && r.height > 0) return r;
+            } catch (e) {}
+            return el.getBoundingClientRect();
+          }
+
+          function writeVars(prefix, splashEl, targetEl) {
+            if (!splashEl || !targetEl) return;
+            var s = textRect(splashEl);
+            var t = textRect(targetEl);
+            if (!s || !t || s.height === 0 || t.height === 0) return;
+            // Splash elements use the default center transform-origin,
+            // so translate is applied relative to the element's center.
+            var dx = (t.left + t.width / 2) - (s.left + s.width / 2);
+            var dy = (t.top + t.height / 2) - (s.top + s.height / 2);
+            var scale = t.height / s.height;
+            splash.style.setProperty("--" + prefix + "-exit-x", dx + "px");
+            splash.style.setProperty("--" + prefix + "-exit-y", dy + "px");
+            splash.style.setProperty("--" + prefix + "-exit-scale", scale);
+          }
+
+          var splashLogo = splash.querySelector(".app-splash__logo");
+          var splashTitle = splash.querySelector(".app-splash__title");
+          var splashByline = splash.querySelector(".app-splash__byline");
+
+          // Real sidebar logo: the BrandMark <img> inside the first
+          // <aside> (desktop sidebar) or the sticky top bar (mobile).
+          var realLogo = root.querySelector("aside img, .sticky img, header img");
+          // Real title: any <h1> rendered inside the root.
+          var realTitle = root.querySelector("h1");
+          // Real byline: the <p> immediately after the h1.
+          var realByline =
+            realTitle && realTitle.parentElement
+              ? realTitle.parentElement.querySelector("p")
+              : null;
+
+          writeVars("logo", splashLogo, realLogo);
+          writeVars("title", splashTitle, realTitle);
+          writeVars("byline", splashByline, realByline);
+        }
+
         function release() {
           if (released) return;
           released = true;
           var elapsed = performance.now() - start;
           var wait = Math.max(0, MIN_MS - elapsed);
           setTimeout(function () {
+            // Measure right before flipping the attribute so we catch
+            // the final layout — positions can change between mount
+            // and data-ready (e.g. skeletons resolving to real rows).
+            measureExitTargets();
             document.documentElement.setAttribute("data-app-ready", "true");
             setTimeout(function () {
               var el = document.getElementById("app-splash");
