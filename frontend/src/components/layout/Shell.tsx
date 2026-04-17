@@ -12,7 +12,6 @@ export function Shell(props: {
   onSelect: (view: ViewKey) => void;
   connectionLabel: string;
   connectionDotTone: StatusDotTone;
-  eventCount: number;
   strategyValue: string;
   activeAgents: number;
   children: ReactNode;
@@ -30,7 +29,6 @@ export function Shell(props: {
             connectionTone={props.connectionDotTone}
             strategyValue={props.strategyValue}
             activeAgents={props.activeAgents}
-            eventCount={props.eventCount}
           />
         ) : (
           <MobileTopBar

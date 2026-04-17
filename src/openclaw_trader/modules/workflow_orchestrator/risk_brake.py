@@ -207,7 +207,16 @@ class RiskBrakeMonitor:
         policies: dict[str, GuardDecision],
         current_strategy_key: str,
     ) -> dict[str, Any] | None:
-        previous_portfolio_state = str(state.get("last_portfolio_state") or "normal")
+        # Compare against the day's worst-so-far state, not the last scan's
+        # instantaneous state. Without this, equity that dips below the reduce
+        # line, recovers, then dips again would re-fire the reduce event and
+        # re-dispatch RT/PM each cycle. The ladder only ratchets upward within
+        # a day and resets at UTC rollover in `_normalize_state`.
+        previous_portfolio_state = str(
+            state.get("portfolio_state_ladder_high")
+            or state.get("last_portfolio_state")
+            or "normal"
+        )
         current_portfolio_state = self._portfolio_state(policies)
         previous_position_states = {
             str(coin).upper(): str(value)
@@ -569,7 +578,10 @@ class RiskBrakeMonitor:
             market=market,
             policies=policies,
         )
-        updated["last_portfolio_state"] = self._portfolio_state(policies)
+        current_portfolio_state = self._portfolio_state(policies)
+        updated["last_portfolio_state"] = current_portfolio_state
+        previous_ladder_high = str(updated.get("portfolio_state_ladder_high") or "normal")
+        updated["portfolio_state_ladder_high"] = self._max_rank_state(previous_ladder_high, current_portfolio_state)
         updated["last_position_state_by_coin"] = {
             coin: policy.position_risk_state.state
             for coin, policy in policies.items()
@@ -643,6 +655,10 @@ class RiskBrakeMonitor:
         )
 
     @staticmethod
+    def _max_rank_state(left: str, right: str) -> str:
+        return left if _STATE_RANK.get(left, 0) >= _STATE_RANK.get(right, 0) else right
+
+    @staticmethod
     def _strategy_key(payload: dict[str, Any]) -> str:
         strategy_id = str(payload.get("strategy_id") or "").strip()
         revision = str(payload.get("revision_number") or "").strip()
@@ -657,10 +673,12 @@ class RiskBrakeMonitor:
             normalized["portfolio_day_utc"] = now.date().isoformat()
             normalized["portfolio_day_peak_equity_usd"] = "0"
             normalized["last_portfolio_state"] = "normal"
+            normalized["portfolio_state_ladder_high"] = "normal"
             normalized["last_position_state_by_coin"] = {}
             normalized["position_references_by_coin"] = {}
         normalized.setdefault("portfolio_lock", {})
         normalized.setdefault("position_locks", {})
+        normalized.setdefault("portfolio_state_ladder_high", "normal")
         return normalized
 
     @staticmethod

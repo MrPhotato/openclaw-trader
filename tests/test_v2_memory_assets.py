@@ -135,6 +135,53 @@ class MemoryAssetsServiceTests(unittest.TestCase):
             self.assertEqual(overview.risk_overlay["reduce"]["equity_usd"], "1009.4")
             self.assertEqual(overview.risk_overlay["exit"]["equity_usd"], "999.1")
 
+    def test_build_overview_risk_overlay_clamps_to_ladder_high(self) -> None:
+        """When risk_brake has already crossed `reduce` today, the overlay
+        exposed to the frontend must show `state=reduce` even if the latest
+        policy_guard eval reports only `observe` (equity recovered). Without
+        this clamp, each dip past a threshold would untrigger as soon as the
+        price bounced back, defeating the safety-ladder semantics."""
+        with TemporaryDirectory() as tmp:
+            service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))
+            service.save_asset(
+                asset_type="policy_guard",
+                payload={
+                    "coin": "BTC",
+                    "portfolio_risk_state": {
+                        "state": "observe",
+                        "current_equity_usd": "1015",
+                        "day_peak_equity_usd": "1030",
+                        "thresholds": {
+                            "observe_drawdown_pct": 1.0,
+                            "reduce_drawdown_pct": 2.0,
+                            "exit_drawdown_pct": 3.0,
+                        },
+                    },
+                },
+                trace_id="trace-policy",
+                actor_role="system",
+                group_key="BTC",
+            )
+            service.save_asset(
+                asset_type="risk_brake_state",
+                asset_id="risk_brake_state",
+                payload={
+                    "portfolio_day_utc": "2026-04-08",
+                    "portfolio_day_peak_equity_usd": "1030",
+                    "portfolio_state_ladder_high": "reduce",
+                    "last_portfolio_state": "observe",
+                },
+                trace_id="trace-brake",
+                actor_role="system",
+            )
+
+            overview = service.build_overview()
+            self.assertIsNotNone(overview.risk_overlay)
+            self.assertEqual(overview.risk_overlay["state"], "reduce")
+            self.assertEqual(overview.risk_overlay["ladder_high_state"], "reduce")
+            # Still surface the instantaneous reading so callers can audit it.
+            self.assertEqual(overview.risk_overlay["instantaneous_state"], "observe")
+
     def test_retro_assets_roundtrip(self) -> None:
         with TemporaryDirectory() as tmp:
             service = MemoryAssetsService(MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db")))

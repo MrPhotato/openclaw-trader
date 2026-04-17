@@ -1,7 +1,7 @@
 export function BrandMark(props: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-neon/25 via-white/5 to-ember/20 shadow-[0_0_22px_rgba(113,246,209,0.18)]">
+      <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-red-400/20 bg-gradient-to-br from-red-400/30 via-white/5 to-rose-600/25 shadow-[0_0_22px_rgba(239,68,68,0.35)]">
         <img
           src="/brand-mark.png"
           alt="OpenClaw 吉祥物"

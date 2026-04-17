@@ -18,6 +18,7 @@ import { Panel } from "../../components/primitives/Panel";
 import { SummaryPill } from "../../components/primitives/Metrics";
 import { BalanceChart } from "../../components/charts/BalanceChart";
 import { CoinExposurePill } from "./CoinExposurePill";
+import { RiskThresholdPills } from "./RiskThresholdPills";
 
 const GRANULARITY_OPTIONS: Array<[BalanceGranularity, string]> = [
   ["15m", "15 分钟"],
@@ -53,11 +54,11 @@ export function BalancePanel(props: {
 
   return (
     <Panel title="账户余额轨迹" eyebrow="Equity Track" variant="hero">
-      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <div className="mb-3 grid gap-2 sm:grid-cols-2">
         <SummaryPill label="账户余额（当前总权益）" value={usdCompactText(latestPortfolio["total_equity_usd"])} />
         <SummaryPill label="当前杠杆" value={configuredLeverageLabel(latestPortfolio)} />
       </div>
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {exposurePills.map((item) => (
           <CoinExposurePill
             key={item.coin}
@@ -92,6 +93,9 @@ export function BalancePanel(props: {
         <div className="text-[11px] leading-5 text-slate-500 sm:text-xs" data-testid="balance-viewport-caption">
           {balanceScrollCaption(series.length, granularity)}
         </div>
+      </div>
+      <div className="mt-3">
+        <RiskThresholdPills riskOverlay={overview?.risk_overlay} />
       </div>
       <div className="mt-3 text-sm leading-6 text-slate-400">
         {balanceNarrative(latestPortfolio, granularity, series, nominalMarginPctLabel)}

@@ -370,6 +370,8 @@ class ReplayFrontendService:
             "events": self.memory_assets.query_events(limit=20),
         }
 
+    _RISK_STATE_RANK = {"normal": 0, "observe": 1, "reduce": 2, "exit": 3, "breaker": 4}
+
     def _fallback_risk_overlay(self, overview: dict) -> dict | None:
         if self.settings is None:
             return None
@@ -414,14 +416,33 @@ class ReplayFrontendService:
                 "equity_usd": str(round(day_peak * (1.0 - drawdown_pct / 100.0), 8)),
             }
 
-        return {
-            "state": "fallback",
+        # If risk_brake already knows about crossings for today, surface the
+        # sticky ladder state instead of the bare "fallback" marker so the
+        # frontend's triggered-line visual still works in the fallback path.
+        ladder_high = self._load_ladder_high_state()
+        state = ladder_high if ladder_high != "normal" else "fallback"
+
+        overlay: dict[str, object] = {
+            "state": state,
             "day_peak_equity_usd": str(round(day_peak, 8)),
             "current_equity_usd": str(round(current_equity, 8)),
             "observe": line(float(self.settings.risk.portfolio_peak_observe_drawdown_pct)),
             "reduce": line(float(self.settings.risk.portfolio_peak_reduce_drawdown_pct)),
             "exit": line(float(self.settings.risk.portfolio_peak_exit_drawdown_pct)),
         }
+        if ladder_high and ladder_high != "normal":
+            overlay["ladder_high_state"] = ladder_high
+        return overlay
+
+    def _load_ladder_high_state(self) -> str:
+        asset = self.memory_assets.get_asset("risk_brake_state")
+        if asset is None:
+            return "normal"
+        payload = asset.get("payload")
+        if not isinstance(payload, dict):
+            return "normal"
+        value = str(payload.get("portfolio_state_ladder_high") or "normal").lower()
+        return value if value in self._RISK_STATE_RANK else "normal"
 
     @staticmethod
     def _to_float(value: object) -> float | None:

@@ -1137,6 +1137,112 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_risk_brake_does_not_refire_after_equity_recovery_within_day(self) -> None:
+        """Once 'reduce' has been crossed today, dipping back to reduce must not
+        re-fire the event / re-dispatch RT+PM. Without the sticky
+        portfolio_state_ladder_high, last_portfolio_state would oscillate between
+        normal and reduce as equity flaps around the line, firing every dip."""
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
+            provider = MutableMarketDataProvider()
+            provider.unrealized_pnl_usd = "-20"
+            provider.portfolio_total_equity_usd = "1000"
+            _seed_strategy(harness)
+            _seed_risk_brake_state(
+                harness,
+                {
+                    "portfolio_day_utc": now.date().isoformat(),
+                    "portfolio_day_peak_equity_usd": "1025",
+                    # Equity recovered earlier this day, so last_portfolio_state
+                    # is back to "normal" — but the ladder retains the worst-so-far.
+                    "last_portfolio_state": "normal",
+                    "portfolio_state_ladder_high": "reduce",
+                    # Position-level ladder is scoped out of this change — seed
+                    # it as already-reduce so the position path also no-ops and
+                    # we can isolate the portfolio-level suppression assertion.
+                    "last_position_state_by_coin": {"BTC": "reduce"},
+                    # Lock from the earlier fire is still in place.
+                    "portfolio_lock": {
+                        "mode": "reduce_only",
+                        "strategy_key": "strategy_seeded:1",
+                        "triggered_at_utc": now.isoformat(),
+                    },
+                },
+            )
+            monitor, runner = _build_risk_brake_monitor(harness, provider=provider)
+            result = monitor.scan_once(now=now)
+
+            self.assertFalse(result["triggered"])
+            self.assertEqual(runner.runs, [])
+            self.assertEqual(len(harness.fake_broker.executed), 0)
+
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
+            # ladder_high remains at reduce; it must not downgrade on recovery.
+            self.assertEqual(state_asset["payload"]["portfolio_state_ladder_high"], "reduce")
+        finally:
+            harness.cleanup()
+
+    def test_risk_brake_ladder_high_ratchets_upward_on_first_fire(self) -> None:
+        """After a first crossing of the reduce line, portfolio_state_ladder_high
+        should be bumped to 'reduce' so future dips at the same level are ignored."""
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
+            provider = MutableMarketDataProvider()
+            provider.unrealized_pnl_usd = "-20"
+            provider.portfolio_total_equity_usd = "1000"
+            _seed_strategy(harness)
+            _seed_risk_brake_state(
+                harness,
+                {
+                    "portfolio_day_utc": now.date().isoformat(),
+                    "portfolio_day_peak_equity_usd": "1025",
+                    "last_portfolio_state": "normal",
+                    "portfolio_state_ladder_high": "normal",
+                    "last_position_state_by_coin": {"BTC": "normal"},
+                },
+            )
+            monitor, _ = _build_risk_brake_monitor(harness, provider=provider)
+            result = monitor.scan_once(now=now)
+            self.assertTrue(result["triggered"])
+            self.assertEqual(result["state"], "reduce")
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
+            self.assertEqual(state_asset["payload"]["portfolio_state_ladder_high"], "reduce")
+        finally:
+            harness.cleanup()
+
+    def test_risk_brake_ladder_high_resets_at_utc_rollover(self) -> None:
+        """A new UTC day wipes the day-peak and the ladder_high so yesterday's
+        triggers don't bleed into today's decisions."""
+        harness = build_test_harness()
+        try:
+            # State was last written yesterday with ladder_high=reduce.
+            yesterday = datetime(2026, 4, 7, 23, 50, tzinfo=UTC)
+            today = datetime(2026, 4, 8, 0, 10, tzinfo=UTC)
+            provider = MutableMarketDataProvider()
+            provider.unrealized_pnl_usd = "0"
+            provider.portfolio_total_equity_usd = "1000"
+            _seed_strategy(harness)
+            _seed_risk_brake_state(
+                harness,
+                {
+                    "portfolio_day_utc": yesterday.date().isoformat(),
+                    "portfolio_day_peak_equity_usd": "1025",
+                    "last_portfolio_state": "reduce",
+                    "portfolio_state_ladder_high": "reduce",
+                },
+            )
+            monitor, _ = _build_risk_brake_monitor(harness, provider=provider)
+            monitor.scan_once(now=today)
+
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
+            self.assertEqual(state_asset["payload"]["portfolio_day_utc"], today.date().isoformat())
+            # After reset, a fresh scan with normal equity keeps ladder at normal.
+            self.assertEqual(state_asset["payload"]["portfolio_state_ladder_high"], "normal")
+        finally:
+            harness.cleanup()
+
 
 class FakeAgentDispatcher:
     def __init__(self, *, payload_by_job: dict[str, str] | None = None) -> None:

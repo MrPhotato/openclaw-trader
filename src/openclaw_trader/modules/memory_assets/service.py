@@ -302,11 +302,23 @@ class MemoryAssetsService:
     ) -> dict:
         now = datetime.now(UTC)
         canonical_payload = dict(authored_payload)
+        # A retro_case is always the case for a specific trading day. If the
+        # caller omitted case_day_utc, inherit it from the linked cycle's
+        # trade_day_utc rather than defaulting to "now" — otherwise a case
+        # created just after UTC rollover for yesterday's cycle would claim
+        # today's date and silently disagree with its own cycle.
+        resolved_case_day = canonical_payload.get("case_day_utc")
+        if not resolved_case_day:
+            linked_cycle_id = canonical_payload.get("cycle_id")
+            if linked_cycle_id:
+                linked_cycle = self.get_retro_cycle_state(cycle_id=str(linked_cycle_id))
+                if linked_cycle and linked_cycle.get("trade_day_utc"):
+                    resolved_case_day = str(linked_cycle["trade_day_utc"])
         canonical_payload.update(
             {
                 "case_id": str(canonical_payload.get("case_id") or new_id("retro_case")),
                 "cycle_id": str(canonical_payload.get("cycle_id") or new_id("retro_cycle")),
-                "case_day_utc": str(canonical_payload.get("case_day_utc") or now.date().isoformat()),
+                "case_day_utc": str(resolved_case_day or now.date().isoformat()),
                 "created_at_utc": canonical_payload.get("created_at_utc") or now.isoformat(),
             }
         )
@@ -953,6 +965,8 @@ class MemoryAssetsService:
             recent_events=recent_events,
         )
 
+    _RISK_STATE_RANK = {"normal": 0, "observe": 1, "reduce": 2, "exit": 3, "breaker": 4}
+
     def _build_portfolio_risk_overlay(self) -> dict[str, object] | None:
         latest_policy = self.latest_asset(asset_type="policy_guard")
         if latest_policy is None:
@@ -971,11 +985,23 @@ class MemoryAssetsService:
         if day_peak_equity is None or day_peak_equity <= 0:
             return None
 
+        # `policy_guard` assets carry the INSTANTANEOUS state from each evaluation.
+        # Clamp upward to the day's worst-so-far (ladder_high) from `risk_brake_state`
+        # so the frontend shows a sticky safety-ladder: once crossed, a threshold
+        # stays "triggered" until UTC rollover even if equity recovers.
+        instantaneous_state = str(portfolio_state.get("state") or "normal")
+        ladder_high = self._load_ladder_high_state()
+        effective_state = self._max_rank_state(instantaneous_state, ladder_high)
+
         overlay: dict[str, object] = {
-            "state": str(portfolio_state.get("state") or "normal"),
+            "state": effective_state,
             "day_peak_equity_usd": str(portfolio_state.get("day_peak_equity_usd") or ""),
             "current_equity_usd": str(portfolio_state.get("current_equity_usd") or ""),
         }
+        if ladder_high and ladder_high != "normal":
+            overlay["ladder_high_state"] = ladder_high
+        if instantaneous_state != effective_state:
+            overlay["instantaneous_state"] = instantaneous_state
         for key in ("observe", "reduce", "exit"):
             drawdown_key = f"{key}_drawdown_pct"
             drawdown_pct = self._parse_float(thresholds.get(drawdown_key))
@@ -986,6 +1012,22 @@ class MemoryAssetsService:
                 "equity_usd": str(round(day_peak_equity * (1.0 - drawdown_pct / 100.0), 8)),
             }
         return overlay
+
+    def _load_ladder_high_state(self) -> str:
+        asset = self.get_asset("risk_brake_state")
+        if asset is None:
+            return "normal"
+        payload = asset.get("payload")
+        if not isinstance(payload, dict):
+            return "normal"
+        value = str(payload.get("portfolio_state_ladder_high") or "normal").lower()
+        return value if value in self._RISK_STATE_RANK else "normal"
+
+    @classmethod
+    def _max_rank_state(cls, left: str, right: str) -> str:
+        left_rank = cls._RISK_STATE_RANK.get(left, 0)
+        right_rank = cls._RISK_STATE_RANK.get(right, 0)
+        return left if left_rank >= right_rank else right
 
     @staticmethod
     def _parse_float(value: object) -> float | None:
