@@ -171,6 +171,13 @@ export function BalancePanel(props: {
 
   const klineMarkers = useMemo<KlineTradeMarker[]>(() => {
     if (series.length === 0 || !activeCoin) return [];
+    // Fallback price when a trade record lacks fill details — use the
+    // close of the candle in the same bucket so the pin still lands
+    // visually at the right time + roughly the right price.
+    const candleByLabel = new Map<string, number>();
+    for (const candle of candles) {
+      if (Number.isFinite(candle.close)) candleByLabel.set(candle.label, candle.close);
+    }
     return executionRecords
       .map((record, idx) => {
         const coin = String(record.payload["coin"] ?? record.payload["symbol"] ?? "").toUpperCase();
@@ -179,11 +186,10 @@ export function BalancePanel(props: {
         if (direction === null) return null;
         const ts = extractTradeTimeMs(record);
         if (ts === null) return null;
-        // Both charts share the balance bucket grid, so the same snap
-        // helper gives us a label that matches a slot in both charts.
         const label = snapTimestampToBucketLabel(ts, series, granularity);
         if (label === null) return null;
-        const price = firstFill(record)?.price ?? null;
+        const fillPrice = firstFill(record)?.price ?? null;
+        const price = fillPrice ?? candleByLabel.get(label) ?? null;
         if (price === null) return null;
         return {
           key: `${record.asset_id ?? idx}-kline`,
@@ -193,7 +199,7 @@ export function BalancePanel(props: {
         };
       })
       .filter((m): m is KlineTradeMarker => m !== null);
-  }, [executionRecords, series, granularity, activeCoin]);
+  }, [executionRecords, series, granularity, activeCoin, candles]);
 
   // Shared scroll + wheel-hijack + pin-to-right across both chart viewports.
   // Both charts now use the SAME width (balanceChartWidth) — so scrolling

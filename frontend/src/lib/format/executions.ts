@@ -129,20 +129,22 @@ export function executionRecordMeta(asset: AssetRecord): string {
 export type TradeDirection = "buy" | "sell";
 
 /**
- * Classifies a filled execution as a buy or sell marker for chart overlays.
+ * Classifies a successful execution as a buy or sell marker for chart
+ * overlays.
  *
  *   buy  — opening/adding long,  closing/reducing short  (green, ▲)
  *   sell — opening/adding short, closing/reducing long   (red,   ▼)
  *
  * Returns null for wait/hold/non-trade records so we don't draw markers
- * for no-ops. Only returns a marker when the execution actually filled
- * (at least one fill entry) — otherwise the price we'd anchor on is
- * missing and the marker would render in the wrong place.
+ * for no-ops, and null when the record isn't marked successful. A fill
+ * entry is NOT required: many records carry `success: true` but the
+ * fills payload lands in a separate asset — dropping them here would
+ * leave the chart missing trades the feed clearly shows. Callers that
+ * need a price (K-line) fall back to the candle close when fill.price
+ * is absent.
  */
 export function classifyTradeDirection(asset: AssetRecord): TradeDirection | null {
   if (!executionRecordSuccess(asset)) return null;
-  const fill = firstFill(asset);
-  if (!fill) return null;
   const action = String(asset.payload["action"] ?? "").toLowerCase();
   const side = String(asset.payload["side"] ?? "").toLowerCase();
   if (action === "hold" || action === "wait") return null;
