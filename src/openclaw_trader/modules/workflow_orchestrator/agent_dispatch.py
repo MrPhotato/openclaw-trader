@@ -120,7 +120,11 @@ class AgentDispatcher:
     # jobs.json as the single source of truth for dispatch text.
     # ------------------------------------------------------------------
     def fetch_cron_job_payload_message(self, *, job_id: str) -> str | None:
-        payload = self._run_json([self.config.openclaw_bin, "cron", "list", "--json"])
+        # `--all` is required so we can still read the payload.message from a
+        # cron job whose `enabled` flag has been flipped to false (the common
+        # case: we want WO to own dispatch while keeping jobs.json as the
+        # single edit point for the message text).
+        payload = self._run_json([self.config.openclaw_bin, "cron", "list", "--all", "--json"])
         for job in self._iter_jobs(payload):
             if str(job.get("id") or job.get("job_id") or job.get("jobId") or "") != job_id:
                 continue
