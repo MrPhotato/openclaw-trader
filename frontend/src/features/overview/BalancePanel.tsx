@@ -62,15 +62,22 @@ function DailyChangeChip(props: { label: string; change: DailyChange | null }) {
         ? "text-rose-300"
         : "text-slate-400";
   const marker = props.change.direction === "up" ? "▲" : props.change.direction === "down" ? "▼" : "■";
-  const sign = props.change.direction === "up" ? "+" : "";
+  const sign = props.change.direction === "up" ? "+" : props.change.direction === "down" ? "-" : "±";
+  // Fixed-width subcolumns so two chips stacked on top of each other
+  // line up cleanly: label column, marker column, signed-number column.
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[11px] font-medium tabular-nums ${tone}`}
+      className={`inline-flex items-baseline gap-1 text-[11px] font-medium tabular-nums leading-snug ${tone}`}
       aria-label={`${props.label}当日涨跌`}
     >
-      <span className="text-[9px] uppercase tracking-[0.18em] text-slate-500">{props.label}</span>
-      {marker} {sign}
-      {props.change.pct.toFixed(2)}%
+      <span className="w-[26px] text-[9px] uppercase tracking-[0.18em] text-slate-500">
+        {props.label}
+      </span>
+      <span className="w-[10px] text-center">{marker}</span>
+      <span className="w-[58px] text-right">
+        {sign}
+        {Math.abs(props.change.pct).toFixed(2)}%
+      </span>
     </span>
   );
 }
@@ -217,12 +224,15 @@ export function BalancePanel(props: {
       <div className="mb-3 grid gap-2 sm:grid-cols-2">
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 ring-hairline">
           <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">账户余额（当前总权益）</div>
-          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3">
+          <div className="mt-0.5 flex items-start justify-between gap-3">
             <span className="text-base font-semibold tabular-nums leading-tight text-slate-100 sm:text-lg">
               {usdCompactText(latestPortfolio["total_equity_usd"])}
             </span>
-            <DailyChangeChip label="UTC" change={dailyChangeUtc} />
-            <DailyChangeChip label="BJT" change={dailyChangeBeijing} />
+            {/* Right-aligned two-row column so UTC + BJT line up on every subcolumn (label / marker / pct). */}
+            <div className="flex shrink-0 flex-col items-end gap-0.5">
+              <DailyChangeChip label="UTC" change={dailyChangeUtc} />
+              <DailyChangeChip label="BJT" change={dailyChangeBeijing} />
+            </div>
           </div>
         </div>
         <SummaryPill label="当前杠杆" value={configuredLeverageLabel(latestPortfolio)} />
