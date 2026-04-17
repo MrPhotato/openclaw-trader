@@ -178,6 +178,18 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
                 dispatch_payload.get("risk_brake_cron_subprocess_timeout_seconds", 15)
             ),
             risk_brake_openclaw_bin=str(dispatch_payload.get("risk_brake_openclaw_bin", "openclaw")),
+            agent_wake_enabled=bool(dispatch_payload.get("agent_wake_enabled", False)),
+            agent_wake_scan_interval_seconds=int(
+                dispatch_payload.get("agent_wake_scan_interval_seconds", 60)
+            ),
+            agent_wake_openclaw_bin=str(dispatch_payload.get("agent_wake_openclaw_bin", "openclaw")),
+            agent_wake_subprocess_timeout_seconds=int(
+                dispatch_payload.get("agent_wake_subprocess_timeout_seconds", 15)
+            ),
+            agent_wake_rules=[
+                dict(item) if isinstance(item, dict) else {}
+                for item in list(dispatch_payload.get("agent_wake_rules") or [])
+            ],
         ),
         strategy=StrategySettings.model_validate(strategy_payload),
         workflow=WorkflowSettings(
