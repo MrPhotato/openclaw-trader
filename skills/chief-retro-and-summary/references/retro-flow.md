@@ -34,11 +34,15 @@
   - 运气
 
 4. 撰写 Chief 综合报告
-- `owner_summary`
-- `root_cause_ranking`
-- `role_judgements`
-- `learning_directives`
+- `owner_summary` —— 必须明确回答"本周期是否存在漏赚/失误，根因是什么"
+- `root_cause_ranking` —— 按影响力排序，最多 5 条
+- `role_judgements` —— `{pm, risk_trader, macro_event_analyst}` 三个字段的叙事判断
+- `learning_directives` —— **恰好 4 条**，分别对应 `pm / risk_trader / macro_event_analyst / crypto_chief`；每条是 `{agent_role, directive, rationale}`。这是结构化跟踪通道的主键，少一条下游 cycle 就会 `failed`。内容要求：
+  - `directive`：一句可执行的铁律（例如 "单日策略修订上限 2 次"、"开盘 2 小时内市单打到目标带下限"），不是描述问题
+  - `rationale`：为什么这次的事件证明需要这条铁律（一到两句话，指向具体数据点）
+  - crypto_chief 自己也要有一条 —— 通常是"本 Chief 下次复盘时必须点名的模式"
 
 方法：
 - 默认使用「事实回顾 -> 根因判断 -> 后续修正」结构
 - 仅在重大失败时使用「连续追问根因」的方法
+- narrative（`role_judgements`）和 structured（`learning_directives`）必须一致：`role_judgements` 里给谁写了改进方案，`learning_directives` 里就要为谁出一条 directive。省略等于让结构化跟踪失效。
