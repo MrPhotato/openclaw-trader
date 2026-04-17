@@ -2,7 +2,6 @@ import { useMemo } from "react";
 
 import type { OverviewData } from "../../lib/types";
 import {
-  balanceNarrative,
   balanceScrollCaption,
   buildBalanceDomain,
   buildBalanceHistory,
@@ -10,7 +9,6 @@ import {
   buildNominalExposurePills,
   computeBalanceChartWidth,
   configuredLeverageLabel,
-  nominalMarginPctLabel,
   usdCompactText,
   type BalanceGranularity,
 } from "../../lib/format";
@@ -96,9 +94,6 @@ export function BalancePanel(props: {
       </div>
       <div className="mt-3">
         <RiskThresholdPills riskOverlay={overview?.risk_overlay} />
-      </div>
-      <div className="mt-3 text-sm leading-6 text-slate-400">
-        {balanceNarrative(latestPortfolio, granularity, series, nominalMarginPctLabel)}
       </div>
     </Panel>
   );

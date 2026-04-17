@@ -1,5 +1,5 @@
 import { toNumber } from "./misc";
-import { trimNumber, usdCompactText } from "./currency";
+import { trimNumber } from "./currency";
 
 export type BalanceGranularity = "15m" | "1h" | "1d";
 export type BalancePoint = { label: string; equity: number; createdAtMs: number };
@@ -180,23 +180,4 @@ export function buildBalanceTicks(points: Array<{ equity: number }>): number[] {
 
 export function balanceAxisTickLabel(value: number): string {
   return `$${trimNumber(value)}`;
-}
-
-export function balanceNarrative(
-  latestPortfolio: Record<string, unknown>,
-  granularity: BalanceGranularity,
-  points: Array<{ equity: number }>,
-  nominalMarginPctLabel: (value: unknown, latestPortfolio: Record<string, unknown>) => string,
-): string {
-  if (points.length === 0) {
-    return "当前还没有足够多的组合快照，等后续 runtime pull 和执行结果累积后，这里会自动长出余额曲线。";
-  }
-  const first = points[0];
-  const last = points[points.length - 1];
-  const delta = last.equity - first.equity;
-  const exposure = nominalMarginPctLabel(latestPortfolio["total_exposure_usd"], latestPortfolio);
-  const direction = delta > 0 ? "上升" : delta < 0 ? "回落" : "基本持平";
-  return `${balanceWindowLabel(granularity)}视角下，横轴已经按固定粒度重排。账户余额目前约 ${usdCompactText(last.equity)}，相较窗口起点 ${direction} ${usdCompactText(
-    Math.abs(delta),
-  )}。当前总敞口约占名义保证金 ${exposure}。`;
 }

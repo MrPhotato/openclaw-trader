@@ -457,10 +457,12 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("账户余额轨迹")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "15 分钟" }));
-    await waitFor(() => expect(screen.getByText(/15 分钟\s*视角下/)).toBeInTheDocument());
+    // The standalone narrative sentence was removed; verify granularity
+    // still propagates by checking the scroll caption under the chart.
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption").textContent).toMatch(/15 分钟点/));
 
     fireEvent.click(screen.getByRole("button", { name: "日线" }));
-    await waitFor(() => expect(screen.getByText(/日线\s*视角下/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("balance-viewport-caption").textContent).toMatch(/日线点/));
   });
 
   test("renders balance chart inside a horizontal scroll container", async () => {
