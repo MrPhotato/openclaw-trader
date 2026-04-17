@@ -39,6 +39,25 @@ export function isStreamDisabled() {
   return disableStream;
 }
 
+function resolveStreamUrl(): string {
+  // If VITE_API_BASE is an absolute URL (e.g. https://api.example.com), the
+  // WebSocket must target the same origin rather than window.location, so
+  // the remote/cloud-forwarded case actually connects.
+  if (apiBase && /^https?:\/\//i.test(apiBase)) {
+    try {
+      const url = new URL(apiBase);
+      const protocol = url.protocol === "https:" ? "wss" : "ws";
+      const pathname = `${url.pathname.replace(/\/$/, "")}/api/stream/events`;
+      return `${protocol}://${url.host}${pathname}`;
+    } catch {
+      // fall through to window.location-based fallback
+    }
+  }
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const host = window.location.host || "127.0.0.1:8788";
+  return `${protocol}://${host}${withBase("/api/stream/events")}`;
+}
+
 export function openEventStream(
   onMessage: (payload: StreamPayload) => void,
   onStateChange: (state: "open" | "closed" | "error") => void,
@@ -47,9 +66,7 @@ export function openEventStream(
     onStateChange("closed");
     return () => undefined;
   }
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const host = window.location.host || "127.0.0.1:8788";
-  const socket = new WebSocket(`${protocol}://${host}${withBase("/api/stream/events")}`);
+  const socket = new WebSocket(resolveStreamUrl());
   socket.onopen = () => onStateChange("open");
   socket.onclose = () => onStateChange("closed");
   socket.onerror = () => onStateChange("error");
