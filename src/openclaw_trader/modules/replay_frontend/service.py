@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from ...config.models import SystemSettings
 from ..memory_assets.models import ReplayQueryView
 from ..memory_assets.service import MemoryAssetsService
+
+# How far back the public /api/query/executions/recent endpoint looks. The
+# hard row cap bounds the JSON payload on very active days; anything past
+# the window belongs in a dedicated history view, not this feed.
+EXECUTIONS_WINDOW_DAYS = 7
+EXECUTIONS_MAX_ROWS = 200
 
 
 class ReplayFrontendService:
@@ -35,9 +43,17 @@ class ReplayFrontendService:
         }
 
     def recent_executions(self) -> dict:
+        cutoff_iso = (datetime.now(UTC) - timedelta(days=EXECUTIONS_WINDOW_DAYS)).isoformat()
+        raw = self.memory_assets.recent_assets(
+            asset_type="execution_result",
+            limit=EXECUTIONS_MAX_ROWS,
+        )
+        # recent_assets orders newest first. Drop anything older than the
+        # rolling window; the limit already caps the high end.
+        results = [asset for asset in raw if str(asset.get("created_at") or "") >= cutoff_iso]
         return {
             "latest_execution_batch": self.memory_assets.latest_asset(asset_type="execution_batch"),
-            "results": self.memory_assets.recent_assets(asset_type="execution_result", limit=20),
+            "results": results,
         }
 
     def latest_agent_state(self, agent_role: str) -> dict:
