@@ -376,6 +376,17 @@ class OrchestratorSettings(BaseModel):
     risk_brake_pm_job_id: str = "d4153cc9-1cbf-431d-b45a-d822054672c5"
     risk_brake_cron_subprocess_timeout_seconds: int = 15
     risk_brake_openclaw_bin: str = "openclaw"
+    # ------------------------------------------------------------------
+    # AgentWakeMonitor: rule-driven wake dispatcher (Layer 3 of WO scheduler)
+    # Fires agent turns into explicit sessions (usually `agent:<role>:main`)
+    # on cron_time / max_silence_since predicates. See
+    # modules/workflow_orchestrator/agent_wake.py for semantics.
+    # ------------------------------------------------------------------
+    agent_wake_enabled: bool = False
+    agent_wake_scan_interval_seconds: int = 60
+    agent_wake_openclaw_bin: str = "openclaw"
+    agent_wake_subprocess_timeout_seconds: int = 15
+    agent_wake_rules: list[dict[str, object]] = Field(default_factory=list)
 
 
 class StrategySettings(BaseModel):

@@ -1138,5 +1138,213 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             harness.cleanup()
 
 
+class FakeAgentDispatcher:
+    def __init__(self, *, payload_by_job: dict[str, str] | None = None) -> None:
+        self.payload_by_job = dict(payload_by_job or {})
+        self.sends: list[dict[str, object]] = []
+
+    def send_to_session(self, *, agent, session_key, message, thinking=None, turn_timeout_seconds=None):
+        from openclaw_trader.modules.workflow_orchestrator.agent_dispatch import DispatchResult
+
+        self.sends.append(
+            {
+                "agent": agent,
+                "session_key": session_key,
+                "message": message,
+                "thinking": thinking,
+                "turn_timeout_seconds": turn_timeout_seconds,
+            }
+        )
+        return DispatchResult(ok=True, pid=99999)
+
+    def run_cron_job_detached(self, *, job_id):
+        from openclaw_trader.modules.workflow_orchestrator.agent_dispatch import DispatchResult
+
+        return DispatchResult(ok=True, pid=99999)
+
+    def fetch_cron_job_payload_message(self, *, job_id):
+        return self.payload_by_job.get(job_id)
+
+
+def _pm_wake_rule(job_id: str = "pm-job-abc"):
+    from openclaw_trader.modules.workflow_orchestrator.agent_wake import (
+        AgentWakeRuleConfig,
+        CronTimePredicateConfig,
+        MaxSilencePredicateConfig,
+        MessageSourceConfig,
+    )
+
+    return AgentWakeRuleConfig(
+        name="pm_main_heartbeat",
+        agent="pm",
+        target_session_key="agent:pm:main",
+        message_source=MessageSourceConfig(kind="cron_job_payload", job_id=job_id),
+        fire_when_any_of=(
+            CronTimePredicateConfig(kind="cron_time", expr="0 1 * * *", tz="UTC"),
+            MaxSilencePredicateConfig(kind="max_silence_since", measure="last_strategy_submit", hours=12.0),
+        ),
+        cooldown_minutes=30,
+        enabled=True,
+    )
+
+
+def _build_agent_wake_monitor(harness, *, rule=None, payload="run pm cron msg"):
+    from openclaw_trader.modules.workflow_orchestrator.agent_wake import AgentWakeMonitor, AgentWakeSettings
+
+    rule = rule or _pm_wake_rule()
+    dispatcher = FakeAgentDispatcher(payload_by_job={rule.message_source.job_id: payload})
+    settings = AgentWakeSettings(enabled=True, scan_interval_seconds=60, rules=(rule,))
+    monitor = AgentWakeMonitor(
+        memory_assets=harness.container.memory_assets,
+        dispatcher=dispatcher,
+        settings=settings,
+        event_bus=harness.event_bus,
+    )
+    return monitor, dispatcher
+
+
+class AgentWakeMonitorTests(unittest.TestCase):
+    def test_cron_time_fires_when_current_crosses_scheduled_moment(self) -> None:
+        harness = build_test_harness()
+        try:
+            # Seed a fresh strategy so max_silence_since does not race cron_time.
+            harness.container.memory_assets.save_asset(
+                asset_type="strategy",
+                payload={"strategy_id": "fresh_for_cron_test"},
+                actor_role="pm",
+                group_key="2026-04-17",
+            )
+            monitor, dispatcher = _build_agent_wake_monitor(harness)
+            # First scan at 00:59 UTC establishes baseline (no fire).
+            monitor.scan_once(now=datetime(2026, 4, 17, 0, 59, tzinfo=UTC))
+            self.assertEqual(len(dispatcher.sends), 0)
+            # Second scan at 01:02 UTC: candidate 01:00 falls in (last_eval, current] → fires
+            result = monitor.scan_once(now=datetime(2026, 4, 17, 1, 2, tzinfo=UTC))
+            self.assertEqual(len(dispatcher.sends), 1)
+            send = dispatcher.sends[0]
+            self.assertEqual(send["agent"], "pm")
+            self.assertEqual(send["session_key"], "agent:pm:main")
+            self.assertEqual(send["message"], "run pm cron msg")
+            self.assertEqual(result["fire_count"], 1)
+            self.assertEqual(result["fires"][0]["predicate"], "cron_time")
+        finally:
+            harness.cleanup()
+
+    def test_max_silence_fires_when_last_strategy_older_than_threshold(self) -> None:
+        harness = build_test_harness()
+        try:
+            # Seed a strategy 13h before the scan moment.
+            stale_iso = (datetime(2026, 4, 17, 6, 0, tzinfo=UTC) - timedelta(hours=13)).isoformat()
+            # Save directly to backdate created_at.
+            harness.container.memory_assets.save_asset(
+                asset_type="strategy",
+                payload={"strategy_id": "strategy_legacy_for_silence_test"},
+                actor_role="pm",
+                group_key="2026-04-16",
+            )
+            # Override created_at to backdate via direct sqlite if needed — but
+            # save_asset sets created_at=now. Instead, scan at now=stale+13h exactly.
+            # We rely on save_asset having set created_at ~now; scan 13h from then.
+            now = datetime.now(UTC) + timedelta(hours=13, minutes=5)
+            monitor, dispatcher = _build_agent_wake_monitor(harness)
+            result = monitor.scan_once(now=now)
+            self.assertEqual(result["fire_count"], 1, result)
+            self.assertEqual(result["fires"][0]["predicate"], "max_silence_since")
+        finally:
+            harness.cleanup()
+
+    def test_cooldown_prevents_double_fire(self) -> None:
+        harness = build_test_harness()
+        try:
+            harness.container.memory_assets.save_asset(
+                asset_type="strategy",
+                payload={"strategy_id": "fresh_for_cooldown_test"},
+                actor_role="pm",
+                group_key="2026-04-17",
+            )
+            monitor, dispatcher = _build_agent_wake_monitor(harness)
+            monitor.scan_once(now=datetime(2026, 4, 17, 0, 55, tzinfo=UTC))
+            monitor.scan_once(now=datetime(2026, 4, 17, 1, 2, tzinfo=UTC))
+            # 5 min after first fire: still inside 30-min cooldown → no second send
+            monitor.scan_once(now=datetime(2026, 4, 17, 1, 7, tzinfo=UTC))
+            self.assertEqual(len(dispatcher.sends), 1)
+        finally:
+            harness.cleanup()
+
+    def test_disabled_rule_does_not_fire(self) -> None:
+        from openclaw_trader.modules.workflow_orchestrator.agent_wake import AgentWakeMonitor, AgentWakeSettings
+
+        harness = build_test_harness()
+        try:
+            rule = _pm_wake_rule()
+            rule = type(rule)(
+                name=rule.name,
+                agent=rule.agent,
+                target_session_key=rule.target_session_key,
+                message_source=rule.message_source,
+                fire_when_any_of=rule.fire_when_any_of,
+                cooldown_minutes=rule.cooldown_minutes,
+                enabled=False,
+                thinking=rule.thinking,
+                turn_timeout_seconds=rule.turn_timeout_seconds,
+            )
+            dispatcher = FakeAgentDispatcher(payload_by_job={rule.message_source.job_id: "msg"})
+            settings = AgentWakeSettings(enabled=True, scan_interval_seconds=60, rules=(rule,))
+            monitor = AgentWakeMonitor(
+                memory_assets=harness.container.memory_assets,
+                dispatcher=dispatcher,
+                settings=settings,
+                event_bus=harness.event_bus,
+            )
+            monitor.scan_once(now=datetime(2026, 4, 17, 1, 2, tzinfo=UTC))
+            self.assertEqual(len(dispatcher.sends), 0)
+        finally:
+            harness.cleanup()
+
+    def test_missing_message_source_records_error_and_skips_send(self) -> None:
+        harness = build_test_harness()
+        try:
+            # Dispatcher returns None for payload → rule should not send.
+            from openclaw_trader.modules.workflow_orchestrator.agent_wake import AgentWakeMonitor, AgentWakeSettings
+
+            rule = _pm_wake_rule()
+            dispatcher = FakeAgentDispatcher(payload_by_job={})  # empty → None
+            settings = AgentWakeSettings(enabled=True, scan_interval_seconds=60, rules=(rule,))
+            monitor = AgentWakeMonitor(
+                memory_assets=harness.container.memory_assets,
+                dispatcher=dispatcher,
+                settings=settings,
+                event_bus=harness.event_bus,
+            )
+            # 13h silence makes max_silence_since fire
+            result = monitor.scan_once(now=datetime.now(UTC) + timedelta(hours=24))
+            self.assertEqual(len(dispatcher.sends), 0)
+            self.assertEqual(result["fires"][0]["fired"], False)
+            self.assertEqual(result["fires"][0]["error"], "missing_message_source")
+        finally:
+            harness.cleanup()
+
+    def test_state_persisted_across_scans(self) -> None:
+        harness = build_test_harness()
+        try:
+            harness.container.memory_assets.save_asset(
+                asset_type="strategy",
+                payload={"strategy_id": "fresh_for_state_test"},
+                actor_role="pm",
+                group_key="2026-04-17",
+            )
+            monitor, _ = _build_agent_wake_monitor(harness)
+            monitor.scan_once(now=datetime(2026, 4, 17, 0, 55, tzinfo=UTC))
+            monitor.scan_once(now=datetime(2026, 4, 17, 1, 2, tzinfo=UTC))
+            state_asset = harness.container.memory_assets.get_asset("agent_wake_state")
+            self.assertIsNotNone(state_asset)
+            rules = state_asset["payload"]["rules"]
+            self.assertIn("pm_main_heartbeat", rules)
+            self.assertEqual(rules["pm_main_heartbeat"]["last_fire_predicate"], "cron_time")
+            self.assertTrue(rules["pm_main_heartbeat"]["last_fire_ok"])
+        finally:
+            harness.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

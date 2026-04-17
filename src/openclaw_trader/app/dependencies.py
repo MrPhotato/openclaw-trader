@@ -26,6 +26,15 @@ from ..modules.trade_gateway.market_data import DataIngestService
 from ..modules.trade_gateway.market_data.adapters import CoinbaseIntxMarketDataProvider
 from ..modules.workflow_orchestrator import WorkflowOrchestratorService
 from ..modules.workflow_orchestrator.pm_recheck import PMRecheckConfig, PMRecheckMonitor
+from ..modules.workflow_orchestrator.agent_dispatch import AgentDispatcher, AgentDispatchConfig
+from ..modules.workflow_orchestrator.agent_wake import (
+    AgentWakeMonitor,
+    AgentWakeRuleConfig,
+    AgentWakeSettings,
+    CronTimePredicateConfig,
+    MaxSilencePredicateConfig,
+    MessageSourceConfig,
+)
 from ..modules.workflow_orchestrator.retro_prep import RetroPrepConfig, RetroPrepMonitor
 from ..modules.workflow_orchestrator.trigger_bridge import WorkflowTriggerBridge
 from ..modules.workflow_orchestrator.handlers import WorkflowCommandExecutor
@@ -68,6 +77,63 @@ def _agent_timeout_seconds(*, settings: object, agent_role: str) -> int:
     if agent_role in {"risk_trader", "crypto_chief"}:
         return max(base_timeout, int(settings.orchestrator.timeout_seconds))
     return base_timeout
+
+
+def _build_agent_wake_settings(orchestrator: object) -> AgentWakeSettings:
+    """Translate `list[dict]` rule config (dispatch.yaml) to typed dataclasses."""
+    raw_rules = list(getattr(orchestrator, "agent_wake_rules", []) or [])
+    rules: list[AgentWakeRuleConfig] = []
+    for raw in raw_rules:
+        if not isinstance(raw, dict):
+            continue
+        predicates: list[CronTimePredicateConfig | MaxSilencePredicateConfig] = []
+        for item in list(raw.get("fire_when_any_of") or []):
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("kind") or "").strip()
+            if kind == "cron_time":
+                predicates.append(
+                    CronTimePredicateConfig(
+                        kind="cron_time",
+                        expr=str(item.get("expr") or ""),
+                        tz=str(item.get("tz") or "UTC"),
+                    )
+                )
+            elif kind == "max_silence_since":
+                predicates.append(
+                    MaxSilencePredicateConfig(
+                        kind="max_silence_since",
+                        measure=str(item.get("measure") or ""),
+                        hours=float(item.get("hours") or 0.0),
+                    )
+                )
+        source = raw.get("message_source") or {}
+        source_dict = source if isinstance(source, dict) else {}
+        rules.append(
+            AgentWakeRuleConfig(
+                name=str(raw.get("name") or ""),
+                agent=str(raw.get("agent") or ""),
+                target_session_key=str(raw.get("target_session_key") or ""),
+                message_source=MessageSourceConfig(
+                    kind=str(source_dict.get("kind") or "cron_job_payload"),
+                    job_id=str(source_dict.get("job_id") or ""),
+                ),
+                fire_when_any_of=tuple(predicates),
+                cooldown_minutes=int(raw.get("cooldown_minutes") or 30),
+                enabled=bool(raw.get("enabled", True)),
+                thinking=(str(raw.get("thinking")).strip() or None) if raw.get("thinking") else None,
+                turn_timeout_seconds=(
+                    int(raw.get("turn_timeout_seconds"))
+                    if raw.get("turn_timeout_seconds") is not None
+                    else None
+                ),
+            )
+        )
+    return AgentWakeSettings(
+        enabled=bool(getattr(orchestrator, "agent_wake_enabled", False)),
+        scan_interval_seconds=int(getattr(orchestrator, "agent_wake_scan_interval_seconds", 60)),
+        rules=tuple(rules),
+    )
 
 
 def _build_session_controller(*, settings: object, enabled: bool):
@@ -282,6 +348,21 @@ def build_container() -> ServiceContainer:
                 timeout_seconds=int(settings.orchestrator.retro_prep_cron_subprocess_timeout_seconds),
             ),
         )
+    agent_wake_monitor = None
+    if bool(settings.orchestrator.agent_wake_enabled):
+        agent_wake_monitor = AgentWakeMonitor(
+            memory_assets=memory_assets,
+            dispatcher=AgentDispatcher(
+                config=AgentDispatchConfig(
+                    openclaw_bin=str(settings.orchestrator.agent_wake_openclaw_bin),
+                    subprocess_timeout_seconds=int(
+                        settings.orchestrator.agent_wake_subprocess_timeout_seconds
+                    ),
+                ),
+            ),
+            settings=_build_agent_wake_settings(settings.orchestrator),
+            event_bus=event_bus,
+        )
     workflow_orchestrator = WorkflowOrchestratorService(
         memory_assets=memory_assets,
         event_bus=event_bus,
@@ -291,6 +372,7 @@ def build_container() -> ServiceContainer:
         pm_recheck_monitor=pm_recheck_monitor,
         risk_brake_monitor=risk_brake_monitor,
         retro_prep_monitor=retro_prep_monitor,
+        agent_wake_monitor=agent_wake_monitor,
     )
     return ServiceContainer(
         settings=settings,
