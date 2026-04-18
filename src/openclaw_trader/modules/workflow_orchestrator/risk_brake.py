@@ -17,6 +17,7 @@ from ..trade_gateway.execution.service import ExecutionGatewayService
 from ..trade_gateway.market_data.models import DataIngestBundle
 from ..trade_gateway.market_data.service import DataIngestService
 from .events import EVENT_RISK_BRAKE_TRIGGERED, MODULE_NAME
+from .agent_dispatch import AgentDispatcher, AgentDispatchConfig
 from .pm_trigger import record_pm_trigger_event
 from .rt_trigger import DEFAULT_RT_JOB_ID, CronRunResult, OpenClawCronRunner
 
@@ -32,6 +33,7 @@ class RiskBrakeConfig:
     scan_interval_seconds: int = 30
     rt_job_id: str = DEFAULT_RT_JOB_ID
     pm_job_id: str = DEFAULT_PM_JOB_ID
+    pm_session_key: str = "agent:pm:main"
     cron_subprocess_timeout_seconds: int = 15
     openclaw_bin: str = "openclaw"
 
@@ -47,6 +49,7 @@ class RiskBrakeMonitor:
         event_bus: EventBus | None = None,
         config: RiskBrakeConfig | None = None,
         cron_runner: OpenClawCronRunner | None = None,
+        agent_dispatcher: AgentDispatcher | None = None,
     ) -> None:
         self.memory_assets = memory_assets
         self.market_data = market_data
@@ -54,9 +57,18 @@ class RiskBrakeMonitor:
         self.trade_execution = trade_execution
         self.event_bus = event_bus
         self.config = config or RiskBrakeConfig()
+        # RT still dispatches via openclaw cron (isolated session) — RT's
+        # main-session migration is a separate question. PM, on the other
+        # hand, is unified into its main session via agent_dispatcher.
         self.cron_runner = cron_runner or OpenClawCronRunner(
             openclaw_bin=self.config.openclaw_bin,
             timeout_seconds=self.config.cron_subprocess_timeout_seconds,
+        )
+        self.agent_dispatcher = agent_dispatcher or AgentDispatcher(
+            config=AgentDispatchConfig(
+                openclaw_bin=self.config.openclaw_bin,
+                subprocess_timeout_seconds=self.config.cron_subprocess_timeout_seconds,
+            ),
         )
         self._stop = Event()
         self._thread: Thread | None = None
@@ -525,13 +537,13 @@ class RiskBrakeMonitor:
         (after the system has already auto-executed the order); position-
         level events still ping both arms."""
         rt_running: bool | None = None
-        pm_running: bool | None = None
         rt_result: CronRunResult | None = None
-        pm_result: CronRunResult | None = None
         rt_skip_reason: str | None = None
         pm_skip_reason: str | None = None
         rt_dispatched = False
         pm_dispatched = False
+        pm_dispatch_pid: int | None = None
+        pm_dispatch_error: str | None = None
 
         if dispatch_rt:
             rt_running = self.cron_runner.is_running(job_id=self.config.rt_job_id)
@@ -557,14 +569,25 @@ class RiskBrakeMonitor:
         }
 
         if dispatch_pm:
-            pm_running = self.cron_runner.is_running(job_id=self.config.pm_job_id)
-            if pm_running:
-                pm_skip_reason = "cron_running"
+            # Dispatch into PM main session (not isolated cron). Queueing is
+            # acceptable per design: if PM is mid-turn, the risk_brake wake
+            # arrives after the current turn completes.
+            pm_message = self.agent_dispatcher.fetch_cron_job_payload_message(
+                job_id=self.config.pm_job_id
+            )
+            if not pm_message:
+                pm_skip_reason = "missing_pm_payload_message"
             else:
-                pm_result = self.cron_runner.run_now(job_id=self.config.pm_job_id)
+                pm_result = self.agent_dispatcher.send_to_session(
+                    agent="pm",
+                    session_key=self.config.pm_session_key,
+                    message=pm_message,
+                )
                 pm_dispatched = bool(pm_result.ok)
+                pm_dispatch_pid = pm_result.pid
+                pm_dispatch_error = pm_result.error
                 if not pm_dispatched:
-                    pm_skip_reason = "cron_run_failed"
+                    pm_skip_reason = f"dispatch_failed:{pm_result.error or 'unknown'}"
             pm_event = record_pm_trigger_event(
                 memory_assets=self.memory_assets,
                 event_bus=self.event_bus,
@@ -577,7 +600,7 @@ class RiskBrakeMonitor:
                     "reason": reason,
                     "severity": "high",
                     "wake_source": "workflow_orchestrator",
-                    "claimable": bool(pm_dispatched or pm_running),
+                    "claimable": bool(pm_dispatched),
                     "strategy_key": strategy_key,
                     "scope": scope,
                     "state": state_name,
@@ -585,9 +608,9 @@ class RiskBrakeMonitor:
                     "lock_mode": "flat_only" if state_name == "exit" else "reduce_only",
                     "dispatched": pm_dispatched,
                     "skipped_reason": pm_skip_reason,
-                    "cron_running": pm_running,
-                    "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),
-                    "pm_cron_stderr": _truncate(pm_result.stderr if pm_result else "", 800),
+                    "dispatch_target": "agent:pm:main",
+                    "dispatch_pid": pm_dispatch_pid,
+                    "dispatch_error": pm_dispatch_error,
                 },
                 metadata={"trigger_type": "risk_brake", "reason": reason},
             )
@@ -596,8 +619,8 @@ class RiskBrakeMonitor:
                     "pm_trigger_event_id": pm_event["event_id"],
                     "pm_dispatched": pm_dispatched,
                     "pm_skip_reason": pm_skip_reason,
-                    "pm_cron_stdout": _truncate(pm_result.stdout if pm_result else "", 800),
-                    "pm_cron_stderr": _truncate(pm_result.stderr if pm_result else "", 800),
+                    "pm_dispatch_pid": pm_dispatch_pid,
+                    "pm_dispatch_error": pm_dispatch_error,
                 }
             )
         else:

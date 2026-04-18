@@ -8,15 +8,16 @@ from typing import Any
 from ...shared.infra import EventBus
 from ...shared.utils import new_id
 from ..memory_assets.service import MemoryAssetsService
+from .agent_dispatch import AgentDispatcher, AgentDispatchConfig
 from .pm_trigger import record_pm_trigger_event
 from .risk_brake import DEFAULT_PM_JOB_ID
-from .rt_trigger import CronRunResult, OpenClawCronRunner
 
 
 @dataclass(frozen=True)
 class PMRecheckConfig:
     enabled: bool = False
     pm_job_id: str = DEFAULT_PM_JOB_ID
+    pm_session_key: str = "agent:pm:main"
     scan_interval_seconds: int = 30
     cron_subprocess_timeout_seconds: int = 15
     openclaw_bin: str = "openclaw"
@@ -29,14 +30,16 @@ class PMRecheckMonitor:
         memory_assets: MemoryAssetsService,
         event_bus: EventBus | None = None,
         config: PMRecheckConfig | None = None,
-        cron_runner: OpenClawCronRunner | None = None,
+        agent_dispatcher: AgentDispatcher | None = None,
     ) -> None:
         self.memory_assets = memory_assets
         self.event_bus = event_bus
         self.config = config or PMRecheckConfig()
-        self.cron_runner = cron_runner or OpenClawCronRunner(
-            openclaw_bin=self.config.openclaw_bin,
-            timeout_seconds=self.config.cron_subprocess_timeout_seconds,
+        self.agent_dispatcher = agent_dispatcher or AgentDispatcher(
+            config=AgentDispatchConfig(
+                openclaw_bin=self.config.openclaw_bin,
+                subprocess_timeout_seconds=self.config.cron_subprocess_timeout_seconds,
+            ),
         )
         self._stop = Event()
         self._thread: Thread | None = None
@@ -103,17 +106,31 @@ class PMRecheckMonitor:
                 "scanned_at_utc": now.isoformat(),
             }
 
-        pm_running = self.cron_runner.is_running(job_id=self.config.pm_job_id)
-        run_result: CronRunResult | None = None
-        dispatched = False
+        # Dispatch into PM's main session (not an isolated cron run). We
+        # intentionally do NOT gate on "PM already running" any more: if PM
+        # is mid-turn, the message simply queues in main session, which is
+        # the intended behaviour — PM sees the recheck reason in the same
+        # thread as its current context.
+        message = self.agent_dispatcher.fetch_cron_job_payload_message(
+            job_id=self.config.pm_job_id
+        )
         skipped_reason: str | None = None
-        if pm_running:
-            skipped_reason = "cron_running"
+        dispatched = False
+        dispatch_pid: int | None = None
+        dispatch_error: str | None = None
+        if not message:
+            skipped_reason = "missing_pm_payload_message"
         else:
-            run_result = self.cron_runner.run_now(job_id=self.config.pm_job_id)
-            dispatched = bool(run_result.ok)
+            result = self.agent_dispatcher.send_to_session(
+                agent="pm",
+                session_key=self.config.pm_session_key,
+                message=message,
+            )
+            dispatched = bool(result.ok)
+            dispatch_pid = result.pid
+            dispatch_error = result.error
             if not dispatched:
-                skipped_reason = "cron_run_failed"
+                skipped_reason = f"dispatch_failed:{result.error or 'unknown'}"
 
         trace_id = new_id("trace")
         payload = {
@@ -124,7 +141,7 @@ class PMRecheckMonitor:
             "reason": "scheduled_recheck",
             "severity": "normal",
             "wake_source": "workflow_orchestrator",
-            "claimable": bool(dispatched or pm_running),
+            "claimable": bool(dispatched),
             "strategy_id": due_item.get("strategy_id"),
             "revision_number": due_item.get("revision_number"),
             "strategy_key": strategy_key,
@@ -134,9 +151,9 @@ class PMRecheckMonitor:
             "scheduled_recheck_key": recheck_key,
             "dispatched": dispatched,
             "skipped_reason": skipped_reason,
-            "cron_running": pm_running,
-            "pm_cron_stdout": _truncate(run_result.stdout if run_result else "", 800),
-            "pm_cron_stderr": _truncate(run_result.stderr if run_result else "", 800),
+            "dispatch_target": "agent:pm:main",
+            "dispatch_pid": dispatch_pid,
+            "dispatch_error": dispatch_error,
         }
         record_pm_trigger_event(
             memory_assets=self.memory_assets,
@@ -194,9 +211,3 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
-
-
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[:limit]
