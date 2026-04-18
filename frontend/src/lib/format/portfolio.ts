@@ -5,6 +5,21 @@ import { trimNumber, usdCompactText } from "./currency";
 export const DEFAULT_DISPLAY_EQUITY_USD = 1000;
 export const DISPLAY_LEVERAGE = 5;
 
+// Coinbase INTX rounds reduce_only closes down to the product's
+// `base_increment` (0.0001 BTC, 0.001 ETH …), so a fully-intended close
+// can leave 1 increment of dust on the books — at BTC ~$75K that's
+// ~$7.50 of "ghost" exposure that the user has already mentally retired.
+// The exchange UI hides it; we should too. Threshold sits well above any
+// observed dust ($7–$10) and well below any deliberate trade (≥ $50),
+// so it can't accidentally hide a real position.
+export const DUST_POSITION_USD = 20;
+
+export function isDustPosition(position?: Record<string, unknown>): boolean {
+  if (!position) return false;
+  const notional = toNumber(position.notional_usd) ?? toNumber(position.current_notional_usd);
+  return notional !== null && notional > 0 && notional < DUST_POSITION_USD;
+}
+
 export type ExposurePill = {
   coin: string;
   direction?: string;
@@ -114,8 +129,14 @@ export function buildNominalExposurePills(
     positions
       .map((position) => asRecord(position))
       .filter((position): position is Record<string, unknown> => position !== null)
+      .filter((position) => !isDustPosition(position))
       .map((position) => [String(position.coin ?? "").toUpperCase(), position]),
   );
+  const effectiveTotalExposure = positions
+    .map((position) => asRecord(position))
+    .filter((position): position is Record<string, unknown> => position !== null)
+    .filter((position) => !isDustPosition(position))
+    .reduce((sum, position) => sum + (toNumber(position.notional_usd) ?? 0), 0);
 
   const targets = Array.isArray(latestStrategy["targets"]) ? latestStrategy["targets"] : [];
   const targetMap = new Map(
@@ -147,8 +168,8 @@ export function buildNominalExposurePills(
     }),
     {
       coin: "总敞口",
-      exposure: usdCompactText(latestPortfolio["total_exposure_usd"]),
-      share: nominalMarginPctLabel(latestPortfolio["total_exposure_usd"], latestPortfolio),
+      exposure: usdCompactText(effectiveTotalExposure),
+      share: nominalMarginPctLabel(effectiveTotalExposure, latestPortfolio),
     },
   ];
 }
@@ -159,7 +180,7 @@ export function currentPositionLeverage(asset: AssetRecord, latestPortfolio: Rec
   const match = positions
     .map((position) => asRecord(position))
     .find((position) => String(position?.coin ?? "") === coin);
-  if (match?.leverage) {
+  if (match && !isDustPosition(match) && match.leverage) {
     return `${match.leverage}x`;
   }
   return "未回传";

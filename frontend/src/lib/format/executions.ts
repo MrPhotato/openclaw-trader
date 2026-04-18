@@ -142,6 +142,14 @@ export type TradeDirection = "buy" | "sell";
  * leave the chart missing trades the feed clearly shows. Callers that
  * need a price (K-line) fall back to the candle close when fill.price
  * is absent.
+ *
+ * Robust to two ways the backend reports `side` on close/reduce orders:
+ *   - the BEFORE-state ("long" / "short") — what the position was
+ *   - the AFTER-state ("flat") — what the position became
+ * When `side` is "flat" or missing, we infer the trade direction from
+ * the fill's exchange side (SELL → was long → "sell" marker; BUY →
+ * was short → "buy" marker). Without this fallback, full-close orders
+ * (often emitted with side="flat") never get a marker.
  */
 export function classifyTradeDirection(asset: AssetRecord): TradeDirection | null {
   if (!executionRecordSuccess(asset)) return null;
@@ -151,6 +159,13 @@ export function classifyTradeDirection(asset: AssetRecord): TradeDirection | nul
   const closing = action === "reduce" || action === "close";
   if (side === "long") return closing ? "sell" : "buy";
   if (side === "short") return closing ? "buy" : "sell";
+  if (closing) {
+    const fills = Array.isArray(asset.payload["fills"]) ? asset.payload["fills"] : [];
+    const first = asRecord(fills[0]);
+    const fillSide = String(first?.side ?? "").toUpperCase();
+    if (fillSide === "SELL") return "sell";
+    if (fillSide === "BUY") return "buy";
+  }
   return null;
 }
 
