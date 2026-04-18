@@ -156,21 +156,21 @@ class RiskBrakeMonitor:
             "pm_skip_reason": None,
         }
 
-        # Dispatch routing matches the three-line semantic:
-        #   observe (portfolio) → RT only, no orders
-        #   reduce  (portfolio) → auto-cut losing positions in half, then PM
-        #   exit    (portfolio) → auto-close all positions, then PM
-        #   position-level breach → both RT and PM (tactical per-coin)
+        # Dispatch routing — same three-line semantic across scopes:
+        #   observe (portfolio OR position) → RT only, no orders
+        #   reduce  (portfolio OR position) → auto-cut, then PM only
+        #   exit    (portfolio OR position) → auto-close, then PM only
         scope = plan["scope"]
         state_name = plan["state"]
-        if scope == "portfolio" and state_name == "observe":
+        if state_name == "observe":
             dispatch_rt = True
             dispatch_pm = False
-        elif scope == "portfolio" and state_name in {"reduce", "exit"}:
+        elif state_name in {"reduce", "exit"}:
             dispatch_rt = False
             dispatch_pm = True
         else:
-            # position-level (and any future scope): keep both arms in play
+            # State shouldn't end up here, but if it does (e.g. a future
+            # enum member), ping both arms so nothing is silently ignored.
             dispatch_rt = True
             dispatch_pm = True
 
@@ -228,18 +228,22 @@ class RiskBrakeMonitor:
         policies: dict[str, GuardDecision],
         current_strategy_key: str,
     ) -> dict[str, Any] | None:
-        # Compare against the day's worst-so-far state, not the last scan's
-        # instantaneous state. Without this, equity that dips below the reduce
-        # line, recovers, then dips again would re-fire the reduce event and
-        # re-dispatch RT/PM each cycle. The ladder only ratchets upward within
-        # a day and resets at UTC rollover in `_normalize_state`.
+        # Compare against the day's worst-so-far state (ladder), not the last
+        # scan's instantaneous state. Without this, equity that dips below a
+        # line, recovers, then dips again would re-fire and re-dispatch. The
+        # ladder only ratchets upward within a day and resets at UTC rollover
+        # in `_normalize_state`. Same pattern for portfolio AND per-coin.
         previous_portfolio_state = str(
             state.get("portfolio_state_ladder_high")
             or state.get("last_portfolio_state")
             or "normal"
         )
         current_portfolio_state = self._portfolio_state(policies)
-        previous_position_states = {
+        position_ladder_high = {
+            str(coin).upper(): str(value)
+            for coin, value in dict(state.get("position_state_ladder_high_by_coin") or {}).items()
+        }
+        previous_last_position_states = {
             str(coin).upper(): str(value)
             for coin, value in dict(state.get("last_position_state_by_coin") or {}).items()
         }
@@ -248,95 +252,104 @@ class RiskBrakeMonitor:
             for coin, policy in policies.items()
         }
 
+        def _previous_position(coin: str) -> str:
+            # Prefer the sticky ladder; fall back to last_position_state for
+            # pre-existing state assets that don't carry the ladder yet.
+            return position_ladder_high.get(coin) or previous_last_position_states.get(coin) or "normal"
+
+        # First, pick the highest level rising at portfolio scope.
+        portfolio_level: str | None = None
+        if self._is_rising(previous_portfolio_state, current_portfolio_state, "exit"):
+            portfolio_level = "exit"
+        elif self._is_rising(previous_portfolio_state, current_portfolio_state, "reduce"):
+            portfolio_level = "reduce"
+        elif self._is_rising(previous_portfolio_state, current_portfolio_state, "observe"):
+            portfolio_level = "observe"
+
+        # Per-coin highest rising level — independent of portfolio.
+        position_rising: dict[str, str] = {}
+        for coin, curr in current_position_states.items():
+            prev = _previous_position(coin)
+            if self._is_rising(prev, curr, "exit"):
+                position_rising[coin] = "exit"
+            elif self._is_rising(prev, curr, "reduce"):
+                position_rising[coin] = "reduce"
+            elif self._is_rising(prev, curr, "observe"):
+                position_rising[coin] = "observe"
+
+        portfolio_rank = _STATE_RANK.get(portfolio_level or "normal", 0)
+        highest_position_rank = (
+            max((_STATE_RANK[lvl] for lvl in position_rising.values()), default=0)
+        )
+
+        if portfolio_rank == 0 and highest_position_rank == 0:
+            return None
+
         action_map: dict[str, dict[str, Any]] = {}
         risk_lock_updates = {
             "portfolio_lock": {},
             "position_locks": {},
         }
-        scope = "none"
-        state_name = "normal"
-        reason_label = ""
+        now_iso = datetime.now(UTC).isoformat()
 
-        # Portfolio ladder: pick the HIGHEST level that's rising this scan.
-        # Firing only one level avoids double events on a direct normal→reduce
-        # jump and guarantees the ladder ratchets cleanly.
-        if self._is_rising(previous_portfolio_state, current_portfolio_state, "exit"):
+        # Portfolio trumps position when its rank is ≥ the worst per-coin.
+        # Otherwise we fire at position scope (a single coin breached more
+        # aggressively than the whole book).
+        if portfolio_rank >= highest_position_rank and portfolio_level is not None:
             scope = "portfolio"
-            state_name = "exit"
-            reason_label = "portfolio_peak_exit"
-            for position in market.portfolio.positions:
-                action_map[str(position.coin).upper()] = {
-                    "action": "close",
-                    "reason": "portfolio_peak_exit",
-                }
-            risk_lock_updates["portfolio_lock"] = {
-                "mode": "flat_only",
-                "strategy_key": current_strategy_key,
-                "triggered_at_utc": datetime.now(UTC).isoformat(),
-            }
-        elif self._is_rising(previous_portfolio_state, current_portfolio_state, "reduce"):
-            scope = "portfolio"
-            state_name = "reduce"
-            reason_label = "portfolio_peak_reduce"
-            for position in market.portfolio.positions:
-                if _to_decimal(position.unrealized_pnl_usd) < 0:
+            state_name = portfolio_level
+            reason_label = f"portfolio_peak_{portfolio_level}"
+            if portfolio_level == "exit":
+                for position in market.portfolio.positions:
                     action_map[str(position.coin).upper()] = {
-                        "action": "reduce",
-                        "reason": "portfolio_peak_reduce",
-                    }
-            if action_map:
-                risk_lock_updates["portfolio_lock"] = {
-                    "mode": "reduce_only",
-                    "strategy_key": current_strategy_key,
-                    "triggered_at_utc": datetime.now(UTC).isoformat(),
-                }
-        elif self._is_rising(previous_portfolio_state, current_portfolio_state, "observe"):
-            # Observe: heads-up signal only. No orders, no lock, no PM
-            # dispatch — RT is asked to take a look in case the tactical
-            # map needs a refresh.
-            scope = "portfolio"
-            state_name = "observe"
-            reason_label = "portfolio_peak_observe"
-
-        # Position-level ladder runs regardless of portfolio outcome so a
-        # per-coin breach can still fire even when the portfolio didn't.
-        if state_name != "exit":
-            for coin, current_state in current_position_states.items():
-                previous_state = previous_position_states.get(coin, "normal")
-                if self._is_rising(previous_state, current_state, "exit"):
-                    action_map[coin] = {
                         "action": "close",
-                        "reason": "position_peak_exit",
+                        "reason": reason_label,
                     }
+                risk_lock_updates["portfolio_lock"] = {
+                    "mode": "flat_only",
+                    "strategy_key": current_strategy_key,
+                    "triggered_at_utc": now_iso,
+                }
+            elif portfolio_level == "reduce":
+                for position in market.portfolio.positions:
+                    if _to_decimal(position.unrealized_pnl_usd) < 0:
+                        action_map[str(position.coin).upper()] = {
+                            "action": "reduce",
+                            "reason": reason_label,
+                        }
+                if action_map:
+                    risk_lock_updates["portfolio_lock"] = {
+                        "mode": "reduce_only",
+                        "strategy_key": current_strategy_key,
+                        "triggered_at_utc": now_iso,
+                    }
+            # observe: no action, no lock — RT-only notification.
+        else:
+            scope = "position"
+            # state_name = the highest rising level across all affected coins;
+            # each coin contributes its own action so a mix of reduce/exit in
+            # one scan still closes the exit-ers and halves the reduce-ers.
+            highest_level = next(
+                lvl for lvl, rank in _STATE_RANK.items() if rank == highest_position_rank
+            )
+            state_name = highest_level
+            reason_label = f"position_peak_{highest_level}"
+            for coin, lvl in position_rising.items():
+                if lvl == "exit":
+                    action_map[coin] = {"action": "close", "reason": f"position_peak_{lvl}"}
                     risk_lock_updates["position_locks"][coin] = {
                         "mode": "flat_only",
                         "strategy_key": current_strategy_key,
-                        "triggered_at_utc": datetime.now(UTC).isoformat(),
+                        "triggered_at_utc": now_iso,
                     }
-                    if scope == "none":
-                        scope = "position"
-                        state_name = "exit"
-                        reason_label = "position_peak_exit"
-                elif self._is_rising(previous_state, current_state, "reduce") and coin not in action_map:
-                    action_map[coin] = {
-                        "action": "reduce",
-                        "reason": "position_peak_reduce",
-                    }
+                elif lvl == "reduce":
+                    action_map[coin] = {"action": "reduce", "reason": f"position_peak_{lvl}"}
                     risk_lock_updates["position_locks"][coin] = {
                         "mode": "reduce_only",
                         "strategy_key": current_strategy_key,
-                        "triggered_at_utc": datetime.now(UTC).isoformat(),
+                        "triggered_at_utc": now_iso,
                     }
-                    if scope == "none":
-                        scope = "position"
-                        state_name = "reduce"
-                        reason_label = "position_peak_reduce"
-
-        # scope stays "none" when nothing rose this scan — no-op.
-        # Observe fires at scope="portfolio" with no actions, which is
-        # intentional: the event goes out, RT gets pinged, nothing else.
-        if scope == "none":
-            return None
+                # observe: no action, no lock.
         return {
             "scope": scope,
             "state": state_name,
@@ -644,10 +657,23 @@ class RiskBrakeMonitor:
         updated["last_portfolio_state"] = current_portfolio_state
         previous_ladder_high = str(updated.get("portfolio_state_ladder_high") or "normal")
         updated["portfolio_state_ladder_high"] = self._max_rank_state(previous_ladder_high, current_portfolio_state)
-        updated["last_position_state_by_coin"] = {
+        current_position_states = {
             coin: policy.position_risk_state.state
             for coin, policy in policies.items()
         }
+        updated["last_position_state_by_coin"] = dict(current_position_states)
+        # Per-coin ratchet — same shape as portfolio_state_ladder_high so
+        # per-coin oscillation doesn't re-fire the same line either.
+        prior_ladder_by_coin = dict(updated.get("position_state_ladder_high_by_coin") or {})
+        ladder_by_coin: dict[str, str] = {}
+        for coin, current in current_position_states.items():
+            prior = str(prior_ladder_by_coin.get(coin) or "normal")
+            ladder_by_coin[coin] = self._max_rank_state(prior, current)
+        # Preserve ladder entries for coins that didn't report this scan
+        # (e.g. a newly flat coin that temporarily disappeared).
+        for coin, prior in prior_ladder_by_coin.items():
+            ladder_by_coin.setdefault(coin, str(prior or "normal"))
+        updated["position_state_ladder_high_by_coin"] = ladder_by_coin
         if event_payload is not None:
             risk_lock_updates = dict(event_payload.get("risk_lock_updates") or {})
             portfolio_lock = dict(risk_lock_updates.get("portfolio_lock") or {})
@@ -737,10 +763,12 @@ class RiskBrakeMonitor:
             normalized["last_portfolio_state"] = "normal"
             normalized["portfolio_state_ladder_high"] = "normal"
             normalized["last_position_state_by_coin"] = {}
+            normalized["position_state_ladder_high_by_coin"] = {}
             normalized["position_references_by_coin"] = {}
         normalized.setdefault("portfolio_lock", {})
         normalized.setdefault("position_locks", {})
         normalized.setdefault("portfolio_state_ladder_high", "normal")
+        normalized.setdefault("position_state_ladder_high_by_coin", {})
         return normalized
 
     @staticmethod

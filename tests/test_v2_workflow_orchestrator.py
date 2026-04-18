@@ -1183,7 +1183,9 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
-    def test_risk_brake_position_exit_uses_flat_only_lock(self) -> None:
+    def test_risk_brake_position_exit_closes_coin_and_pings_pm_only(self) -> None:
+        """Per-coin exit follows the same dispatch policy as portfolio exit:
+        auto-close the coin and ping only PM."""
         harness = build_test_harness()
         try:
             now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
@@ -1212,15 +1214,114 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertTrue(result["triggered"])
             self.assertEqual(result["scope"], "position")
             self.assertEqual(result["state"], "exit")
-            self.assertEqual(runner.runs, ["rt-job", "pm-job"])
+            self.assertFalse(result["rt_dispatched"])
+            self.assertTrue(result["pm_dispatched"])
+            self.assertEqual(runner.runs, ["pm-job"])
             self.assertEqual(len(harness.fake_broker.executed), 1)
             self.assertEqual(harness.fake_broker.executed[0].action, "close")
             state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
             self.assertEqual(state_asset["payload"]["position_locks"]["BTC"]["mode"], "flat_only")
+            self.assertEqual(state_asset["payload"]["position_state_ladder_high_by_coin"]["BTC"], "exit")
             pm_trigger_asset = harness.container.memory_assets.latest_asset(asset_type="pm_trigger_event", actor_role="system")
             self.assertIsNotNone(pm_trigger_asset)
             self.assertEqual(pm_trigger_asset["payload"]["reason"], "position_peak_exit")
             self.assertEqual(pm_trigger_asset["payload"]["lock_mode"], "flat_only")
+        finally:
+            harness.cleanup()
+
+    def test_risk_brake_position_observe_pings_rt_only(self) -> None:
+        """Per-coin observe: heads-up only. No auto-order, no position lock,
+        no PM dispatch — mirrors portfolio observe."""
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
+            provider = MutableMarketDataProvider()
+            # Reference=100, mark=98.3 → drawdown 1.7% > position_observe
+            # (1.6%) but < position_reduce (2.8%) and < position_exit (4.0%).
+            provider.mark_by_coin["BTC"] = "98.3"
+            _seed_strategy(harness)
+            _seed_risk_brake_state(
+                harness,
+                {
+                    "portfolio_day_utc": now.date().isoformat(),
+                    "portfolio_day_peak_equity_usd": "1000",
+                    "last_portfolio_state": "normal",
+                    "portfolio_state_ladder_high": "normal",
+                    "last_position_state_by_coin": {"BTC": "normal"},
+                    "position_state_ladder_high_by_coin": {"BTC": "normal"},
+                    "position_references_by_coin": {
+                        "BTC": {
+                            "side": "long",
+                            "reference_price": "100",
+                            "reference_kind": "peak",
+                        }
+                    },
+                },
+            )
+            monitor, runner = _build_risk_brake_monitor(harness, provider=provider)
+            result = monitor.scan_once(now=now)
+
+            self.assertTrue(result["triggered"])
+            self.assertEqual(result["scope"], "position")
+            self.assertEqual(result["state"], "observe")
+            self.assertTrue(result["rt_dispatched"])
+            self.assertFalse(result["pm_dispatched"])
+            self.assertEqual(runner.runs, ["rt-job"])
+            self.assertNotIn("pm_trigger_event_id", result)
+            # No auto-order, no per-coin lock.
+            self.assertEqual(len(harness.fake_broker.executed), 0)
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
+            self.assertEqual(state_asset["payload"].get("position_locks") or {}, {})
+            self.assertEqual(
+                state_asset["payload"]["position_state_ladder_high_by_coin"]["BTC"], "observe"
+            )
+        finally:
+            harness.cleanup()
+
+    def test_risk_brake_position_reduce_cuts_coin_and_pings_pm_only(self) -> None:
+        """Per-coin reduce: auto 50% cut, PM only."""
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 8, 14, 0, tzinfo=UTC)
+            provider = MutableMarketDataProvider()
+            # Reference=100, mark=97.0 → drawdown 3.0% > position_reduce
+            # (2.8%) but < position_exit (4.0%).
+            provider.mark_by_coin["BTC"] = "97.0"
+            _seed_strategy(harness)
+            _seed_risk_brake_state(
+                harness,
+                {
+                    "portfolio_day_utc": now.date().isoformat(),
+                    "portfolio_day_peak_equity_usd": "1000",
+                    "last_portfolio_state": "normal",
+                    "portfolio_state_ladder_high": "normal",
+                    "last_position_state_by_coin": {"BTC": "normal"},
+                    "position_state_ladder_high_by_coin": {"BTC": "normal"},
+                    "position_references_by_coin": {
+                        "BTC": {
+                            "side": "long",
+                            "reference_price": "100",
+                            "reference_kind": "peak",
+                        }
+                    },
+                },
+            )
+            monitor, runner = _build_risk_brake_monitor(harness, provider=provider)
+            result = monitor.scan_once(now=now)
+
+            self.assertTrue(result["triggered"])
+            self.assertEqual(result["scope"], "position")
+            self.assertEqual(result["state"], "reduce")
+            self.assertFalse(result["rt_dispatched"])
+            self.assertTrue(result["pm_dispatched"])
+            self.assertEqual(runner.runs, ["pm-job"])
+            self.assertEqual(len(harness.fake_broker.executed), 1)
+            self.assertEqual(harness.fake_broker.executed[0].action, "reduce")
+            state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
+            self.assertEqual(state_asset["payload"]["position_locks"]["BTC"]["mode"], "reduce_only")
+            self.assertEqual(
+                state_asset["payload"]["position_state_ladder_high_by_coin"]["BTC"], "reduce"
+            )
         finally:
             harness.cleanup()
 
