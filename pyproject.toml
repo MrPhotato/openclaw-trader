@@ -21,6 +21,16 @@ dependencies = [
   "scipy>=1.17.1",
 ]
 
+[project.optional-dependencies]
+# Only needed by scripts/digital_oracle_query.py when the caller requests
+# Yahoo-backed signals (gold_price, spy, copper_price, etc.). The 5 default
+# MEA presets deliberately avoid these to keep gather() ~1-2s; install
+# only if you need the extended price-history providers.
+#   .venv/bin/pip install -e '.[digital-oracle]'
+digital-oracle = [
+  "yfinance>=0.2.40",
+]
+
 [project.scripts]
 otrader = "openclaw_trader.cli:app"
 
