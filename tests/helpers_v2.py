@@ -364,11 +364,19 @@ def build_test_harness(*, news_severity: str = "low", side_12h: str = "long", si
         event_bus=event_bus,
         executor=executor,
     )
+    from openclaw_trader.modules.trade_gateway.macro_data import MacroDataService
+    from openclaw_trader.modules.trade_gateway.macro_data.service import MacroDataConfig
+    macro_data = MacroDataService(
+        price_provider=None,
+        sentiment_provider=None,
+        config=MacroDataConfig(enabled=False),
+    )
     container = ServiceContainer(
         settings=settings,
         event_bus=event_bus,  # type: ignore[arg-type]
         memory_assets=memory_assets,
         market_data=market_data,
+        macro_data=macro_data,
         news_events=news_events,
         quant_intelligence=quant_intelligence,
         policy_risk=policy_risk,

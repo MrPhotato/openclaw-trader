@@ -15,6 +15,7 @@ RT 应从 `agent_gateway` 拉取一个 `rt` 运行时数据包，然后按以下
 - `risk_limits`
 - `forecasts`
 - `news_events`
+- `macro_prices` — Brent/WTI/DXY/US10Y + BTC F&G + BTC ETF 活跃度代理。Brent 逼近 PM 失效条件时只看这里，**不要用 `web_fetch` 抓野站 Brent 价**（会拿到过时/滚动的 $90 vs $96 互相矛盾的数）
 - `recent_execution_thoughts`
 - 当 RT 被 Workflow Orchestrator 唤醒时读取 `latest_rt_trigger_event`
 - 当系统刚刚执行了强制风控单时读取 `latest_risk_brake_event`

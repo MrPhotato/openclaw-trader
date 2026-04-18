@@ -286,6 +286,73 @@ class AgentGatewayServiceTests(unittest.TestCase):
         self.assertLessEqual(len(inputs["risk_trader"].payload["news_events"]), 5)
         self.assertEqual(inputs["risk_trader"].payload["news_events"][0]["title"], "Macro headline")
 
+    def test_build_runtime_inputs_surfaces_macro_prices_for_all_consumers(self) -> None:
+        from openclaw_trader.modules.trade_gateway.macro_data.models import (
+            EtfActivity,
+            FearGreedIndex,
+            MacroPrice,
+            MacroSnapshot,
+        )
+
+        gateway = AgentGatewayService(
+            pm_runner=DeterministicAgentRunner(),
+            risk_runner=DeterministicAgentRunner(),
+            macro_runner=DeterministicAgentRunner(),
+            chief_runner=DeterministicAgentRunner(),
+            session_controller=DeterministicSessionController(),
+        )
+        market = DataIngestService(FakeMarketDataProvider()).collect(trace_id="trace-macro", coins=["BTC"])
+        forecasts = QuantIntelligenceService(FakeQuantProvider()).predict_market(market)
+        policies = PolicyRiskService(build_test_settings(Path("/tmp") / "state" / "test.db")).evaluate(
+            market=market,
+            forecasts=forecasts,
+            news_events=FakeNewsProvider().latest(),
+        )
+        strategy = _test_strategy_payload()
+        snap = MacroSnapshot(
+            snapshot_id="macro_snapshot_test",
+            captured_at_utc=datetime(2026, 4, 18, 7, 0, tzinfo=UTC),
+            brent=MacroPrice(symbol="BZ=F", price=90.38, is_market_open=False, staleness_seconds=36000),
+            wti=MacroPrice(symbol="CL=F", price=82.59, is_market_open=False),
+            dxy=MacroPrice(symbol="DX-Y.NYB", price=98.23, is_market_open=False),
+            us10y_yield_pct=MacroPrice(symbol="^TNX", price=4.25, is_market_open=False),
+            btc_fear_greed=FearGreedIndex(value=26, classification="Fear"),
+            btc_etf_activity={
+                "IBIT": EtfActivity(ticker="IBIT", close=43.94, volume=80_000_000, avg_volume_20d=50_000_000.0),
+            },
+        )
+        inputs = gateway.build_runtime_inputs(
+            trace_id="trace-macro",
+            market=market,
+            policies=policies,
+            forecasts=forecasts,
+            strategy=strategy,
+            execution_contexts=[_test_execution_context()],
+            news_events=FakeNewsProvider().latest(),
+            macro_snapshot=snap,
+        )
+
+        for role in ("pm", "risk_trader", "macro_event_analyst", "crypto_chief"):
+            macro = inputs[role].payload.get("macro_prices")
+            self.assertIsInstance(macro, dict, msg=f"{role} missing macro_prices dict")
+            self.assertEqual(macro["brent"]["price"], 90.38, msg=f"{role} brent price mismatch")
+            self.assertEqual(macro["btc_fear_greed"]["value"], 26, msg=f"{role} f&g mismatch")
+            self.assertIn("IBIT", macro["btc_etf_activity"])
+
+        # Empty-dict fallback when snapshot is None.
+        no_macro = gateway.build_runtime_inputs(
+            trace_id="trace-no-macro",
+            market=market,
+            policies=policies,
+            forecasts=forecasts,
+            strategy=strategy,
+            execution_contexts=[_test_execution_context()],
+            news_events=FakeNewsProvider().latest(),
+            macro_snapshot=None,
+        )
+        for role in ("pm", "risk_trader", "macro_event_analyst", "crypto_chief"):
+            self.assertEqual(no_macro[role].payload.get("macro_prices"), {}, msg=f"{role} should get empty dict")
+
     def test_all_runtime_pulls_use_cached_runtime_bridge_state_when_available(self) -> None:
         harness = build_test_harness()
         try:

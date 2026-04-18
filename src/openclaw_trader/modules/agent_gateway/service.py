@@ -2046,6 +2046,7 @@ class AgentGatewayService:
         execution_contexts: list[Any] | None = None,
         latest_strategy: dict | None = None,
         macro_memory: list[dict] | None = None,
+        macro_snapshot: Any | None = None,
     ) -> dict[str, AgentRuntimeInput]:
         strategy_payload = latest_strategy["payload"] if latest_strategy and "payload" in latest_strategy else latest_strategy
         if strategy_payload is None and strategy is not None:
@@ -2065,6 +2066,12 @@ class AgentGatewayService:
         )
         rt_execution_contexts = self._compact_execution_contexts(compiled_execution_contexts, agent_role="risk_trader")
         chief_execution_contexts = self._compact_execution_contexts(compiled_execution_contexts, agent_role="crypto_chief")
+        macro_prices_payload: dict[str, Any] = {}
+        if macro_snapshot is not None:
+            if hasattr(macro_snapshot, "model_dump"):
+                macro_prices_payload = macro_snapshot.model_dump(mode="json")
+            elif isinstance(macro_snapshot, dict):
+                macro_prices_payload = macro_snapshot
         pm_payload = {
             "trace_id": trace_id,
             "market": pm_market_payload,
@@ -2074,6 +2081,7 @@ class AgentGatewayService:
             "news_events": self._compact_news_events(news_events, limit=8),
             "previous_strategy": strategy_payload or {},
             "macro_memory": list(macro_memory or []),
+            "macro_prices": macro_prices_payload,
             "pending_learning_directives": self._pending_learning_directives_payload("pm"),
         }
         return {
@@ -2095,6 +2103,7 @@ class AgentGatewayService:
                     "news_events": self._compact_news_events(news_events, limit=5),
                     "strategy": rt_strategy_payload,
                     "execution_contexts": rt_execution_contexts,
+                    "macro_prices": macro_prices_payload,
                     "pending_learning_directives": self._pending_learning_directives_payload("risk_trader"),
                 },
             ),
@@ -2109,6 +2118,7 @@ class AgentGatewayService:
                     "macro_memory": list(macro_memory or []),
                     "latest_strategy": mea_strategy_payload,
                     "recent_news_submissions": self._recent_mea_submissions_digest(limit=3),
+                    "macro_prices": macro_prices_payload,
                     "pending_learning_directives": self._pending_learning_directives_payload("macro_event_analyst"),
                 },
             ),

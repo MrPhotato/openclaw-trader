@@ -69,6 +69,15 @@ PY
     "news_events": [],
     "previous_strategy": {},
     "macro_memory": [],
+    "macro_prices": {
+      "captured_at_utc": "...",
+      "brent": {"price": 90.38, "is_market_open": false, "as_of_utc": "..."},
+      "wti": {...},
+      "dxy": {...},
+      "us10y_yield_pct": {...},
+      "btc_fear_greed": {"value": 26, "classification": "Fear"},
+      "btc_etf_activity": {"IBIT": {"close": ..., "volume": ..., "avg_volume_20d": ...}, ...}
+    },
     "trigger_context": {}
   }
 }
@@ -86,6 +95,7 @@ PY
 - `latest_pm_trigger_event` 记录本次运行经审计的 PM 唤醒原因。固定节奏、工作流唤醒、直接代理消息和手动刷新都应记录在此
 - `latest_risk_brake_event` 在系统刚刚在唤醒 PM 之前强制减仓或平仓时可能存在
 - `risk_brake_policy` 描述了常设台面规则：系统监控单仓位最大回撤和组合最大回撤，可以在 PM 被唤醒之前自动减仓或平仓
+- `macro_prices` 是 **宏观/大宗商品参考价的权威来源**：Brent/WTI/DXY/US10Y 来自 yfinance（周末/盘后会带 `is_market_open: false` 和较大 `staleness_seconds`），`btc_fear_greed` 每日 00 UTC 更新，`btc_etf_activity` 是 IBIT/FBTC/ARKB 的日成交量 + 20 日均量（不是真 flow 数字，只是机构端活跃度代理）。**禁止用 web_fetch / web_search 抓实时 Brent/WTI/DXY/10Y 价** —— 那些野站数据会翻烙饼，已有过 Rev375→376 那种回滚事故
 - `previous_strategy` 已使用规范策略字段名称，如：
   - `portfolio_thesis`
   - `portfolio_invalidation`

@@ -13,6 +13,8 @@ from ..news_events.service import NewsEventService
 from ..policy_risk.service import PolicyRiskService
 from ..quant_intelligence.service import QuantIntelligenceService
 from ..memory_assets.service import MemoryAssetsService
+from ..trade_gateway.macro_data.models import MacroSnapshot
+from ..trade_gateway.macro_data.service import MacroDataService
 from ..trade_gateway.market_data.models import DataIngestBundle
 from ..trade_gateway.market_data.service import DataIngestService
 
@@ -38,6 +40,7 @@ class RuntimeBridgeMonitor:
         policy_risk: PolicyRiskService,
         gateway: AgentGatewayService,
         config: RuntimeBridgeConfig | None = None,
+        macro_data: MacroDataService | None = None,
     ) -> None:
         self.memory_assets = memory_assets
         self.market_data = market_data
@@ -45,6 +48,7 @@ class RuntimeBridgeMonitor:
         self.quant_intelligence = quant_intelligence
         self.policy_risk = policy_risk
         self.gateway = gateway
+        self.macro_data = macro_data
         self.config = config or RuntimeBridgeConfig()
         self._stop = Event()
         self._thread: Thread | None = None
@@ -80,7 +84,14 @@ class RuntimeBridgeMonitor:
         force_sync_news: bool = False,
     ) -> dict[str, Any]:
         trace = trace_id or new_id("trace")
-        market, news, latest_strategy_asset, prior_risk_state, macro_memory = self._collect_primitives(
+        (
+            market,
+            news,
+            latest_strategy_asset,
+            prior_risk_state,
+            macro_memory,
+            macro_snapshot,
+        ) = self._collect_primitives(
             trace_id=trace,
             force_sync_news=force_sync_news,
         )
@@ -105,6 +116,7 @@ class RuntimeBridgeMonitor:
             news_events=news,
             latest_strategy=latest_strategy,
             macro_memory=macro_memory,
+            macro_snapshot=macro_snapshot,
         )
         now = datetime.now(UTC)
         payload = {
@@ -125,6 +137,7 @@ class RuntimeBridgeMonitor:
                 "policies": {coin: policy.model_dump(mode="json") for coin, policy in policies.items()},
                 "latest_strategy": latest_strategy or {},
                 "macro_memory": list(macro_memory or []),
+                "macro_prices": macro_snapshot.model_dump(mode="json") if macro_snapshot else {},
             },
             "runtime_inputs": {
                 role: {
@@ -158,19 +171,36 @@ class RuntimeBridgeMonitor:
         *,
         trace_id: str,
         force_sync_news: bool,
-    ) -> tuple[DataIngestBundle, list[NewsDigestEvent], dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]]]:
-        with ThreadPoolExecutor(max_workers=5) as executor:
+    ) -> tuple[
+        DataIngestBundle,
+        list[NewsDigestEvent],
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+        list[dict[str, Any]],
+        MacroSnapshot | None,
+    ]:
+        with ThreadPoolExecutor(max_workers=6) as executor:
             market_future = executor.submit(self.market_data.get_market_overview, trace_id=trace_id)
             news_future = executor.submit(self.news_events.get_latest_news_batch, force_sync=force_sync_news)
             strategy_future = executor.submit(self.memory_assets.get_latest_strategy)
             risk_state_future = executor.submit(self.memory_assets.get_asset, "risk_brake_state")
             macro_memory_future = executor.submit(self.memory_assets.get_macro_memory)
+            macro_future = executor.submit(self._safe_collect_macro_snapshot)
             market = market_future.result()
             news = news_future.result()
             latest_strategy_asset = strategy_future.result()
             prior_risk_state = risk_state_future.result()
             macro_memory = macro_memory_future.result()
-        return market, news, latest_strategy_asset, prior_risk_state, macro_memory
+            macro_snapshot = macro_future.result()
+        return market, news, latest_strategy_asset, prior_risk_state, macro_memory, macro_snapshot
+
+    def _safe_collect_macro_snapshot(self) -> MacroSnapshot | None:
+        if self.macro_data is None:
+            return None
+        try:
+            return self.macro_data.collect_snapshot()
+        except Exception:
+            return None
 
     def _persist_portfolio_snapshot(self, *, trace_id: str, market: DataIngestBundle, reason: str) -> None:
         portfolio_payload = market.portfolio.model_dump(mode="json")

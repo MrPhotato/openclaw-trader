@@ -19,6 +19,7 @@ MEA 应从 `agent_gateway` 拉取一个 `mea` 运行时包，然后读取：
   - `submission_id`, `generated_at_utc`, `event_count`
   - `events[]` — 每条事件的 `event_id`, `category`, `impact_level`, 截断的 `summary`
   - 用途：判断当前批次是否与近期提交重复，做跨轮去重
+- `macro_prices` — 宏观/大宗商品参考价（Brent/WTI/DXY/US10Y + F&G + BTC ETF 活跃度）。判断新闻事件是否已被价格 price in 时用。**禁止 `web_fetch` 抓野站实时大宗价** —— 它们会滚动互相矛盾
 - `trigger_context` — 本次唤醒的元信息
 - `pending_learning_directive` — Chief 下发的未落实学习指令（如有）
 - 租约元数据：

@@ -387,6 +387,16 @@ class OrchestratorSettings(BaseModel):
     agent_wake_openclaw_bin: str = "openclaw"
     agent_wake_subprocess_timeout_seconds: int = 15
     agent_wake_rules: list[dict[str, object]] = Field(default_factory=list)
+    # ------------------------------------------------------------------
+    # Macro data: non-crypto reference prices injected into runtime_pack
+    # (Brent/WTI/DXY/10Y + BTC ETF activity + Fear & Greed). Fetched from
+    # yfinance + alternative.me, cached in-process, refreshed by
+    # RuntimeBridgeMonitor. See modules/trade_gateway/macro_data/.
+    # ------------------------------------------------------------------
+    macro_data_enabled: bool = False
+    macro_data_refresh_interval_seconds: int = 900
+    macro_data_http_timeout_seconds: int = 10
+    macro_data_etf_tickers: list[str] = Field(default_factory=lambda: ["IBIT", "FBTC", "ARKB"])
 
 
 class StrategySettings(BaseModel):

@@ -22,6 +22,12 @@ from ..modules.replay_frontend import ReplayFrontendService
 from ..modules.memory_assets import MemoryAssetsRepository, MemoryAssetsService
 from ..modules.trade_gateway.execution import ExecutionGatewayService
 from ..modules.trade_gateway.execution.adapters import CoinbaseIntxBroker
+from ..modules.trade_gateway.macro_data import MacroDataService
+from ..modules.trade_gateway.macro_data.adapters import (
+    AlternativeMeFearGreedProvider,
+    YFinanceMacroProvider,
+)
+from ..modules.trade_gateway.macro_data.service import MacroDataConfig
 from ..modules.trade_gateway.market_data import DataIngestService
 from ..modules.trade_gateway.market_data.adapters import CoinbaseIntxMarketDataProvider
 from ..modules.workflow_orchestrator import WorkflowOrchestratorService
@@ -49,6 +55,7 @@ class ServiceContainer:
     event_bus: EventBus
     memory_assets: MemoryAssetsService
     market_data: DataIngestService
+    macro_data: MacroDataService
     news_events: NewsEventService
     quant_intelligence: QuantIntelligenceService
     policy_risk: PolicyRiskService
@@ -178,6 +185,23 @@ def build_container() -> ServiceContainer:
         reason="bootstrap_v2_quant_reference",
     )
     market_data = DataIngestService(CoinbaseIntxMarketDataProvider())
+    macro_data_enabled = bool(getattr(settings.orchestrator, "macro_data_enabled", False))
+    macro_data_config = MacroDataConfig(
+        enabled=macro_data_enabled,
+        refresh_interval_seconds=int(getattr(settings.orchestrator, "macro_data_refresh_interval_seconds", 900)),
+        etf_tickers=tuple(
+            str(t).strip().upper()
+            for t in list(getattr(settings.orchestrator, "macro_data_etf_tickers", []) or [])
+            if str(t).strip()
+        )
+        or ("IBIT", "FBTC", "ARKB"),
+    )
+    macro_http_timeout = float(getattr(settings.orchestrator, "macro_data_http_timeout_seconds", 10))
+    macro_data = MacroDataService(
+        price_provider=(YFinanceMacroProvider(timeout_seconds=macro_http_timeout) if macro_data_enabled else None),
+        sentiment_provider=(AlternativeMeFearGreedProvider(timeout_seconds=macro_http_timeout) if macro_data_enabled else None),
+        config=macro_data_config,
+    )
     news_events = NewsEventService(DirectPollingNewsProvider())
     quant_intelligence = QuantIntelligenceService(
         DirectArtifactQuantProvider(retrain_provider=DirectQuantTrainer())
@@ -237,6 +261,7 @@ def build_container() -> ServiceContainer:
             quant_intelligence=quant_intelligence,
             policy_risk=policy_risk,
             gateway=agent_gateway,
+            macro_data=macro_data,
             config=RuntimeBridgeConfig(
                 enabled=True,
                 refresh_interval_seconds=int(settings.orchestrator.runtime_bridge_refresh_interval_seconds),
@@ -379,6 +404,7 @@ def build_container() -> ServiceContainer:
         event_bus=event_bus,
         memory_assets=memory_assets,
         market_data=market_data,
+        macro_data=macro_data,
         news_events=news_events,
         quant_intelligence=quant_intelligence,
         policy_risk=policy_risk,

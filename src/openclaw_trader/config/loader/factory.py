@@ -190,6 +190,18 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
                 dict(item) if isinstance(item, dict) else {}
                 for item in list(dispatch_payload.get("agent_wake_rules") or [])
             ],
+            macro_data_enabled=bool(dispatch_payload.get("macro_data_enabled", False)),
+            macro_data_refresh_interval_seconds=int(
+                dispatch_payload.get("macro_data_refresh_interval_seconds", 900)
+            ),
+            macro_data_http_timeout_seconds=int(
+                dispatch_payload.get("macro_data_http_timeout_seconds", 10)
+            ),
+            macro_data_etf_tickers=[
+                str(item).strip().upper()
+                for item in list(dispatch_payload.get("macro_data_etf_tickers") or [])
+                if str(item).strip()
+            ] or ["IBIT", "FBTC", "ARKB"],
         ),
         strategy=StrategySettings.model_validate(strategy_payload),
         workflow=WorkflowSettings(
