@@ -62,8 +62,9 @@ class PMRecheckMonitor:
         due = self.memory_assets.get_due_scheduled_rechecks(now=current)
         current_key = self._current_strategy_key()
         due_keys = [self._recheck_key(item) for item in due]
+        state_delta: dict[str, Any] = {}
         if due:
-            decision = self._dispatch_due_recheck(
+            decision, state_delta = self._dispatch_due_recheck(
                 due_item=due[0],
                 state=state,
                 strategy_key=current_key,
@@ -71,7 +72,12 @@ class PMRecheckMonitor:
             )
         else:
             decision = {"triggered": False, "scanned_at_utc": current.isoformat()}
-        updated_state = dict(state)
+        # Single authoritative write at the end of the scan — merges
+        # scan metadata with anything the dispatcher wants to persist
+        # (e.g. `completed_recheck_keys` for dedupe). Doing two writes
+        # caused the stale-snapshot-overwrites-dispatcher-state race
+        # we saw in the 08:00 UTC scheduled_recheck storm.
+        updated_state = {**dict(state), **state_delta}
         updated_state["last_scan_at_utc"] = current.isoformat()
         if current_key:
             updated_state["last_seen_strategy_key"] = current_key
@@ -94,17 +100,20 @@ class PMRecheckMonitor:
         state: dict[str, Any],
         strategy_key: str | None,
         now: datetime,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         recheck_key = self._recheck_key(due_item)
         completed = {str(item) for item in list(state.get("completed_recheck_keys") or []) if str(item).strip()}
         if recheck_key in completed:
-            return {
-                "triggered": False,
-                "reason": "scheduled_recheck",
-                "scheduled_recheck_key": recheck_key,
-                "skipped_reason": "already_dispatched",
-                "scanned_at_utc": now.isoformat(),
-            }
+            return (
+                {
+                    "triggered": False,
+                    "reason": "scheduled_recheck",
+                    "scheduled_recheck_key": recheck_key,
+                    "skipped_reason": "already_dispatched",
+                    "scanned_at_utc": now.isoformat(),
+                },
+                {},
+            )
 
         # Dispatch into PM's main session (not an isolated cron run). We
         # intentionally do NOT gate on "PM already running" any more: if PM
@@ -162,20 +171,19 @@ class PMRecheckMonitor:
             payload=payload,
             metadata={"trigger_type": "scheduled_recheck"},
         )
+        state_delta: dict[str, Any] = {}
         if dispatched:
-            completed = list(completed)
-            completed.append(recheck_key)
-            self._save_state(
-                {
-                    **state,
-                    "last_trigger_at_utc": now.isoformat(),
-                    "completed_recheck_keys": completed[-64:],
-                    "last_pm_trigger_event_id": payload["event_id"],
-                    "last_seen_strategy_key": strategy_key,
-                }
-            )
+            completed_list = list(completed)
+            completed_list.append(recheck_key)
+            state_delta = {
+                "last_trigger_at_utc": now.isoformat(),
+                "completed_recheck_keys": completed_list[-64:],
+                "last_pm_trigger_event_id": payload["event_id"],
+            }
+            if strategy_key:
+                state_delta["last_seen_strategy_key"] = strategy_key
         payload["triggered"] = True
-        return payload
+        return payload, state_delta
 
     def _current_strategy_key(self) -> str | None:
         latest_strategy = self.memory_assets.get_latest_strategy()

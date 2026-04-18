@@ -509,6 +509,59 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_pm_recheck_back_to_back_scan_does_not_redispatch_same_key(self) -> None:
+        # Regression: the scan_once() end-of-scan _save_state used to overwrite
+        # the dispatcher's `completed_recheck_keys` write, so the dedupe never
+        # actually persisted. Observed in prod at 2026-04-18 08:00 UTC where
+        # the same recheck_key got dispatched 6 times in 3 minutes.
+        harness = build_test_harness()
+        try:
+            now = datetime(2026, 4, 10, 3, 0, tzinfo=UTC)
+            _seed_strategy(harness, targets=[])
+            latest = harness.container.memory_assets.get_latest_strategy()
+            payload = dict((latest or {}).get("payload") or {})
+            recheck = {
+                "recheck_at_utc": (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+                "scope": "portfolio",
+                "reason": "Asia session recheck",
+            }
+            payload["scheduled_rechecks"] = [recheck]
+            harness.container.memory_assets.save_strategy(payload["strategy_id"], "trace-seed-strategy", payload)
+            harness.container.memory_assets.save_asset(
+                asset_type="strategy",
+                asset_id="strategy-current",
+                payload=payload,
+                trace_id="trace-seed-strategy",
+                actor_role="pm",
+            )
+            monitor, dispatcher = _build_pm_recheck_monitor(harness)
+
+            first = monitor.scan_once(now=now)
+            self.assertTrue(first["dispatched"])
+            self.assertEqual(len(dispatcher.sends), 1)
+
+            # State must persist `completed_recheck_keys` between scans.
+            state_asset = harness.container.memory_assets.get_asset("pm_recheck_state")
+            state_payload = dict((state_asset or {}).get("payload") or {})
+            self.assertIn("completed_recheck_keys", state_payload)
+            self.assertEqual(len(state_payload["completed_recheck_keys"]), 1)
+
+            # Re-scan 40 seconds later (well inside the dispatcher process
+            # lifetime). Must short-circuit as already_dispatched rather than
+            # fire again.
+            second = monitor.scan_once(now=now + timedelta(seconds=40))
+            self.assertFalse(second["triggered"])
+            self.assertEqual(second["skipped_reason"], "already_dispatched")
+            self.assertEqual(len(dispatcher.sends), 1)
+
+            # A third scan even further out still dedupes.
+            third = monitor.scan_once(now=now + timedelta(minutes=5))
+            self.assertFalse(third["triggered"])
+            self.assertEqual(third["skipped_reason"], "already_dispatched")
+            self.assertEqual(len(dispatcher.sends), 1)
+        finally:
+            harness.cleanup()
+
     def test_retro_prep_monitor_prepares_case_and_briefs_before_chief_pull(self) -> None:
         harness = build_test_harness()
         try:
