@@ -1697,6 +1697,56 @@ class AgentGatewayService:
                 response["lock_mode"] = "reduce_only"
             elif state_name == "exit":
                 response["lock_mode"] = "flat_only"
+        # Reconcile the (immutable) event record against the live
+        # `risk_brake_state` asset. The event is a historical snapshot:
+        # once a PM strategy revision releases the lock via
+        # _release_locks_for_strategy, the event's lock_mode/state would
+        # otherwise keep broadcasting reduce_only to RT for the full
+        # 120-minute window, causing RT→PM→RT loops (observed 11:13-11:17).
+        return self._reconcile_risk_brake_event_lock_status(response)
+
+    def _reconcile_risk_brake_event_lock_status(
+        self, response: dict[str, Any]
+    ) -> dict[str, Any]:
+        scope = str(response.get("scope") or "").strip().lower()
+        event_lock_mode = str(response.get("lock_mode") or "").strip().lower() or None
+        if event_lock_mode not in {"reduce_only", "flat_only"}:
+            response["lock_status"] = "none"
+            return response
+        try:
+            state_asset = self.memory_assets.get_asset("risk_brake_state")
+        except Exception:
+            state_asset = None
+        if state_asset is None:
+            response["lock_status"] = "unknown"
+            return response
+        state_payload = dict(state_asset.get("payload") or {})
+        still_locked = False
+        if scope == "portfolio":
+            portfolio_lock = dict(state_payload.get("portfolio_lock") or {})
+            still_locked = bool(portfolio_lock.get("mode"))
+        elif scope == "position":
+            position_locks = {
+                str(k).upper(): dict(v or {})
+                for k, v in (state_payload.get("position_locks") or {}).items()
+            }
+            event_coins = [str(c or "").upper() for c in (response.get("coins") or [])]
+            active = [c for c in event_coins if position_locks.get(c, {}).get("mode")]
+            if active:
+                response["active_locks_by_coin"] = active
+            still_locked = bool(active)
+        else:
+            response["lock_status"] = "unknown"
+            return response
+        if still_locked:
+            response["lock_status"] = "active"
+            return response
+        response["lock_status"] = "released"
+        response["lock_mode"] = None
+        response["released_at_utc"] = state_payload.get("last_scan_at_utc")
+        # Shadow the historical state label with "released" so decision
+        # digests don't keep showing `reduce`/`exit` after the lock lifted.
+        response["effective_state"] = "released"
         return response
 
     def _build_rt_decision_digest(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1801,8 +1851,12 @@ class AgentGatewayService:
                 "trigger_type": trigger_context.get("trigger_type"),
                 "trigger_reason": latest_trigger_event.get("reason"),
                 "trigger_severity": latest_trigger_event.get("severity"),
-                "risk_brake_state": latest_risk_brake_event.get("state"),
+                "risk_brake_state": (
+                    latest_risk_brake_event.get("effective_state")
+                    or latest_risk_brake_event.get("state")
+                ),
                 "risk_brake_scope": latest_risk_brake_event.get("scope"),
+                "risk_brake_lock_status": latest_risk_brake_event.get("lock_status"),
                 "risk_lock_mode": lock_mode,
                 "coins": list(latest_trigger_event.get("coins") or latest_risk_brake_event.get("coins") or []),
             },

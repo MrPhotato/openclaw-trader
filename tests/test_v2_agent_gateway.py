@@ -482,6 +482,98 @@ class AgentGatewayServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_latest_risk_brake_event_marks_lock_released_when_state_cleared(self) -> None:
+        # Regression: PM strategy revision cleared position_locks in
+        # risk_brake_state, but the (immutable) risk_brake_event asset still
+        # carried lock_mode=reduce_only. RT kept seeing reduce_only for the
+        # full 120-minute window and looped asking PM to re-release. Observed
+        # 2026-04-18 11:13-11:17 with 3 back-to-back Rev382/383/384 strategies
+        # whose change_summary literally said "释放 reduce_only 锁".
+        harness = build_test_harness()
+        try:
+            harness.container.memory_assets.save_asset(
+                asset_type="risk_brake_event",
+                actor_role="system",
+                payload={
+                    "event_id": "risk-brake-lock-released",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "scope": "position",
+                    "state": "reduce",
+                    "coins": ["ETH"],
+                    "lock_mode": "reduce_only",
+                    "portfolio_risk_state": {"state": "observe"},
+                    "position_risk_state_by_coin": {"ETH": {"state": "reduce"}},
+                },
+            )
+            harness.container.memory_assets.save_asset(
+                asset_type="risk_brake_state",
+                asset_id="risk_brake_state",
+                actor_role="system",
+                payload={
+                    "portfolio_lock": {},
+                    "position_locks": {},  # PM Rev revision released the ETH lock
+                    "last_scan_at_utc": "2026-04-18T11:14:00+00:00",
+                    "last_position_state_by_coin": {"ETH": "reduce"},
+                },
+            )
+
+            rt_pack = harness.container.agent_gateway.pull_rt_runtime_input()
+
+            evt = rt_pack.payload["latest_risk_brake_event"]
+            self.assertEqual(evt["lock_status"], "released")
+            self.assertIsNone(evt["lock_mode"])
+            self.assertEqual(evt["released_at_utc"], "2026-04-18T11:14:00+00:00")
+            self.assertEqual(evt["effective_state"], "released")
+            # Downstream digest surface should show released, not stale reduce.
+            digest_trigger = rt_pack.payload["rt_decision_digest"]["trigger_summary"]
+            self.assertEqual(digest_trigger["risk_brake_state"], "released")
+            self.assertEqual(digest_trigger["risk_brake_lock_status"], "released")
+            # And the top-level risk_lock_mode must NOT come back as reduce_only.
+            self.assertNotEqual(digest_trigger["risk_lock_mode"], "reduce_only")
+        finally:
+            harness.cleanup()
+
+    def test_latest_risk_brake_event_keeps_active_lock_when_state_still_holds(self) -> None:
+        harness = build_test_harness()
+        try:
+            harness.container.memory_assets.save_asset(
+                asset_type="risk_brake_event",
+                actor_role="system",
+                payload={
+                    "event_id": "risk-brake-still-active",
+                    "detected_at_utc": datetime.now(UTC).isoformat(),
+                    "scope": "position",
+                    "state": "reduce",
+                    "coins": ["ETH"],
+                    "lock_mode": "reduce_only",
+                },
+            )
+            harness.container.memory_assets.save_asset(
+                asset_type="risk_brake_state",
+                asset_id="risk_brake_state",
+                actor_role="system",
+                payload={
+                    "portfolio_lock": {},
+                    "position_locks": {
+                        "ETH": {
+                            "mode": "reduce_only",
+                            "strategy_key": "strategy_x:1",
+                            "triggered_at_utc": "2026-04-18T09:24:00+00:00",
+                        }
+                    },
+                    "last_scan_at_utc": "2026-04-18T11:14:00+00:00",
+                },
+            )
+
+            rt_pack = harness.container.agent_gateway.pull_rt_runtime_input()
+            evt = rt_pack.payload["latest_risk_brake_event"]
+            self.assertEqual(evt["lock_status"], "active")
+            self.assertEqual(evt["lock_mode"], "reduce_only")
+            self.assertIn("ETH", evt.get("active_locks_by_coin") or [])
+            self.assertNotIn("effective_state", evt)
+        finally:
+            harness.cleanup()
+
     def test_pull_pm_runtime_input_uses_latest_pm_trigger_event_for_trigger_type(self) -> None:
         harness = build_test_harness()
         try:
