@@ -177,7 +177,6 @@ def walk_forward_predictions(
                 "lgbm_weight": lgbm_weight,
             }
         )
-        start_block = end_block
     if not rows:
         holdout_start_block = max(1, min(len(unique_times) - 1, int(len(unique_times) * 0.8)))
         holdout_start_ts = int(unique_times[holdout_start_block])
