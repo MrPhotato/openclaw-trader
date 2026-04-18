@@ -33,7 +33,7 @@ runtime pack 现在直接带给你：
 ## 工作流
 1. **读 `your_recent_impact` 做必要性检查**（见下方"必要性检查"段）。
 2. 读取 [runtime-inputs.md](references/runtime-inputs.md)。
-3. 当批次模糊或影响重大时，按照 [search-playbook.md](references/search-playbook.md) 执行。
+3. 当批次模糊或影响重大时，按照 [search-playbook.md](references/search-playbook.md) 执行。该 playbook 的第一步是调用 **[digital-oracle](../digital-oracle/SKILL.md)**（14 个免费市场数据 API 并发 gather）先做市场定价反查，确认新闻是"新事"还是"市场已 price in 的旧闻"；这一步常常能直接把一个看似 high impact 的事件降级。
 4. 按照 [formal-output.md](references/formal-output.md) 输出正式 JSON，并将当前 `input_id` 带回提交桥接。
 
 ## 必要性检查（新增条目 / sessions_send 之前必须过一遍）

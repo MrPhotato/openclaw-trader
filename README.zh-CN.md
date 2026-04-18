@@ -45,6 +45,7 @@
 - [tests](tests) — 后端和集成测试
 - [scripts](scripts) — 本地辅助脚本
 - [docs](docs) — 维护文档
+- [skills](skills) — agent skill 包（PM / RT / MEA / Chief）。可能混有 vendored 第三方 skill（如 [skills/digital-oracle](skills/digital-oracle) — MIT, 源自 [komako-workshop/digital-oracle](https://github.com/komako-workshop/digital-oracle)）；每个第三方 skill 自带 `LICENSE` 与署名。
 
 ## 环境要求
 

@@ -45,6 +45,7 @@ Do not collapse those two zones unless you are intentionally redesigning the sec
 - [tests](tests) — backend and integration tests
 - [scripts](scripts) — local helper scripts
 - [docs](docs) — maintainer documentation
+- [skills](skills) — agent skill packs (PM / RT / MEA / Chief). May also contain vendored third-party skills (e.g. [skills/digital-oracle](skills/digital-oracle) — MIT, [komako-workshop/digital-oracle](https://github.com/komako-workshop/digital-oracle)); each third-party skill ships its own `LICENSE` and attribution.
 
 ## Requirements
 
