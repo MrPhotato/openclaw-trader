@@ -168,9 +168,9 @@ npm run test
 
 补充参考：
 
-- [docs/perps-convergence.md](docs/perps-convergence.md)
-- [docs/prelaunch-readiness.md](docs/prelaunch-readiness.md)
-- [docs/v2-dev-comparison.md](docs/v2-dev-comparison.md)
+- [docs/perps-convergence.md](docs/perps-convergence.md) — legacy / active 路径清单，含 2026-04 SOL 退役
+- [docs/prelaunch-readiness.md](docs/prelaunch-readiness.md) — 上线后 gap 跟踪（原上线前 P0/P1/P2 清单）
+- [docs/v2-dev-comparison.md](docs/v2-dev-comparison.md) — 与 `codex/dev` 参考运行时的差异
 
 ## 安全与公开说明
 

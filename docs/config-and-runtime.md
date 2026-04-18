@@ -15,18 +15,18 @@ The repository only contains code, bootstrap defaults, scripts, and documentatio
 
 ## Config Precedence
 
-Runtime config is loaded from local YAML files through `load_runtime_config()`.
+Runtime config is loaded from local YAML files through `load_system_settings()` in `src/openclaw_trader/config/loader/`.
 
 Precedence is:
 
 1. Local runtime YAML in `~/.openclaw-trader/config/*.yaml`
-2. Repository defaults defined in `src/openclaw_trader/config.py`
-3. Bootstrap seed values in `src/openclaw_trader/bootstrap.py` when missing config files are first created
+2. Pydantic model defaults declared in `src/openclaw_trader/config/models.py`
+3. Bootstrap seed values written when a fresh `~/.openclaw-trader/config/` directory is first initialised
 
 Implication:
 
-- Editing local YAML changes live behavior immediately on the next config load
-- Editing repository defaults changes the baseline for fresh environments and the fallback behavior when local keys are omitted
+- Editing local YAML changes live behavior on the next service restart (no hot reload — see operations.md)
+- Editing `config/models.py` defaults changes the baseline for fresh environments and the fallback behavior when local keys are omitted
 
 ## Key Config Files
 
@@ -38,8 +38,8 @@ Implication:
 
 ### `perps.yaml`
 
-- active exchange adapter
-- tracked coins
+- active exchange adapter (Coinbase INTX)
+- tracked coins — live baseline is `BTC` and `ETH` (SOL retired 2026-04-17, see `perps-convergence.md`)
 - exposure-budget limits
 - max leverage
 
@@ -59,10 +59,17 @@ Implication:
 
 ### `dispatch.yaml`
 
-- dispatcher scan interval
-- daily report schedule
-- reply channel and reply target
-- agent request timeouts
+Controls the Workflow Orchestrator's three-layer scheduler (see [dispatch-and-sessions.md](dispatch-and-sessions.md) for the architecture). Key blocks:
+
+- **RuntimeBridgeMonitor** — `runtime_bridge_enabled`, `runtime_bridge_refresh_interval_seconds`, `runtime_bridge_max_age_seconds`. Background refresh of the shared runtime bundle (market + news + forecasts + macro_prices).
+- **RTTriggerMonitor** — `rt_event_trigger_*`. Condition-driven RT wakes (strategy revisions, headline risk, exposure drift, heartbeat, execution follow-up).
+- **PMRecheckMonitor** — `pm_scheduled_recheck_*`. Scans PM's `scheduled_rechecks` from the latest strategy and dispatches them into `agent:pm:main`.
+- **RiskBrakeMonitor** — `risk_brake_*`. Drawdown-triggered reductions/exits plus PM wake.
+- **RetroPrepMonitor** — `retro_prep_*`. Prepares briefs before waking Chief at the retro hour.
+- **AgentWakeMonitor** (Layer 3, generic rule engine) — `agent_wake_enabled`, `agent_wake_scan_interval_seconds`, `agent_wake_rules` list. Each rule declares `agent`, `target_session_key`, `message_source.job_id`, `fire_when_any_of` predicates (`cron_time` and `max_silence_since`), and `cooldown_minutes`. Live baseline rule is `pm_main_heartbeat` — 01 UTC daily + 12 h silence fallback on `last_strategy_submit`.
+- **MacroDataService** — `macro_data_enabled`, `macro_data_refresh_interval_seconds`, `macro_data_http_timeout_seconds`, `macro_data_etf_tickers`. Feeds Brent / WTI / DXY / US10Y via yfinance, Fear & Greed via alternative.me, and BTC ETF activity (IBIT/FBTC/ARKB volume + 20-day average) into `runtime_pack.macro_prices`.
+- Reply channel (`reply_channel`, `reply_to`, `reply_account_id`) — owner-facing notification routing.
+- Agent timeouts, openclaw binary path.
 
 ### `workflow.yaml`
 

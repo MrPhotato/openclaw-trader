@@ -168,9 +168,9 @@ Recommended reading order for a new maintainer:
 
 Additional references:
 
-- [docs/perps-convergence.md](docs/perps-convergence.md)
-- [docs/prelaunch-readiness.md](docs/prelaunch-readiness.md)
-- [docs/v2-dev-comparison.md](docs/v2-dev-comparison.md)
+- [docs/perps-convergence.md](docs/perps-convergence.md) — legacy-vs-active path inventory, 2026-04 SOL retirement
+- [docs/prelaunch-readiness.md](docs/prelaunch-readiness.md) — post-launch gap tracker (formerly pre-launch P0/P1/P2 checklist)
+- [docs/v2-dev-comparison.md](docs/v2-dev-comparison.md) — diff vs the `codex/dev` reference runtime
 
 ## Security and Publishing Notes
 
