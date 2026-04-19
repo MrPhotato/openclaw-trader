@@ -294,10 +294,19 @@ class AgentGatewayService:
         *,
         input_id: str,
         payload: dict[str, Any],
-        live: bool = False,
+        live: bool | None = None,
         max_notional_usd: float | None = None,
     ) -> dict[str, Any]:
         lease = self._validate_runtime_lease(input_id=input_id, agent_role="risk_trader")
+        # `live=None` means "caller didn't specify" — fall back to the
+        # `execution_submit_defaults.live` we put on the runtime pack at
+        # build time. Production packs default to live=True; tests that
+        # build packs through the same harness inherit the same default.
+        # An explicit live=False (e.g. dry-run from a script) is honored.
+        # The broker's own `live_enabled` gate still applies downstream.
+        if live is None:
+            defaults = dict(lease.pack.payload.get("execution_submit_defaults") or {})
+            live = bool(defaults.get("live", False))
         envelope = self.validate_submission(
             submission_kind="execution",
             agent_role="risk_trader",

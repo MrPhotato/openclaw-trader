@@ -1297,6 +1297,43 @@ class AgentGatewayServiceTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_submit_execution_uses_runtime_pack_live_default_when_caller_omits_it(self) -> None:
+        # Regression: when RT submits an execution body without an explicit
+        # `live` field (the LLM occasionally drops it), the gateway must
+        # fall back to the pack's `execution_submit_defaults.live` (True
+        # in production) instead of silently dry-running real-money
+        # decisions. Without this, simulated_execution rows leaked into
+        # the dashboard and looked like real trades on a flat account.
+        from .helpers_v2 import build_test_harness
+
+        harness = build_test_harness()
+        try:
+            pack = harness.container.agent_gateway.pull_rt_runtime_input(trigger_type="cadence")
+            self.assertTrue(pack.payload.get("execution_submit_defaults", {}).get("live"))
+            result = harness.container.agent_gateway.submit_execution(
+                input_id=pack.input_id,
+                payload={
+                    "decision_id": "decision-default-live-1",
+                    "generated_at_utc": "2026-03-22T00:00:00Z",
+                    "trigger_type": "cadence",
+                    "decisions": [
+                        {
+                            "symbol": "BTC",
+                            "action": "hold",
+                            "direction": "long",
+                            "reason": "keep current position unchanged",
+                            "priority": 1,
+                            "urgency": "normal",
+                            "valid_for_minutes": 10,
+                        }
+                    ],
+                },
+                # No `live=...` — gateway must resolve from pack defaults.
+            )
+            self.assertTrue(result["live"])
+        finally:
+            harness.cleanup()
+
     def test_submit_execution_accepts_hold_as_noop(self) -> None:
         from .helpers_v2 import build_test_harness
 

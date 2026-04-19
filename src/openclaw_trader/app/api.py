@@ -27,7 +27,14 @@ class AgentPullRequest(BaseModel):
 class AgentSubmitRequest(BaseModel):
     input_id: str
     payload: dict = {}
-    live: bool = False
+    # `None` ≠ False here. None means "the caller didn't say", in which
+    # case the agent_gateway falls back to whatever `execution_submit_
+    # defaults.live` was on the runtime pack (True in production). The
+    # old `False` default silently dry-ran any submission that omitted
+    # the field — RT (the LLM) sometimes did, and the resulting
+    # simulated_execution rows looked indistinguishable from real
+    # trades on the dashboard.
+    live: bool | None = None
     max_notional_usd: float | None = None
 
 
@@ -42,7 +49,8 @@ def _normalize_agent_submit_body(raw: dict) -> AgentSubmitRequest:
     request = {
         "input_id": raw.get("input_id"),
         "payload": payload,
-        "live": raw.get("live", False),
+        # Distinguish absent vs explicit-False — see AgentSubmitRequest.
+        "live": raw.get("live"),
         "max_notional_usd": raw.get("max_notional_usd"),
     }
     return AgentSubmitRequest.model_validate(request)
