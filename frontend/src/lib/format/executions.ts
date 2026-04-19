@@ -59,12 +59,37 @@ export function tradeHeadline(asset: AssetRecord): string {
   return `${tradeVerb(asset)} ${coin}`;
 }
 
+// Backend tags every result row with `success: true` even when nothing
+// reached the exchange (the executor's dry-run path returns success=True
+// with message="simulated_execution"; reduce/close planners that find no
+// position to act on return success=True with message="no_position_to_*").
+// Treating those as real trades misleads the user — they show up in the
+// "已执行" feed and (before this filter) on the K-line as phantom pins.
+// "Real" success requires success=True PLUS a message that means the
+// order actually went out: "submitted" from the live broker, or a fill
+// recorded in the payload (covers older success rows from before the
+// message field was standardised).
 export function executionRecordSuccess(asset: AssetRecord): boolean {
-  return Boolean(asset.payload["success"]);
+  if (asset.payload["success"] !== true) return false;
+  const message = String(asset.payload["message"] ?? "").toLowerCase();
+  if (message === "simulated_execution") return false;
+  if (message.startsWith("no_position_to_")) return false;
+  return true;
 }
 
 export function executionRecordStatus(asset: AssetRecord): string {
+  const message = String(asset.payload["message"] ?? "").toLowerCase();
   if (asset.payload["success"] === true) {
+    if (message === "simulated_execution") {
+      return "未执行（模拟）";
+    }
+    if (message.startsWith("no_position_to_")) {
+      return "未执行（无仓位）";
+    }
+    const fills = Array.isArray(asset.payload["fills"]) ? asset.payload["fills"] : [];
+    if (fills.length === 0) {
+      return "已下单";
+    }
     return "已执行";
   }
   if (asset.payload["message"]) {
