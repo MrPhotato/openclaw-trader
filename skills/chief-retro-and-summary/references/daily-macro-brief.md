@@ -36,8 +36,10 @@ pack 顶层字段：
 ```bash
 python3 /Users/chenzian/openclaw-trader/scripts/digital_oracle_query.py \
   --preset chief_regime_read \
-  --output /tmp/oracle_chief.json
+  > /tmp/oracle_chief.json
 ```
+
+Wrapper 把结构化 JSON 打到 stdout——用 shell redirect `>`（不是 `--output`，wrapper 没这个 flag）。
 
 preset 应覆盖：Deribit BTC/ETH 期限结构、CFTC COT（BTC/原油/黄金/SPX）、CME FedWatch、US Treasury 曲线、F&G。具体 providers 清单见 `/Users/chenzian/openclaw-trader/skills/digital-oracle/references/providers.md`。
 

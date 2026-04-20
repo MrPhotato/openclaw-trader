@@ -176,6 +176,25 @@ PRESETS: dict[str, tuple[str, list[str]]] = {
             "us_yield_curve",
         ],
     ),
+    "chief_regime_read": (
+        "Chief daily macro brief preset (spec 014). Combines crypto term "
+        "structure + rates / Fed path + institutional positioning across "
+        "crude/gold/SPX + sentiment. Heavier preset (~3-5s). Use from "
+        "Chief's daily_macro_brief workflow only. Note: CFTC doesn't publish "
+        "BTC COT in this provider — derive BTC positioning from btc_basis + "
+        "oi + fng instead.",
+        [
+            "btc_basis",
+            "eth_basis",
+            "crypto_spot",
+            "us_yield_curve",
+            "fedwatch",
+            "fng",
+            "crude_cot",
+            "gold_cot",
+            "sp500_cot",
+        ],
+    ),
     "recession_risk": (
         "Macro cycle read: curve + Fed path + institutional positioning + "
         "recession contracts. Use for macro data surprises (CPI, PCE, NFP, GDP).",
