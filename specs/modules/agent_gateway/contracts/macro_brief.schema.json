@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "macro_brief submission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "valid_until_utc",
+    "regime_tags",
+    "narrative",
+    "pm_directives",
+    "monitoring_triggers",
+    "prior_brief_review"
+  ],
+  "properties": {
+    "valid_until_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "当 brief 不再被认为是新鲜决策输入的截止 UTC 时间。默认建议 generated_at + 36h。"
+    },
+    "wake_mode": {
+      "type": "string",
+      "enum": ["daily_macro_brief", "event_driven_macro_brief"],
+      "default": "daily_macro_brief"
+    },
+    "regime_tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "usd_trend": {"type": ["string", "null"]},
+        "real_rates": {"type": ["string", "null"]},
+        "crypto_carry_btc": {"type": ["string", "null"]},
+        "crypto_carry_eth": {"type": ["string", "null"]},
+        "crypto_iv_regime": {"type": ["string", "null"]},
+        "btc_positioning": {"type": ["string", "null"]},
+        "eth_positioning": {"type": ["string", "null"]},
+        "fed_next_meeting_skew": {"type": ["string", "null"]},
+        "sentiment_bucket": {"type": ["string", "null"]},
+        "regime_summary": {"type": ["string", "null"]}
+      }
+    },
+    "narrative": {
+      "type": "string",
+      "minLength": 1,
+      "description": "300–500 字自然语言 regime 叙事，指出现在市场在定价什么、为什么这样判断、下一步看什么。"
+    },
+    "pm_directives": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "给 PM 的方向性指示；每条一句话可执行。"
+    },
+    "monitoring_triggers": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "会触发 regime 重新评估的具体信号变化（价格位、期限结构、CFTC 变化等）。"
+    },
+    "prior_brief_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict"],
+      "properties": {
+        "prior_brief_id": {"type": ["string", "null"]},
+        "verdict": {
+          "type": "string",
+          "enum": ["validated", "partially_validated", "falsified", "no_prior"]
+        },
+        "notes": {"type": ["string", "null"]}
+      }
+    },
+    "data_source_snapshot": {
+      "type": "object",
+      "description": "本次 brief 引用的 digital-oracle / macro_prices / memory_assets 快照引用。",
+      "additionalProperties": true
+    }
+  }
+}

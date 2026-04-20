@@ -4,7 +4,94 @@ from datetime import UTC, datetime
 from typing import Any
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+EvidenceType = Literal["price_action", "quant_forecast", "narrative", "regime", "mixed"]
+
+
+class StrategyThesisClaim(BaseModel):
+    """Single thesis statement with an evidence tag (spec 015 FR-001)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    statement: str = Field(min_length=1)
+    evidence_type: EvidenceType
+    evidence_sources: list[str] = Field(default_factory=list)
+
+
+class StrategyEvidenceBreakdown(BaseModel):
+    """Summed-to-100 split across evidence types (spec 015 FR-002)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    price_action_pct: float = Field(ge=0.0, le=100.0)
+    quant_forecast_pct: float = Field(ge=0.0, le=100.0)
+    narrative_pct: float = Field(ge=0.0, le=100.0)
+    regime_pct: float = Field(ge=0.0, le=100.0)
+
+    @model_validator(mode="after")
+    def _sum_must_be_100(self) -> "StrategyEvidenceBreakdown":
+        total = (
+            self.price_action_pct
+            + self.quant_forecast_pct
+            + self.narrative_pct
+            + self.regime_pct
+        )
+        if abs(total - 100.0) > 0.01:
+            raise ValueError(
+                f"evidence_breakdown must sum to 100.0, got {total:.2f}"
+            )
+        return self
+
+
+class StrategyChangeSummary(BaseModel):
+    """Structured change summary (spec 015 FR-002 / FR-006)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    headline: str = Field(min_length=1)
+    evidence_breakdown: StrategyEvidenceBreakdown
+    why_no_external_trigger: str | None = None
+
+
+def _coerce_thesis_claims(value: Any) -> Any:
+    """Back-compat: accept a plain string thesis; coerce to one 'mixed' claim.
+
+    Preserves the ~47 legacy string fixtures in tests and any pre-015 strategy
+    assets. New submissions through the PM skill return structured arrays.
+    """
+    if isinstance(value, str):
+        statement = value.strip()
+        if not statement:
+            return value  # fall through to field validator; raises
+        return [
+            {
+                "statement": statement,
+                "evidence_type": "mixed",
+                "evidence_sources": [],
+            }
+        ]
+    return value
+
+
+def _coerce_change_summary(value: Any) -> Any:
+    """Back-compat: accept a plain string change_summary; coerce to structured."""
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        return {
+            "headline": text,
+            "evidence_breakdown": {
+                "price_action_pct": 25.0,
+                "quant_forecast_pct": 25.0,
+                "narrative_pct": 25.0,
+                "regime_pct": 25.0,
+            },
+            "why_no_external_trigger": None,
+        }
+    return value
 
 
 class AgentRuntimeInput(BaseModel):
@@ -116,12 +203,38 @@ class StrategySubmission(BaseModel):
 
     portfolio_mode: str
     target_gross_exposure_band_pct: list[float] = Field(default_factory=list)
-    portfolio_thesis: str
+    portfolio_thesis: list[StrategyThesisClaim] = Field(min_length=1)
     portfolio_invalidation: str
     flip_triggers: str
-    change_summary: str
+    change_summary: StrategyChangeSummary
     targets: list[StrategySubmissionTarget] = Field(default_factory=list)
     scheduled_rechecks: list[StrategyScheduledRecheck] = Field(default_factory=list)
+
+    @field_validator("portfolio_thesis", mode="before")
+    @classmethod
+    def _coerce_legacy_thesis(cls, value: Any) -> Any:
+        return _coerce_thesis_claims(value)
+
+    @field_validator("change_summary", mode="before")
+    @classmethod
+    def _coerce_legacy_change_summary(cls, value: Any) -> Any:
+        return _coerce_change_summary(value)
+
+    @model_validator(mode="after")
+    def _validate_thesis_evidence_variety(self) -> "StrategySubmission":
+        # Spec 015 scenario 1 verification: at least two distinct evidence_types
+        # per submission — but only enforce when there are ≥ 2 claims, so the
+        # legacy single-string coercion still passes while production PM output
+        # (3+ claims) is held to the discipline.
+        if len(self.portfolio_thesis) < 2:
+            return self
+        distinct_types = {claim.evidence_type for claim in self.portfolio_thesis}
+        if len(distinct_types) < 2:
+            raise ValueError(
+                "portfolio_thesis must cover at least two distinct evidence_types "
+                "when you list multiple claims"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_targets_cover_supported_symbols(self) -> "StrategySubmission":
@@ -222,6 +335,42 @@ class NewsSubmissionEvent(BaseModel):
 
 class NewsSubmission(BaseModel):
     events: list[NewsSubmissionEvent] = Field(default_factory=list)
+
+
+class MacroBriefRegimeTagsSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    usd_trend: str | None = None
+    real_rates: str | None = None
+    crypto_carry_btc: str | None = None
+    crypto_carry_eth: str | None = None
+    crypto_iv_regime: str | None = None
+    btc_positioning: str | None = None
+    eth_positioning: str | None = None
+    fed_next_meeting_skew: str | None = None
+    sentiment_bucket: str | None = None
+    regime_summary: str | None = None
+
+
+class MacroBriefPriorReviewSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prior_brief_id: str | None = None
+    verdict: Literal["validated", "partially_validated", "falsified", "no_prior"] = "no_prior"
+    notes: str | None = None
+
+
+class MacroBriefSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    valid_until_utc: datetime
+    wake_mode: Literal["daily_macro_brief", "event_driven_macro_brief"] = "daily_macro_brief"
+    regime_tags: MacroBriefRegimeTagsSubmission = Field(default_factory=MacroBriefRegimeTagsSubmission)
+    narrative: str = Field(min_length=1)
+    pm_directives: list[str] = Field(default_factory=list)
+    monitoring_triggers: list[str] = Field(default_factory=list)
+    prior_brief_review: MacroBriefPriorReviewSubmission = Field(default_factory=MacroBriefPriorReviewSubmission)
+    data_source_snapshot: dict[str, Any] = Field(default_factory=dict)
 
 
 class DirectAgentReminder(BaseModel):

@@ -20,6 +20,9 @@ MEA 应从 `agent_gateway` 拉取一个 `mea` 运行时包，然后读取：
   - `events[]` — 每条事件的 `event_id`, `category`, `impact_level`, 截断的 `summary`
   - 用途：判断当前批次是否与近期提交重复，做跨轮去重
 - `macro_prices` — 宏观/大宗商品参考价（Brent/WTI/DXY/US10Y + F&G + BTC ETF 活跃度）。判断新闻事件是否已被价格 price in 时用。**禁止 `web_fetch` 抓野站实时大宗价** —— 它们会滚动互相矛盾
+- `latest_macro_brief`（spec 014）— Chief 的日频 regime 判断（只读）。用它理解大盘叙事，但**不要**把 brief 的 narrative 照抄进 news 事件的 summary。brief 的 `regime_tags.regime_summary` 可帮助你判断：一条事件是真的 flip_trigger，还是已被 Chief 写入当前 regime 的"预期内噪音"。
+  - `missing=true` 或 `stale=true` → brief 不可用，按既有 runtime inputs 判断即可
+  - `chief_regime_confidence="low"` → Chief 最近几份 regime call 被证伪，MEA 对"这条事件与 regime 一致"这类判断要更谨慎
 - `trigger_context` — 本次唤醒的元信息
 - `pending_learning_directive` — Chief 下发的未落实学习指令（如有）
 - 租约元数据：

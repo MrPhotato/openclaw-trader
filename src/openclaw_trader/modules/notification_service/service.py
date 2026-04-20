@@ -64,8 +64,14 @@ class NotificationService:
         if envelope.event_type != "strategy.submitted":
             return []
         event_payload = envelope.payload if isinstance(envelope.payload, dict) else {}
+        # Spec 015 FR-006: internal_reasoning_only revisions are silent — no
+        # owner/chief notification, no sessions_send to RT/MEA.
+        if bool(event_payload.get("internal_reasoning_only")):
+            return []
         payload = event_payload.get("strategy") if isinstance(event_payload.get("strategy"), dict) else event_payload
         strategy_payload = dict(payload) if isinstance(payload, dict) else {}
+        if bool(strategy_payload.get("internal_reasoning_only")):
+            return []
         latest_trigger = event_payload.get("latest_pm_trigger_event")
         if isinstance(latest_trigger, dict):
             strategy_payload["latest_pm_trigger_event"] = dict(latest_trigger)

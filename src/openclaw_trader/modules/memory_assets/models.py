@@ -3,7 +3,79 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+EvidenceType = Literal["price_action", "quant_forecast", "narrative", "regime", "mixed"]
+
+
+class StrategyThesisClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    statement: str = Field(min_length=1)
+    evidence_type: EvidenceType
+    evidence_sources: list[str] = Field(default_factory=list)
+
+
+class StrategyEvidenceBreakdown(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    price_action_pct: float = Field(ge=0.0, le=100.0)
+    quant_forecast_pct: float = Field(ge=0.0, le=100.0)
+    narrative_pct: float = Field(ge=0.0, le=100.0)
+    regime_pct: float = Field(ge=0.0, le=100.0)
+
+    @model_validator(mode="after")
+    def _sum_must_be_100(self) -> "StrategyEvidenceBreakdown":
+        total = (
+            self.price_action_pct
+            + self.quant_forecast_pct
+            + self.narrative_pct
+            + self.regime_pct
+        )
+        if abs(total - 100.0) > 0.01:
+            raise ValueError(
+                f"evidence_breakdown must sum to 100.0, got {total:.2f}"
+            )
+        return self
+
+
+class StrategyChangeSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    headline: str = Field(min_length=1)
+    evidence_breakdown: StrategyEvidenceBreakdown
+    why_no_external_trigger: str | None = None
+
+
+def _coerce_thesis_claims_memory(value: Any) -> Any:
+    if isinstance(value, str):
+        statement = value.strip()
+        if not statement:
+            return value
+        return [
+            {
+                "statement": statement,
+                "evidence_type": "mixed",
+                "evidence_sources": [],
+            }
+        ]
+    return value
+
+
+def _coerce_change_summary_memory(value: Any) -> Any:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        return {
+            "headline": text,
+            "evidence_breakdown": {
+                "price_action_pct": 25.0,
+                "quant_forecast_pct": 25.0,
+                "narrative_pct": 25.0,
+                "regime_pct": 25.0,
+            },
+            "why_no_external_trigger": None,
+        }
+    return value
 
 
 class WorkflowStateRef(BaseModel):
@@ -79,12 +151,27 @@ class StrategyAsset(BaseModel):
     revision_number: int = 1
     portfolio_mode: str
     target_gross_exposure_band_pct: list[float] = Field(default_factory=list)
-    portfolio_thesis: str
+    portfolio_thesis: list[StrategyThesisClaim] = Field(min_length=1)
     portfolio_invalidation: str
     flip_triggers: str
-    change_summary: str
+    change_summary: StrategyChangeSummary
     targets: list[StrategyTargetAsset] = Field(default_factory=list)
     scheduled_rechecks: list[ScheduledRecheck] = Field(default_factory=list)
+    # Spec 015 FR-006 / scenario 2: when a PM submission has no external
+    # trigger (no new MEA event, no price breach, no quant flip, no risk_brake,
+    # no owner_push), the revision is still persisted but tagged low-weight.
+    # Notification and RT wake propagation skip these revisions.
+    internal_reasoning_only: bool = False
+
+    @field_validator("portfolio_thesis", mode="before")
+    @classmethod
+    def _coerce_legacy_thesis(cls, value: Any) -> Any:
+        return _coerce_thesis_claims_memory(value)
+
+    @field_validator("change_summary", mode="before")
+    @classmethod
+    def _coerce_legacy_change_summary(cls, value: Any) -> Any:
+        return _coerce_change_summary_memory(value)
 
     @model_validator(mode="after")
     def _validate_targets_cover_supported_symbols(self) -> "StrategyAsset":
@@ -247,6 +334,38 @@ class LearningDirectiveAsset(BaseModel):
     baseline_fingerprint: dict[str, Any] = Field(default_factory=dict)
     completion_state: str = "pending"
     completed_at_utc: datetime | None = None
+
+
+class MacroBriefRegimeTags(BaseModel):
+    usd_trend: str | None = None
+    real_rates: str | None = None
+    crypto_carry_btc: str | None = None
+    crypto_carry_eth: str | None = None
+    crypto_iv_regime: str | None = None
+    btc_positioning: str | None = None
+    eth_positioning: str | None = None
+    fed_next_meeting_skew: str | None = None
+    sentiment_bucket: str | None = None
+    regime_summary: str | None = None
+
+
+class MacroBriefPriorReview(BaseModel):
+    prior_brief_id: str | None = None
+    verdict: Literal["validated", "partially_validated", "falsified", "no_prior"] = "no_prior"
+    notes: str | None = None
+
+
+class MacroBriefAsset(BaseModel):
+    brief_id: str
+    generated_at_utc: datetime
+    valid_until_utc: datetime
+    wake_mode: Literal["daily_macro_brief", "event_driven_macro_brief"] = "daily_macro_brief"
+    regime_tags: MacroBriefRegimeTags = Field(default_factory=MacroBriefRegimeTags)
+    narrative: str = Field(min_length=1)
+    pm_directives: list[str] = Field(default_factory=list)
+    monitoring_triggers: list[str] = Field(default_factory=list)
+    prior_brief_review: MacroBriefPriorReview = Field(default_factory=MacroBriefPriorReview)
+    data_source_snapshot: dict[str, Any] = Field(default_factory=dict)
 
 
 class MacroEventRecord(BaseModel):

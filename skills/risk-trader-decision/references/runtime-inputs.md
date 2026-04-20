@@ -16,6 +16,10 @@ RT 应从 `agent_gateway` 拉取一个 `rt` 运行时数据包，然后按以下
 - `forecasts`
 - `news_events`
 - `macro_prices` — Brent/WTI/DXY/US10Y + BTC F&G + BTC ETF 活跃度代理。Brent 逼近 PM 失效条件时只看这里，**不要用 `web_fetch` 抓野站 Brent 价**（会拿到过时/滚动的 $90 vs $96 互相矛盾的数）
+- `latest_macro_brief`（spec 014）— Chief 的日频 regime 判断。**RT 不强制引用**，但可用于判断"我该不该加仓 / 维持 reduce_only"：
+  - `missing=true` 或 `stale=true` → 默认保守，不主动 add，不突破 PM target band 上沿
+  - `chief_regime_confidence="low"` → Chief 已连续 3 次看错 regime，RT 把 brief 的 directives 当作次要参考，以 PM 策略与市场结构为准
+  - `brief.pm_directives` 里明确说"只减不加"时，即便 PM target 仍为 active，也优先尊重 Chief directive + PM 当前 mandate 的交集
 - `recent_execution_thoughts`
 - 当 RT 被 Workflow Orchestrator 唤醒时读取 `latest_rt_trigger_event`
 - 当系统刚刚执行了强制风控单时读取 `latest_risk_brake_event`

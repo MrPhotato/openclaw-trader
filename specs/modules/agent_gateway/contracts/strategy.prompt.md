@@ -13,3 +13,17 @@
 - 所有持仓/暴露相关百分比统一按 `total_equity_usd * max_leverage` 的 exposure budget 口径表达
 - `flip_triggers` 必须写成一句或几句明确条件，表达什么情况下应从当前方向翻到反向，而不是只写泛泛风险提示
 - `scheduled_rechecks[]` 的 `reason` 要写成留给未来的一句话
+- **`portfolio_thesis` 是论断数组，不是一段文字（spec 015 FR-001）**：
+  - 每条论断必须独立，单句表达
+  - 每条必须标 `evidence_type`：
+    - `price_action`：来自 Deribit basis、funding、orderbook、市场结构
+    - `quant_forecast`：来自 runtime_pack.forecasts 的 1h/4h/12h 方向与置信度
+    - `narrative`：来自 Polymarket 概率、新闻叙事、MEA 推理（这是最容易错的一类；给 narrative 标 narrative 比伪装成 price_action 诚实得多）
+    - `regime`：来自 runtime_pack.latest_macro_brief.regime_tags 或 pm_directives
+    - `mixed`：确实混合了多类证据
+  - `evidence_sources[]` 列出具体数据点，不要写"市场结构"这种抽象词
+  - 核心论断至少 3 条；当论断 ≥ 2 条时必须覆盖至少 2 种不同的 evidence_type
+- **`change_summary` 是对象，不是字符串（spec 015 FR-002）**：
+  - `headline`：一句话总结本次变更
+  - `evidence_breakdown`：四个百分比加起来必须等于 100；诚实披露你用了多少 narrative
+  - `why_no_external_trigger`：仅当你本轮提交没有任何外部触发器 (new MEA event / price breach / quant flip / risk_brake / owner_push) 时填写；系统会检查这段文字的自反性

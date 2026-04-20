@@ -134,6 +134,15 @@ def build_router() -> APIRouter:
         )
         return payload.model_dump(mode="json")
 
+    @router.post("/api/agent/pull/chief-macro-brief")
+    def pull_chief_macro_brief_pack(req: AgentPullRequest, request: Request):
+        container = request.app.state.container
+        payload = container.agent_gateway.pull_chief_macro_brief_pack(
+            trigger_type=req.trigger_type or "daily_macro_brief",
+            params=req.params,
+        )
+        return payload.model_dump(mode="json")
+
     @router.post("/api/agent/submit/strategy")
     async def submit_strategy(request: Request):
         container = request.app.state.container
@@ -244,6 +253,34 @@ def build_router() -> APIRouter:
                 },
             ) from exc
         return result
+
+    @router.post("/api/agent/submit/macro-brief")
+    async def submit_macro_brief(request: Request):
+        container = request.app.state.container
+        req = await _parse_agent_submit_request(request)
+        try:
+            result = container.agent_gateway.submit_macro_brief(input_id=req.input_id, payload=req.payload)
+        except RuntimeInputLeaseError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": exc.reason, "input_id": exc.input_id, "detail": exc.detail},
+            ) from exc
+        except SubmissionValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "reason": exc.error_kind,
+                    "schema_ref": exc.schema_ref,
+                    "prompt_ref": exc.prompt_ref,
+                    "errors": exc.errors,
+                },
+            ) from exc
+        return result
+
+    @router.get("/api/query/macro-briefs/recent")
+    def query_recent_macro_briefs(request: Request, limit: int = 10):
+        container = request.app.state.container
+        return container.memory_assets.recent_macro_briefs(limit=max(1, min(int(limit or 10), 100)))
 
     @router.get("/api/query/workflows/{trace_id}")
     def query_workflow(trace_id: str, request: Request):

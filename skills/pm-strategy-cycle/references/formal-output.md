@@ -9,10 +9,10 @@
 重要字段（每次都必须考虑）：
 - `portfolio_mode`
 - `target_gross_exposure_band_pct`
-- `portfolio_thesis`
+- `portfolio_thesis` ——**结构化数组**（spec 015 FR-001）；每个论断带 `statement`/`evidence_type`/`evidence_sources`
 - `portfolio_invalidation`
 - `flip_triggers`
-- `change_summary`
+- `change_summary` ——**结构化对象**（spec 015 FR-002）；含 `headline`/`evidence_breakdown`/`why_no_external_trigger?`
 - `targets[]`
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
@@ -44,10 +44,35 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
     "input_id": "input_from_pull_pack",
     "portfolio_mode": "defensive",
     "target_gross_exposure_band_pct": [0, 15],
-    "portfolio_thesis": "震荡市、跟进力度弱。BTC 保持活跃，ETH 观望，维持防守直到 4h 趋势确认。",
+    "portfolio_thesis": [
+      {
+        "statement": "BTC 4h 结构还在震荡，突破未确认。",
+        "evidence_type": "price_action",
+        "evidence_sources": ["BTC 4h range $72.8K-$75.1K 连续 6 根", "12h 高点未刷新"]
+      },
+      {
+        "statement": "quant 1h 短期 direction=long 但 4h/12h 中性，不构成加仓信号。",
+        "evidence_type": "quant_forecast",
+        "evidence_sources": ["quant BTC:1h dir=long p=0.54", "BTC:4h dir=flat", "BTC:12h dir=flat"]
+      },
+      {
+        "statement": "Chief brief 把 regime 定为 risk_off_with_crypto_headwind，要求窄 band。",
+        "evidence_type": "regime",
+        "evidence_sources": ["latest_macro_brief.regime_tags.regime_summary"]
+      }
+    ],
     "portfolio_invalidation": "出现干净的 4h 放量突破，或政策/风控边界变化推翻防守立场。",
     "flip_triggers": "若 BTC 失守高时间框架突破位且 4h/12h 结构同步转空，或宏观冲击明确将制度切换到 risk-off，则从谨慎做多偏向转为防御做空偏向。",
-    "change_summary": "维持防守姿态，将活跃风险收窄至 BTC，ETH 保持观望。",
+    "change_summary": {
+      "headline": "维持防守姿态，将活跃风险收窄至 BTC，ETH 保持观望。",
+      "evidence_breakdown": {
+        "price_action_pct": 40,
+        "quant_forecast_pct": 25,
+        "narrative_pct": 5,
+        "regime_pct": 30
+      },
+      "why_no_external_trigger": null
+    },
     "targets": [
       {
         "symbol": "BTC",

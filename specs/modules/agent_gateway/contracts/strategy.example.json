@@ -1,22 +1,41 @@
 {
   "portfolio_mode": "normal",
-  "target_gross_exposure_band_pct": [
-    0.0,
-    35.0
+  "target_gross_exposure_band_pct": [0.0, 35.0],
+  "portfolio_thesis": [
+    {
+      "statement": "BTC 3M basis 仍在 5% 以上，结构性做多溢价未消失。",
+      "evidence_type": "price_action",
+      "evidence_sources": ["Deribit BTC 3M basis 5.2%", "perp funding 0.008%/8h"]
+    },
+    {
+      "statement": "quant 4h/12h direction 对齐 long，uncertainty 中性。",
+      "evidence_type": "quant_forecast",
+      "evidence_sources": ["quant forecasts BTC:4h dir=long p=0.61", "BTC:12h dir=long p=0.58"]
+    },
+    {
+      "statement": "Chief brief 把 regime 定义为 risk_off_with_crypto_headwind，提示保持窄 band。",
+      "evidence_type": "regime",
+      "evidence_sources": ["latest_macro_brief.regime_tags.regime_summary"]
+    }
   ],
-  "portfolio_thesis": "BTC and ETH remain the core risk-on exposure for the day.",
-  "portfolio_invalidation": "If macro risk rises sharply or BTC loses structure, rebuild the book.",
-  "flip_triggers": "Flip to defensive short bias only if BTC loses higher-timeframe structure together with a clear macro risk-off shift; flip back long only after structure reclaims and macro stress eases.",
-  "change_summary": "Keep BTC as the primary anchor with ETH held as a secondary watch.",
+  "portfolio_invalidation": "若 BTC 3M basis < 4% 或 DXY 突破 108，立即回到 defensive。",
+  "flip_triggers": "BTC 失守 $72K + 4h/12h 结构同步转空，或 Fed 意外鹰派落地推动 real yield 破 2.3%。",
+  "change_summary": {
+    "headline": "BTC 维持 active long，ETH 留在 watch，不扩 band。",
+    "evidence_breakdown": {
+      "price_action_pct": 40,
+      "quant_forecast_pct": 35,
+      "narrative_pct": 5,
+      "regime_pct": 20
+    },
+    "why_no_external_trigger": null
+  },
   "targets": [
     {
       "symbol": "BTC",
       "state": "active",
       "direction": "long",
-      "target_exposure_band_pct": [
-        0.0,
-        20.0
-      ],
+      "target_exposure_band_pct": [0.0, 20.0],
       "rt_discretion_band_pct": 8.0,
       "priority": 1
     },
@@ -24,19 +43,16 @@
       "symbol": "ETH",
       "state": "watch",
       "direction": "flat",
-      "target_exposure_band_pct": [
-        0.0,
-        10.0
-      ],
+      "target_exposure_band_pct": [0.0, 10.0],
       "rt_discretion_band_pct": 6.0,
       "priority": 2
     }
   ],
   "scheduled_rechecks": [
     {
-      "recheck_at_utc": "2026-03-16T09:00:00Z",
+      "recheck_at_utc": "2026-04-21T09:00:00Z",
       "scope": "portfolio",
-      "reason": "Recheck whether ETF flow and funding still support the current gross exposure."
+      "reason": "Recheck whether the Chief regime call still holds after Fed minutes."
     }
   ]
 }

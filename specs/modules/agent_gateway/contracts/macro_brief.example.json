@@ -1,0 +1,40 @@
+{
+  "valid_until_utc": "2026-04-21T13:00:00Z",
+  "wake_mode": "daily_macro_brief",
+  "regime_tags": {
+    "usd_trend": "strong_uptrend",
+    "real_rates": "elevated_and_rising",
+    "crypto_carry_btc": "neutral_to_soft",
+    "crypto_carry_eth": "soft",
+    "crypto_iv_regime": "compressed",
+    "btc_positioning": "balanced_cm_short_asset_managers",
+    "eth_positioning": "bearish_leveraged_funds",
+    "fed_next_meeting_skew": "hold_with_hawkish_tail",
+    "sentiment_bucket": "fear",
+    "regime_summary": "risk_off_with_crypto_headwind"
+  },
+  "narrative": "当前市场主轴是强美元 + 实际利率上行，DXY 连续三周站稳 107+，US10Y real yield > 2.05%。在这个 regime 下加密的 carry 已经被压薄：BTC 3M 基差从 6.5% 滑到 4.8%，ETH 基差微负，IV 压到 47%。CFTC 数据显示 asset managers 继续在 BTC 期货上做空对冲，ETH leveraged funds 净空已经连续 4 周扩大。这不是恐慌式 risk-off，而是 slow-grind: 不会跌得很快，但也没有上涨燃料。F&G 26 说明散户已经在 fear，但这是被动反应，不是主动买方到位。下一步关注 DXY 能否站稳 107 + Fed Chair 周三讲话的基调。",
+  "pm_directives": [
+    "维持 gross exposure band 上限 ≤ 20%，不要扩 band 追反弹",
+    "BTC 优先于 ETH，ETH 保持 watch 不加仓",
+    "若 DXY 突破 108 或 BTC 失守 $72K，立刻切 defensive / only_reduce",
+    "不依赖 Polymarket 停火概率作为做多理由——地缘溢价已经进入实际定价"
+  ],
+  "monitoring_triggers": [
+    "DXY 突破 108 (日线收盘)",
+    "BTC 3M basis 跌破 4%",
+    "ETH leveraged funds 净空加速扩大 > 20%",
+    "US10Y real yield 跌破 1.9%"
+  ],
+  "prior_brief_review": {
+    "prior_brief_id": "macro_brief_2026-04-19",
+    "verdict": "partially_validated",
+    "notes": "上一份说美元偏强已被验证，但 BTC 下行速度比预期慢——basis 没塌，说明空头也没明显加仓。"
+  },
+  "data_source_snapshot": {
+    "digital_oracle_preset": "chief_regime_read",
+    "digital_oracle_providers_used": ["deribit", "cftc", "treasury", "cme_fedwatch", "fear_greed"],
+    "digital_oracle_providers_failed": [],
+    "macro_prices_captured_at_utc": "2026-04-20T01:00:00Z"
+  }
+}

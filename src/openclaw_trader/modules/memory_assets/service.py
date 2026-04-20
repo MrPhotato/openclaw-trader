@@ -8,6 +8,7 @@ from .events import EVENT_NOTIFICATION_RECORDED, EVENT_PARAMETER_CHANGED, EVENT_
 from .models import (
     AgentSessionState,
     LearningDirectiveAsset,
+    MacroBriefAsset,
     NewsSubmissionAsset,
     NotificationResult,
     OverviewQueryView,
@@ -615,6 +616,73 @@ class MemoryAssetsService:
                 **payload,
             }
         return None
+
+    def materialize_macro_brief(
+        self,
+        *,
+        trace_id: str,
+        authored_payload: dict,
+        actor_role: str = "crypto_chief",
+        source_ref: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        now = datetime.now(UTC)
+        canonical_payload = dict(authored_payload)
+        canonical_payload.setdefault("brief_id", new_id("macro_brief"))
+        canonical_payload.setdefault("generated_at_utc", now.isoformat())
+        canonical_payload = MacroBriefAsset.model_validate(canonical_payload).model_dump(mode="json")
+        brief_id = str(canonical_payload["brief_id"])
+        self.save_asset(
+            asset_type="macro_brief",
+            asset_id=brief_id,
+            payload=canonical_payload,
+            trace_id=trace_id,
+            actor_role=actor_role,
+            group_key=canonical_payload.get("generated_at_utc", now.isoformat())[:10],
+            source_ref=source_ref,
+            metadata=metadata or {},
+        )
+        return canonical_payload
+
+    def latest_macro_brief(self) -> dict | None:
+        asset = self.latest_asset(asset_type="macro_brief", actor_role="crypto_chief")
+        if asset is None:
+            asset = self.latest_asset(asset_type="macro_brief")
+        if asset is None:
+            return None
+        return {"asset_id": asset.get("asset_id"), **(asset.get("payload") or {})}
+
+    def get_latest_macro_brief(self, *, max_age_hours: float | None = None) -> dict | None:
+        brief = self.latest_macro_brief()
+        if brief is None or max_age_hours is None:
+            return brief
+        generated_at_raw = brief.get("generated_at_utc")
+        if not generated_at_raw:
+            return brief
+        try:
+            generated_at = datetime.fromisoformat(str(generated_at_raw).replace("Z", "+00:00"))
+        except Exception:
+            return brief
+        if generated_at.tzinfo is None:
+            generated_at = generated_at.replace(tzinfo=UTC)
+        age_hours = (datetime.now(UTC) - generated_at.astimezone(UTC)).total_seconds() / 3600.0
+        if age_hours > float(max_age_hours):
+            return None
+        return brief
+
+    def recent_macro_briefs(self, *, limit: int = 10) -> list[dict]:
+        assets = self.recent_assets(asset_type="macro_brief", limit=limit)
+        briefs: list[dict] = []
+        for asset in assets:
+            payload = dict(asset.get("payload") or {})
+            briefs.append(
+                {
+                    "asset_id": asset.get("asset_id"),
+                    "created_at": asset.get("created_at"),
+                    **payload,
+                }
+            )
+        return briefs
 
     def get_pending_scheduled_rechecks(self) -> list[dict]:
         latest_strategy = self.get_latest_strategy()

@@ -38,6 +38,7 @@ from .models import (
     AgentTask,
     DirectAgentReminder,
     ExecutionSubmission,
+    MacroBriefSubmission,
     NewsSubmission,
     RetroBriefSubmission,
     RetroLearningAck,
@@ -70,6 +71,27 @@ class SubmissionValidationError(ValueError):
         self.stderr_summary = stderr_summary
 
 
+class SubmissionTriggerResult:
+    """Spec 015 scenario 2 verification: submit-gate check result.
+
+    Kept as a lightweight object (no pydantic/dataclass) so tests can
+    construct fakes without pulling pydantic schema churn.
+    """
+
+    __slots__ = ("internal_reasoning_only", "hits", "details")
+
+    def __init__(
+        self,
+        *,
+        internal_reasoning_only: bool,
+        hits: list[str],
+        details: dict[str, Any],
+    ) -> None:
+        self.internal_reasoning_only = bool(internal_reasoning_only)
+        self.hits = list(hits or [])
+        self.details = dict(details or {})
+
+
 class RuntimeInputLeaseError(ValueError):
     def __init__(self, *, reason: str, input_id: str, agent_role: str, detail: str | None = None) -> None:
         super().__init__(reason)
@@ -86,6 +108,8 @@ class AgentGatewayService:
     _EXECUTION_PROMPT_REF = "specs/modules/agent_gateway/contracts/execution.prompt.md"
     _NEWS_SCHEMA_REF = "specs/modules/agent_gateway/contracts/news.schema.json"
     _NEWS_PROMPT_REF = "specs/modules/agent_gateway/contracts/news.prompt.md"
+    _MACRO_BRIEF_SCHEMA_REF = "specs/modules/agent_gateway/contracts/macro_brief.schema.json"
+    _MACRO_BRIEF_PROMPT_REF = "specs/modules/agent_gateway/contracts/macro_brief.prompt.md"
     _RETRO_BRIEF_SPEC_REF_BY_ROLE = {
         "pm": "specs/agents/pm/spec.md",
         "risk_trader": "specs/agents/risk_trader/spec.md",
@@ -210,6 +234,36 @@ class AgentGatewayService:
     ) -> AgentRuntimePack:
         return self._issue_runtime_pack(agent_role="crypto_chief", task_kind="retro", trigger_type=trigger_type, params=params)
 
+    def pull_chief_macro_brief_pack(
+        self,
+        *,
+        trigger_type: str = "daily_macro_brief",
+        params: dict[str, object] | None = None,
+    ) -> AgentRuntimePack:
+        """Chief's prospective daily macro brief pack (spec 014).
+
+        Distinct from weekly retro. Carries:
+        - prior brief for self-review + falsification tracking
+        - macro_prices / news_events / macro_memory as context
+        - digital_oracle preset hint
+        """
+        return self._issue_runtime_pack(
+            agent_role="crypto_chief",
+            task_kind="macro_brief",
+            trigger_type=trigger_type,
+            params=params,
+        )
+
+    # --------------------------------------------------------------
+    # Spec 015 submit-gate config: thresholds intentionally module-
+    # level so ops / tests can monkey-patch. FR-005 says they must be
+    # overridable from settings.orchestrator.pm_submit_gate_*; that
+    # wiring lands later via config.loader. For MVP we keep the
+    # numbers here and consult settings.orchestrator if available.
+    # --------------------------------------------------------------
+    _PM_SUBMIT_GATE_PRICE_BREACH_PCT_DEFAULT = 1.5
+    _PM_SUBMIT_GATE_OWNER_WAKE_SOURCES = frozenset({"manual", "owner_push"})
+
     def submit_strategy(
         self,
         *,
@@ -223,18 +277,107 @@ class AgentGatewayService:
             trace_id=lease.pack.trace_id,
             payload=payload,
         )
+        previous_strategy_asset = (
+            self.memory_assets.latest_asset(asset_type="strategy", actor_role="pm")
+            or self.memory_assets.latest_asset(asset_type="strategy")
+        )
+        trigger_result = self.evaluate_strategy_submission_triggers(
+            lease=lease,
+            previous_strategy_asset=previous_strategy_asset,
+        )
+        change_summary = dict(envelope.payload.get("change_summary") or {})
+        why_no_external_trigger = str(change_summary.get("why_no_external_trigger") or "").strip()
+        if trigger_result.internal_reasoning_only and not why_no_external_trigger:
+            schema_ref, prompt_ref = self._submission_contract("strategy")
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=[
+                    (
+                        "hesitation_unjustified: this revision has no external trigger "
+                        "(no new MEA event, no price_breach > "
+                        f"{self._pm_submit_gate_price_breach_pct_threshold():.2f}%, no quant flip, "
+                        "no risk_brake, no owner push). Either wait for a real signal, or "
+                        "re-submit with `change_summary.why_no_external_trigger` populated "
+                        "(self-interrogation text; not a boilerplate reason)."
+                    )
+                ],
+                error_kind="hesitation_unjustified",
+            )
+        # Persist current market/forecast snapshot onto the new strategy so
+        # the NEXT submit can diff against it (spec 015 FR-003).
+        current_market_snapshot = self._snapshot_market_for_submit_gate(lease)
+        current_forecast_snapshot = self._snapshot_forecasts_for_submit_gate(lease)
+        canonical_authored = dict(envelope.payload)
+        canonical_authored["internal_reasoning_only"] = bool(trigger_result.internal_reasoning_only)
         strategy_payload = self.memory_assets.materialize_strategy_asset(
             trace_id=lease.pack.trace_id,
-            authored_payload=envelope.payload,
+            authored_payload=canonical_authored,
             trigger_type=lease.pack.trigger_type,
             actor_role="pm",
             source_ref=envelope.envelope_id,
         )
+        # Stash gate inputs/outputs in asset metadata so next-submit can
+        # diff + retro / observability can replay the gate decision.
+        strategy_id = str(strategy_payload.get("strategy_id") or "")
+        if strategy_id:
+            strategy_asset = self.memory_assets.get_asset(strategy_id)
+            if strategy_asset is not None:
+                existing_metadata = dict(strategy_asset.get("metadata") or {})
+                existing_metadata.update(
+                    {
+                        "submit_gate": {
+                            "hits": list(trigger_result.hits),
+                            "internal_reasoning_only": bool(trigger_result.internal_reasoning_only),
+                            "details": dict(trigger_result.details),
+                        },
+                        "submit_market_snapshot": current_market_snapshot,
+                        "submit_forecast_snapshot": current_forecast_snapshot,
+                    }
+                )
+                self.memory_assets.save_asset(
+                    asset_type="strategy",
+                    asset_id=strategy_id,
+                    payload=strategy_payload,
+                    trace_id=lease.pack.trace_id,
+                    actor_role="pm",
+                    group_key=str(strategy_payload.get("strategy_day_utc") or ""),
+                    source_ref=envelope.envelope_id,
+                    metadata=existing_metadata,
+                )
         latest_pm_trigger_event = (
             dict(lease.pack.payload.get("latest_pm_trigger_event"))
             if isinstance(lease.pack.payload.get("latest_pm_trigger_event"), dict)
             else None
         )
+        event_payload = {
+            "strategy": strategy_payload,
+            "envelope_id": envelope.envelope_id,
+            "trigger_type": lease.pack.trigger_type,
+            "internal_reasoning_only": bool(trigger_result.internal_reasoning_only),
+            "submit_gate_hits": list(trigger_result.hits),
+            "latest_pm_trigger_event": latest_pm_trigger_event,
+            "trigger_reason": (
+                str(latest_pm_trigger_event.get("reason") or "").strip()
+                if latest_pm_trigger_event is not None
+                else None
+            ),
+            "wake_source": (
+                str(latest_pm_trigger_event.get("wake_source") or "").strip()
+                if latest_pm_trigger_event is not None
+                else None
+            ),
+            "source_role": (
+                str(latest_pm_trigger_event.get("source_role") or "").strip()
+                if latest_pm_trigger_event is not None
+                else None
+            ),
+            "input_id": input_id,
+        }
+        # FR-006: silent notification for internal_reasoning_only. The
+        # strategy.submitted event still fires (observability needs it) but
+        # `internal_reasoning_only=true` on the event payload gates both
+        # the notification_service dispatch and the RT wake detector.
         self._record_events(
             [
                 self.build_submission_event(trace_id=lease.pack.trace_id, envelope=envelope),
@@ -244,28 +387,7 @@ class AgentGatewayService:
                     source_module="agent_gateway",
                     entity_type="strategy",
                     entity_id=str(strategy_payload.get("strategy_id")),
-                    payload={
-                        "strategy": strategy_payload,
-                        "envelope_id": envelope.envelope_id,
-                        "trigger_type": lease.pack.trigger_type,
-                        "latest_pm_trigger_event": latest_pm_trigger_event,
-                        "trigger_reason": (
-                            str(latest_pm_trigger_event.get("reason") or "").strip()
-                            if latest_pm_trigger_event is not None
-                            else None
-                        ),
-                        "wake_source": (
-                            str(latest_pm_trigger_event.get("wake_source") or "").strip()
-                            if latest_pm_trigger_event is not None
-                            else None
-                        ),
-                        "source_role": (
-                            str(latest_pm_trigger_event.get("source_role") or "").strip()
-                            if latest_pm_trigger_event is not None
-                            else None
-                        ),
-                        "input_id": input_id,
-                    },
+                    payload=event_payload,
                 ),
             ]
         )
@@ -287,7 +409,242 @@ class AgentGatewayService:
             "input_id": input_id,
             "envelope": envelope.model_dump(mode="json"),
             "strategy": strategy_payload,
+            "internal_reasoning_only": bool(trigger_result.internal_reasoning_only),
+            "submit_gate_hits": list(trigger_result.hits),
         }
+
+    def evaluate_strategy_submission_triggers(
+        self,
+        *,
+        lease: AgentRuntimeLease,
+        previous_strategy_asset: dict[str, Any] | None,
+    ) -> "SubmissionTriggerResult":
+        """Spec 015 FR-003 / FR-004: check if there is any external new fact
+        gating this submission. No hits → internal_reasoning_only=True.
+
+        Signal sources:
+        - new_mea_event : macro_event asset newer than prev strategy
+        - price_breach  : |mark delta| > threshold since prev market snapshot
+        - quant_flip    : any horizon direction flipped since prev forecast snapshot
+        - risk_brake    : new risk_brake_event asset since prev
+        - owner_push    : current pm_trigger_event.wake_source is manual/owner_push
+        """
+        hits: list[str] = []
+        details: dict[str, Any] = {}
+
+        # Cold start: no previous strategy at all → treat as non-hesitation.
+        # The very first strategy a PM emits per environment is always
+        # "external" (the PM is starting a book from nothing).
+        if previous_strategy_asset is None:
+            return SubmissionTriggerResult(
+                internal_reasoning_only=False,
+                hits=["cold_start"],
+                details={"cold_start": True},
+            )
+
+        prev_payload = dict(previous_strategy_asset.get("payload") or {})
+        prev_metadata = dict(previous_strategy_asset.get("metadata") or {})
+        prev_generated_at = self._parse_utc_iso(prev_payload.get("generated_at_utc"))
+
+        # 1) owner_push
+        latest_pm_trigger_event = (
+            dict(lease.pack.payload.get("latest_pm_trigger_event"))
+            if isinstance(lease.pack.payload.get("latest_pm_trigger_event"), dict)
+            else {}
+        )
+        wake_source = str(latest_pm_trigger_event.get("wake_source") or "").strip().lower()
+        if wake_source in self._PM_SUBMIT_GATE_OWNER_WAKE_SOURCES:
+            hits.append("owner_push")
+            details["owner_push"] = {"wake_source": wake_source}
+
+        # 2) new_mea_event
+        if self.memory_assets is not None:
+            recent_macro_events = self.memory_assets.recent_assets(asset_type="macro_event", limit=20)
+            for asset in recent_macro_events:
+                created_at = self._parse_utc_iso(asset.get("created_at"))
+                if created_at is None:
+                    continue
+                if prev_generated_at is None or created_at > prev_generated_at:
+                    hits.append("new_mea_event")
+                    details["new_mea_event"] = {
+                        "event_id": str(asset.get("asset_id") or ""),
+                        "created_at": asset.get("created_at"),
+                    }
+                    break
+
+        # 3) risk_brake
+        if self.memory_assets is not None:
+            recent_brakes = self.memory_assets.recent_assets(
+                asset_type="risk_brake_event", actor_role="system", limit=5
+            )
+            for asset in recent_brakes:
+                created_at = self._parse_utc_iso(asset.get("created_at"))
+                if created_at is None:
+                    continue
+                if prev_generated_at is None or created_at > prev_generated_at:
+                    hits.append("risk_brake")
+                    details["risk_brake"] = {
+                        "event_id": str(asset.get("asset_id") or ""),
+                        "created_at": asset.get("created_at"),
+                    }
+                    break
+
+        # 4) price_breach
+        current_market_snapshot = self._snapshot_market_for_submit_gate(lease)
+        prev_market_snapshot = dict(prev_metadata.get("submit_market_snapshot") or {})
+        price_breach = self._detect_price_breach(
+            prev_snapshot=prev_market_snapshot,
+            current_snapshot=current_market_snapshot,
+            threshold_pct=self._pm_submit_gate_price_breach_pct_threshold(),
+        )
+        if price_breach:
+            hits.append("price_breach")
+            details["price_breach"] = price_breach
+
+        # 5) quant_flip
+        current_forecast_snapshot = self._snapshot_forecasts_for_submit_gate(lease)
+        prev_forecast_snapshot = dict(prev_metadata.get("submit_forecast_snapshot") or {})
+        quant_flip = self._detect_quant_flip(
+            prev_snapshot=prev_forecast_snapshot,
+            current_snapshot=current_forecast_snapshot,
+        )
+        if quant_flip:
+            hits.append("quant_flip")
+            details["quant_flip"] = quant_flip
+
+        return SubmissionTriggerResult(
+            internal_reasoning_only=not hits,
+            hits=hits,
+            details=details,
+        )
+
+    def _pm_submit_gate_price_breach_pct_threshold(self) -> float:
+        raw = getattr(
+            self.policy_risk.settings.orchestrator if self.policy_risk is not None else None,
+            "pm_submit_gate_price_breach_pct",
+            None,
+        )
+        if raw is None:
+            return self._PM_SUBMIT_GATE_PRICE_BREACH_PCT_DEFAULT
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return self._PM_SUBMIT_GATE_PRICE_BREACH_PCT_DEFAULT
+
+    @staticmethod
+    def _snapshot_market_for_submit_gate(lease: AgentRuntimeLease) -> dict[str, Any]:
+        market = dict(lease.hidden_payload.get("market") or {})
+        coin_markets = dict(market.get("market") or {})
+        snapshot: dict[str, Any] = {"captured_at_utc": None, "coins": {}}
+        captured_at = None
+        for coin, entry in coin_markets.items():
+            if not isinstance(entry, dict):
+                continue
+            mark_price_raw = entry.get("mark_price")
+            try:
+                mark_price = float(mark_price_raw) if mark_price_raw is not None else None
+            except (TypeError, ValueError):
+                mark_price = None
+            coin_captured_at = entry.get("captured_at")
+            if captured_at is None and coin_captured_at:
+                captured_at = coin_captured_at
+            snapshot["coins"][str(coin).upper()] = {
+                "mark_price": mark_price,
+                "captured_at": coin_captured_at,
+            }
+        snapshot["captured_at_utc"] = captured_at
+        return snapshot
+
+    @staticmethod
+    def _snapshot_forecasts_for_submit_gate(lease: AgentRuntimeLease) -> dict[str, Any]:
+        market_payload = dict(lease.pack.payload.get("market") or {})
+        forecasts_payload = dict(lease.pack.payload.get("forecasts") or {})
+        # pack.payload.forecasts is keyed by coin → {horizon: {direction/side/probability/...}}
+        compact: dict[str, Any] = {}
+        for coin, horizons in forecasts_payload.items():
+            coin_key = str(coin).upper()
+            if not isinstance(horizons, dict):
+                continue
+            compact[coin_key] = {}
+            for horizon, data in horizons.items():
+                if not isinstance(data, dict):
+                    continue
+                compact[coin_key][str(horizon)] = {
+                    "direction": str(data.get("direction") or data.get("side") or "").lower() or None,
+                    "confidence": data.get("confidence"),
+                }
+        return {
+            "market_captured_at_utc": market_payload.get("market_captured_at_utc") or market_payload.get("captured_at"),
+            "coins": compact,
+        }
+
+    @staticmethod
+    def _detect_price_breach(
+        *,
+        prev_snapshot: dict[str, Any],
+        current_snapshot: dict[str, Any],
+        threshold_pct: float,
+    ) -> dict[str, Any] | None:
+        prev_coins = dict(prev_snapshot.get("coins") or {})
+        current_coins = dict(current_snapshot.get("coins") or {})
+        if not prev_coins or not current_coins:
+            return None
+        breaches: dict[str, float] = {}
+        for coin, current_entry in current_coins.items():
+            if not isinstance(current_entry, dict):
+                continue
+            prev_entry = prev_coins.get(coin)
+            if not isinstance(prev_entry, dict):
+                continue
+            try:
+                current_mark = float(current_entry.get("mark_price"))
+                prev_mark = float(prev_entry.get("mark_price"))
+            except (TypeError, ValueError):
+                continue
+            if prev_mark <= 0:
+                continue
+            pct = (current_mark - prev_mark) / prev_mark * 100.0
+            if abs(pct) >= threshold_pct:
+                breaches[coin] = round(pct, 3)
+        if not breaches:
+            return None
+        return {"breaches_pct": breaches, "threshold_pct": threshold_pct}
+
+    @staticmethod
+    def _detect_quant_flip(
+        *,
+        prev_snapshot: dict[str, Any],
+        current_snapshot: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        prev_coins = dict(prev_snapshot.get("coins") or {})
+        current_coins = dict(current_snapshot.get("coins") or {})
+        if not prev_coins or not current_coins:
+            return None
+        flips: list[dict[str, Any]] = []
+        for coin, current_horizons in current_coins.items():
+            if not isinstance(current_horizons, dict):
+                continue
+            prev_horizons = prev_coins.get(coin) or {}
+            for horizon, current_entry in current_horizons.items():
+                current_direction = str((current_entry or {}).get("direction") or "").lower() or None
+                prev_direction = str((prev_horizons.get(horizon) or {}).get("direction") or "").lower() or None
+                if current_direction is None or prev_direction is None:
+                    continue
+                if current_direction == prev_direction:
+                    continue
+                # Treat flat → directional (or reverse) as a flip worth
+                # surfacing, plus the obvious long ↔ short.
+                flips.append(
+                    {
+                        "coin": coin,
+                        "horizon": horizon,
+                        "prev": prev_direction,
+                        "current": current_direction,
+                    }
+                )
+        if not flips:
+            return None
+        return {"flips": flips}
 
     def submit_execution(
         self,
@@ -794,6 +1151,91 @@ class AgentGatewayService:
         self._consume_runtime_lease(lease=lease, submission_kind="retro_brief")
         return result
 
+    def submit_macro_brief(
+        self,
+        *,
+        input_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Chief's daily (or event-driven) macro brief submission — spec 014.
+
+        Validates via MacroBriefSubmission; materializes as a `macro_brief`
+        asset (immutable per NFR-004); drops no notification — consumers pick
+        it up via runtime_pack on next pull.
+        """
+        lease = self._validate_runtime_lease(input_id=input_id, agent_role="crypto_chief")
+        if str(lease.pack.task_kind or "") != "macro_brief":
+            raise RuntimeInputLeaseError(
+                reason="wrong_task_kind_for_macro_brief",
+                input_id=input_id,
+                agent_role="crypto_chief",
+                detail=f"lease task_kind={lease.pack.task_kind!r}, expected macro_brief",
+            )
+        envelope = self.validate_submission(
+            submission_kind="macro_brief",
+            agent_role="crypto_chief",
+            trace_id=lease.pack.trace_id,
+            payload=payload,
+        )
+        prior_brief = dict(lease.pack.payload.get("prior_macro_brief") or {})
+        prior_brief_id = str(prior_brief.get("brief_id") or "").strip() or None
+        authored = dict(envelope.payload)
+        prior_review = dict(authored.get("prior_brief_review") or {})
+        submitted_prior_brief_id = str(prior_review.get("prior_brief_id") or "").strip()
+        if prior_brief_id and submitted_prior_brief_id and submitted_prior_brief_id != prior_brief_id:
+            schema_ref, prompt_ref = self._submission_contract("macro_brief")
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=[
+                    f"prior_brief_id mismatch: submission refers to {submitted_prior_brief_id!r} "
+                    f"but lease pack carried {prior_brief_id!r}"
+                ],
+                error_kind="macro_brief_prior_mismatch",
+            )
+        if not submitted_prior_brief_id and prior_brief_id:
+            prior_review["prior_brief_id"] = prior_brief_id
+            authored["prior_brief_review"] = prior_review
+        canonical_brief = self.memory_assets.materialize_macro_brief(
+            trace_id=lease.pack.trace_id,
+            authored_payload=authored,
+            actor_role="crypto_chief",
+            source_ref=envelope.envelope_id,
+            metadata={"input_id": input_id, "wake_mode": authored.get("wake_mode", "daily_macro_brief")},
+        )
+        self._record_events(
+            [
+                self.build_submission_event(trace_id=lease.pack.trace_id, envelope=envelope),
+                EventFactory.build(
+                    trace_id=lease.pack.trace_id,
+                    event_type="macro_brief.submitted",
+                    source_module="agent_gateway",
+                    entity_type="macro_brief",
+                    entity_id=str(canonical_brief.get("brief_id")),
+                    payload={
+                        "brief": canonical_brief,
+                        "envelope_id": envelope.envelope_id,
+                        "input_id": input_id,
+                        "prior_brief_id": prior_brief_id,
+                    },
+                ),
+            ]
+        )
+        self.memory_assets.save_agent_session(
+            agent_role="crypto_chief",
+            session_id=self.session_id_for_role("crypto_chief"),
+            last_task_kind="macro_brief",
+            last_submission_kind="macro_brief",
+        )
+        self._consume_runtime_lease(lease=lease, submission_kind="macro_brief")
+        return {
+            "trace_id": lease.pack.trace_id,
+            "input_id": input_id,
+            "brief_id": canonical_brief.get("brief_id"),
+            "prior_brief_id": prior_brief_id,
+            "verdict": (canonical_brief.get("prior_brief_review") or {}).get("verdict"),
+        }
+
     # ------------------------------------------------------------------
     # Harness panels: "mirror" data shown to PM / MEA so they can gate
     # their own action on recent behavioral patterns instead of treating
@@ -1050,7 +1492,38 @@ class AgentGatewayService:
         snapshot_meta = dict(runtime_bundle.get("snapshot_meta") or {})
         runtime_input = runtime_inputs[agent_role]
         expires_at = datetime.now(UTC) + timedelta(seconds=self.runtime_pack_ttl_seconds)
-        if agent_role == "crypto_chief":
+        if agent_role == "crypto_chief" and task_kind == "macro_brief":
+            chief_payload = runtime_inputs["crypto_chief"].payload
+            prior_brief = self.memory_assets.latest_macro_brief() if self.memory_assets is not None else None
+            recent_briefs = (
+                self.memory_assets.recent_macro_briefs(limit=5) if self.memory_assets is not None else []
+            )
+            payload = {
+                "macro_brief_pack": {
+                    "market": chief_payload.get("market", {}),
+                    "macro_prices": chief_payload.get("macro_prices", {}),
+                    "news_events": chief_payload.get("news_events", []),
+                    "macro_memory": chief_payload.get("macro_memory", []),
+                    "forecasts": chief_payload.get("forecasts", {}),
+                    "previous_strategy": chief_payload.get("previous_strategy", {}),
+                    "digital_oracle": {
+                        "preset": "chief_regime_read",
+                        "wrapper": "/Users/chenzian/openclaw-trader/scripts/digital_oracle_query.py",
+                    },
+                },
+                "prior_macro_brief": prior_brief,
+                "recent_macro_briefs": recent_briefs,
+                "trigger_context": trigger_context,
+                "runtime_bridge_state": snapshot_meta,
+                "pending_learning_directives": self._pending_learning_directives_payload("crypto_chief"),
+            }
+            hidden_payload: dict[str, Any] = {
+                "runtime_inputs": {
+                    role: item.model_dump(mode="json")
+                    for role, item in runtime_inputs.items()
+                }
+            }
+        elif agent_role == "crypto_chief":
             learning_targets = self._capture_retro_learning_targets()
             retro_cycle_state, retro_case = self._latest_runtime_retro_context()
             retro_briefs = self._prepared_retro_briefs(
@@ -2135,8 +2608,15 @@ class AgentGatewayService:
                 macro_prices_payload = macro_snapshot.model_dump(mode="json")
             elif isinstance(macro_snapshot, dict):
                 macro_prices_payload = macro_snapshot
+        latest_macro_brief_payload = self._latest_macro_brief_runtime_payload()
+        decision_context_payload = self._build_pm_decision_context(
+            market=market,
+            strategy_payload=strategy_payload or {},
+            latest_macro_brief_payload=latest_macro_brief_payload,
+        )
         pm_payload = {
             "trace_id": trace_id,
+            "decision_context": decision_context_payload,
             "market": pm_market_payload,
             "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
             "risk_brake_policy": self._risk_brake_policy_payload(),
@@ -2145,6 +2625,7 @@ class AgentGatewayService:
             "previous_strategy": strategy_payload or {},
             "macro_memory": list(macro_memory or []),
             "macro_prices": macro_prices_payload,
+            "latest_macro_brief": latest_macro_brief_payload,
             "pending_learning_directives": self._pending_learning_directives_payload("pm"),
         }
         return {
@@ -2167,6 +2648,7 @@ class AgentGatewayService:
                     "strategy": rt_strategy_payload,
                     "execution_contexts": rt_execution_contexts,
                     "macro_prices": macro_prices_payload,
+                    "latest_macro_brief": latest_macro_brief_payload,
                     "pending_learning_directives": self._pending_learning_directives_payload("risk_trader"),
                 },
             ),
@@ -2182,6 +2664,7 @@ class AgentGatewayService:
                     "latest_strategy": mea_strategy_payload,
                     "recent_news_submissions": self._recent_mea_submissions_digest(limit=3),
                     "macro_prices": macro_prices_payload,
+                    "latest_macro_brief": latest_macro_brief_payload,
                     "pending_learning_directives": self._pending_learning_directives_payload("macro_event_analyst"),
                 },
             ),
@@ -2269,6 +2752,221 @@ class AgentGatewayService:
             },
             "lock_release": "new_pm_strategy_revision",
         }
+
+    # Default brief TTL: 36h (daily cadence + 12h slack — matches spec 014 NFR-005).
+    _MACRO_BRIEF_VALID_HOURS_DEFAULT = 36.0
+    _MACRO_BRIEF_CONSECUTIVE_FALSIFIED_THRESHOLD = 3
+
+    # Spec 015 scenario 3: decision_context alignment thresholds.
+    _DECISION_CONTEXT_DIVERGED_PCT = 1.0  # |price_move| > 1% and direction mismatch → diverged
+    _DECISION_CONTEXT_ALIGNED_PCT = 0.5   # |price_move| < 0.5% or same direction → aligned
+
+    def _build_pm_decision_context(
+        self,
+        *,
+        market: DataIngestBundle,
+        strategy_payload: dict[str, Any],
+        latest_macro_brief_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Spec 015 FR-007: top-level `decision_context` block PM reads first.
+
+        Returns an aggregated view of:
+        - `regime_summary` from Chief brief
+        - `price_snapshot` (BTC / ETH mark + 24h move from compressed series)
+        - `last_thesis_evidence_breakdown` from the previous strategy
+        - `thesis_price_alignment_flag` (aligned / diverged / unknown)
+        """
+        regime_summary = None
+        brief = latest_macro_brief_payload.get("brief") if latest_macro_brief_payload else None
+        if isinstance(brief, dict):
+            regime_tags = dict(brief.get("regime_tags") or {})
+            regime_summary = regime_tags.get("regime_summary")
+        if latest_macro_brief_payload and latest_macro_brief_payload.get("missing"):
+            regime_summary = "unknown_brief_missing"
+        elif latest_macro_brief_payload and latest_macro_brief_payload.get("stale"):
+            regime_summary = regime_summary or "unknown_brief_stale"
+
+        price_snapshot = self._build_decision_context_price_snapshot(market)
+        last_thesis_evidence_breakdown = self._extract_evidence_breakdown(strategy_payload)
+        alignment_flag = self._compute_thesis_price_alignment_flag(
+            strategy_payload=strategy_payload,
+            price_snapshot=price_snapshot,
+        )
+        return {
+            "regime_summary": regime_summary,
+            "price_snapshot": price_snapshot,
+            "last_thesis_evidence_breakdown": last_thesis_evidence_breakdown,
+            "thesis_price_alignment_flag": alignment_flag,
+            "macro_brief_age_hours": (latest_macro_brief_payload or {}).get("age_hours"),
+            "chief_regime_confidence": (latest_macro_brief_payload or {}).get(
+                "chief_regime_confidence", "ok"
+            ),
+        }
+
+    @staticmethod
+    def _build_decision_context_price_snapshot(market: DataIngestBundle) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {}
+        for coin in ("BTC", "ETH"):
+            entry = market.market.get(coin) if market is not None else None
+            if entry is None:
+                continue
+            try:
+                mark_price = float(entry.mark_price) if entry.mark_price is not None else None
+            except (TypeError, ValueError):
+                mark_price = None
+            change_pct_24h = None
+            context_entry = market.market_context.get(coin) if market is not None else None
+            if context_entry is not None:
+                series_dict = dict(context_entry.compressed_price_series or {})
+                candidate_series = (
+                    series_dict.get("24h")
+                    or series_dict.get("day")
+                    or next(iter(series_dict.values()), None)
+                )
+                if candidate_series is not None:
+                    change_pct_24h = getattr(candidate_series, "change_pct", None)
+            snapshot[coin] = {
+                "mark": mark_price,
+                "change_pct_24h": change_pct_24h,
+            }
+        return snapshot
+
+    @staticmethod
+    def _extract_evidence_breakdown(strategy_payload: dict[str, Any]) -> dict[str, Any] | None:
+        if not strategy_payload:
+            return None
+        change_summary = strategy_payload.get("change_summary")
+        if isinstance(change_summary, dict):
+            breakdown = change_summary.get("evidence_breakdown")
+            if isinstance(breakdown, dict):
+                return dict(breakdown)
+        return None
+
+    @classmethod
+    def _compute_thesis_price_alignment_flag(
+        cls,
+        *,
+        strategy_payload: dict[str, Any],
+        price_snapshot: dict[str, Any],
+    ) -> str:
+        """Derive aligned/diverged/unknown per spec 015 scenario 3.
+
+        Very coarse heuristic for MVP: look at the primary (priority=1) BTC
+        target's direction and compare to BTC's 24h change sign. If direction
+        contradicts price movement AND magnitude > threshold → diverged. If
+        same-direction or magnitude < aligned-threshold → aligned. Else unknown.
+        """
+        if not strategy_payload:
+            return "unknown"
+        targets = [
+            item for item in (strategy_payload.get("targets") or [])
+            if isinstance(item, dict)
+        ]
+        if not targets:
+            return "unknown"
+        targets.sort(key=lambda item: int(item.get("priority") or 99))
+        primary = next(
+            (item for item in targets if str(item.get("symbol") or "").upper() == "BTC"),
+            targets[0],
+        )
+        coin = str(primary.get("symbol") or "").upper()
+        direction = str(primary.get("direction") or "").strip().lower()
+        entry = price_snapshot.get(coin) or {}
+        change_pct = entry.get("change_pct_24h")
+        try:
+            change_pct_value = float(change_pct) if change_pct is not None else None
+        except (TypeError, ValueError):
+            change_pct_value = None
+        if direction not in {"long", "short"} or change_pct_value is None:
+            return "unknown"
+        magnitude = abs(change_pct_value)
+        if magnitude < cls._DECISION_CONTEXT_ALIGNED_PCT:
+            return "aligned"
+        if direction == "long" and change_pct_value < 0 and magnitude > cls._DECISION_CONTEXT_DIVERGED_PCT:
+            return "diverged"
+        if direction == "short" and change_pct_value > 0 and magnitude > cls._DECISION_CONTEXT_DIVERGED_PCT:
+            return "diverged"
+        if direction == "long" and change_pct_value > 0:
+            return "aligned"
+        if direction == "short" and change_pct_value < 0:
+            return "aligned"
+        return "unknown"
+
+    def _latest_macro_brief_runtime_payload(self) -> dict[str, Any]:
+        """Inject `latest_macro_brief` into runtime_pack with freshness flags.
+
+        Payload shape:
+            { missing: bool, stale: bool, age_hours: float | None,
+              chief_regime_confidence: "ok" | "low",
+              brief: dict | None }
+        """
+        if self.memory_assets is None:
+            return {
+                "missing": True,
+                "stale": False,
+                "age_hours": None,
+                "chief_regime_confidence": "ok",
+                "brief": None,
+            }
+        brief = self.memory_assets.latest_macro_brief()
+        if brief is None:
+            return {
+                "missing": True,
+                "stale": False,
+                "age_hours": None,
+                "chief_regime_confidence": "ok",
+                "brief": None,
+            }
+        now = datetime.now(UTC)
+        generated_at = self._parse_utc_iso(brief.get("generated_at_utc"))
+        valid_until = self._parse_utc_iso(brief.get("valid_until_utc"))
+        age_hours: float | None = None
+        if generated_at is not None:
+            age_hours = (now - generated_at).total_seconds() / 3600.0
+        stale = False
+        if valid_until is not None:
+            stale = now > valid_until
+        elif age_hours is not None:
+            stale = age_hours > self._MACRO_BRIEF_VALID_HOURS_DEFAULT
+        confidence = self._chief_regime_confidence_from_recent(
+            self.memory_assets.recent_macro_briefs(
+                limit=self._MACRO_BRIEF_CONSECUTIVE_FALSIFIED_THRESHOLD
+            )
+        )
+        return {
+            "missing": False,
+            "stale": stale,
+            "age_hours": round(age_hours, 2) if age_hours is not None else None,
+            "chief_regime_confidence": confidence,
+            "brief": brief,
+        }
+
+    @staticmethod
+    def _parse_utc_iso(value: Any) -> datetime | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except Exception:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
+    @classmethod
+    def _chief_regime_confidence_from_recent(cls, recent_briefs: list[dict[str, Any]]) -> str:
+        """Spec 014 FR-012: consecutive falsified briefs → confidence=low."""
+        if len(recent_briefs) < cls._MACRO_BRIEF_CONSECUTIVE_FALSIFIED_THRESHOLD:
+            return "ok"
+        considered = recent_briefs[: cls._MACRO_BRIEF_CONSECUTIVE_FALSIFIED_THRESHOLD]
+        for item in considered:
+            verdict = str(((item or {}).get("prior_brief_review") or {}).get("verdict") or "").strip()
+            if verdict != "falsified":
+                return "ok"
+        return "low"
 
     def _pending_learning_directives_payload(self, agent_role: str) -> list[dict[str, Any]]:
         if self.memory_assets is None:
@@ -3209,13 +3907,15 @@ class AgentGatewayService:
         trace_id: str,
         payload: dict[str, Any],
     ) -> ValidatedSubmissionEnvelope:
-        model_cls: type[StrategySubmission | ExecutionSubmission | NewsSubmission]
+        model_cls: type[StrategySubmission | ExecutionSubmission | NewsSubmission | MacroBriefSubmission]
         if submission_kind == "strategy":
             model_cls = StrategySubmission
         elif submission_kind == "execution":
             model_cls = ExecutionSubmission
         elif submission_kind == "news":
             model_cls = NewsSubmission
+        elif submission_kind == "macro_brief":
+            model_cls = MacroBriefSubmission
         else:  # pragma: no cover - defensive
             raise ValueError(f"unsupported submission kind: {submission_kind}")
         schema_ref, prompt_ref = self._submission_contract(submission_kind)
@@ -3371,6 +4071,8 @@ class AgentGatewayService:
             return self._EXECUTION_SCHEMA_REF, self._EXECUTION_PROMPT_REF
         if submission_kind == "news":
             return self._NEWS_SCHEMA_REF, self._NEWS_PROMPT_REF
+        if submission_kind == "macro_brief":
+            return self._MACRO_BRIEF_SCHEMA_REF, self._MACRO_BRIEF_PROMPT_REF
         raise ValueError(f"unsupported submission kind: {submission_kind}")
 
     @classmethod
@@ -3813,6 +4515,7 @@ class AgentGatewayService:
                 "flip_triggers",
                 "change_summary",
                 "targets",
+                "internal_reasoning_only",
             },
             "crypto_chief": {
                 "strategy_id",
@@ -3828,6 +4531,7 @@ class AgentGatewayService:
                 "flip_triggers",
                 "change_summary",
                 "targets",
+                "internal_reasoning_only",
                 "scheduled_rechecks",
             },
             "macro_event_analyst": {
@@ -3842,6 +4546,7 @@ class AgentGatewayService:
                 "flip_triggers",
                 "change_summary",
                 "targets",
+                "internal_reasoning_only",
             },
         }
         keep_keys = keep_keys_by_role.get(agent_role)

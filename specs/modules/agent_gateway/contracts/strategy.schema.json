@@ -32,7 +32,30 @@
       }
     },
     "portfolio_thesis": {
-      "type": "string"
+      "description": "Structured list of thesis claims (spec 015 FR-001). Each claim tags the evidence it relies on so the submit-gate can audit narrative-over-price bias.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["statement", "evidence_type", "evidence_sources"],
+        "properties": {
+          "statement": {
+            "type": "string",
+            "minLength": 1,
+            "description": "单句论断。核心论断至少 3 条。"
+          },
+          "evidence_type": {
+            "type": "string",
+            "enum": ["price_action", "quant_forecast", "narrative", "regime", "mixed"]
+          },
+          "evidence_sources": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "引用的具体数据点或信号（例如 'Deribit BTC 3M basis 4.8%', 'Polymarket hormuz 82.5%'）。"
+          }
+        }
+      }
     },
     "portfolio_invalidation": {
       "type": "string"
@@ -41,7 +64,36 @@
       "type": "string"
     },
     "change_summary": {
-      "type": "string"
+      "description": "结构化变更摘要（spec 015 FR-002）。`evidence_breakdown` 四项之和必须严格等于 100；`why_no_external_trigger` 在没有外部触发器时必填。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headline", "evidence_breakdown"],
+      "properties": {
+        "headline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_breakdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "price_action_pct",
+            "quant_forecast_pct",
+            "narrative_pct",
+            "regime_pct"
+          ],
+          "properties": {
+            "price_action_pct": {"type": "number", "minimum": 0, "maximum": 100},
+            "quant_forecast_pct": {"type": "number", "minimum": 0, "maximum": 100},
+            "narrative_pct": {"type": "number", "minimum": 0, "maximum": 100},
+            "regime_pct": {"type": "number", "minimum": 0, "maximum": 100}
+          }
+        },
+        "why_no_external_trigger": {
+          "type": ["string", "null"],
+          "description": "当 submit-gate 没有命中任何外部触发器 (new_mea_event / price_breach / quant_flip / risk_brake / owner_push) 时，PM 必须用自我质询文本填此字段，否则 submit 被拒 (hesitation_unjustified)。"
+        }
+      }
     },
     "targets": {
       "type": "array",

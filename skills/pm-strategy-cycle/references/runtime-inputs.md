@@ -56,6 +56,14 @@ PY
   "expires_at_utc": "2026-03-22T...",
   "payload": {
     "trace_id": "trace_...",
+    "decision_context": {
+      "regime_summary": "risk_off_with_crypto_headwind",
+      "price_snapshot": {"BTC": {"mark": 74200.0, "change_pct_24h": -1.2}, "ETH": {"mark": 2380.0, "change_pct_24h": -1.8}},
+      "last_thesis_evidence_breakdown": {"price_action_pct": 40, "quant_forecast_pct": 25, "narrative_pct": 5, "regime_pct": 30},
+      "thesis_price_alignment_flag": "aligned",
+      "macro_brief_age_hours": 4.5,
+      "chief_regime_confidence": "ok"
+    },
     "market": {
       "market": {},
       "market_context": {},
@@ -90,12 +98,21 @@ PY
   - `expires_at_utc`
   - `trigger_type`
 - 策略事实位于 `payload` 下
+- **`payload.decision_context` 是 spec 015 新增的聚合块**，PM 打开 pack 第一步读这里（详见 decision-sequence.md 第 0.a 步）
 - `market_context` 和 `portfolio` 位于 `payload.market` **内部**，不是顶层同级字段
 - `news_events` 是供 PM 审阅的精简近期新闻层，不是无限制的原始新闻转储
 - `latest_pm_trigger_event` 记录本次运行经审计的 PM 唤醒原因。固定节奏、工作流唤醒、直接代理消息和手动刷新都应记录在此
 - `latest_risk_brake_event` 在系统刚刚在唤醒 PM 之前强制减仓或平仓时可能存在
 - `risk_brake_policy` 描述了常设台面规则：系统监控单仓位最大回撤和组合最大回撤，可以在 PM 被唤醒之前自动减仓或平仓
 - `macro_prices` 是 **宏观/大宗商品参考价的权威来源**：Brent/WTI/DXY/US10Y 来自 yfinance（周末/盘后会带 `is_market_open: false` 和较大 `staleness_seconds`），`btc_fear_greed` 每日 00 UTC 更新，`btc_etf_activity` 是 IBIT/FBTC/ARKB 的日成交量 + 20 日均量（不是真 flow 数字，只是机构端活跃度代理）。**禁止用 web_fetch / web_search 抓实时 Brent/WTI/DXY/10Y 价** —— 那些野站数据会翻烙饼，已有过 Rev375→376 那种回滚事故
+- `latest_macro_brief`（spec 014）是 Chief 的日频宏观 regime 判断。字段结构：
+  - `missing: bool`：系统里还没有 brief（Chief 还没开始日频产出，或资产被清过）
+  - `stale: bool`：brief 已过 `valid_until_utc`（默认 generated_at + 36h）
+  - `age_hours: float | null`：brief 产出至今多少小时
+  - `chief_regime_confidence: "ok" | "low"`：连续 3 份 brief 的 `prior_brief_review.verdict==falsified` 时为 `low`，提示你对 brief 判断打折
+  - `brief`：完整 brief 内容，包含 `regime_tags` / `narrative` / `pm_directives` / `monitoring_triggers` / `prior_brief_review` / `data_source_snapshot`
+  - **PM 必须在 `portfolio_thesis` 前引用 `brief.regime_tags.regime_summary` 或 `brief.pm_directives`；偏离 brief 时在 `change_summary` 中明示理由**（详见 decision-sequence.md 第 0 步）
+  - `missing=true` 或 `stale=true` 时：保守姿态——不扩 band、不切换 portfolio_mode；在 `change_summary` 里写明"brief 缺失/过期，维持保守"
 - `previous_strategy` 已使用规范策略字段名称，如：
   - `portfolio_thesis`
   - `portfolio_invalidation`

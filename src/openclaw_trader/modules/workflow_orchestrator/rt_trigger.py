@@ -280,6 +280,11 @@ class RTTriggerMonitor:
         strategy_key = self._strategy_key(payload)
         if not strategy_key or strategy_key == str(state.get("last_seen_strategy_key") or ""):
             return None
+        # Spec 015 FR-006: internal_reasoning_only revisions do not wake RT.
+        # RT will still see the new revision on the next runtime pack pull,
+        # flagged so it knows this is a low-weight mandate change.
+        if bool(payload.get("internal_reasoning_only")):
+            return None
         return RTTriggerDecision(
             reason="pm_strategy_update",
             severity="high",
