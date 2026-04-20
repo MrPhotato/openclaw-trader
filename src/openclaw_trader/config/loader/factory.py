@@ -202,6 +202,9 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
                 for item in list(dispatch_payload.get("macro_data_etf_tickers") or [])
                 if str(item).strip()
             ] or ["IBIT", "FBTC", "ARKB"],
+            pm_submit_gate_price_breach_pct=float(
+                dispatch_payload.get("pm_submit_gate_price_breach_pct", 1.5)
+            ),
         ),
         strategy=StrategySettings.model_validate(strategy_payload),
         workflow=WorkflowSettings(

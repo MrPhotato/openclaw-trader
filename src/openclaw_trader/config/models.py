@@ -397,6 +397,14 @@ class OrchestratorSettings(BaseModel):
     macro_data_refresh_interval_seconds: int = 900
     macro_data_http_timeout_seconds: int = 10
     macro_data_etf_tickers: list[str] = Field(default_factory=lambda: ["IBIT", "FBTC", "ARKB"])
+    # ------------------------------------------------------------------
+    # PM submit-gate (spec 015 FR-005). price_breach threshold in %: any
+    # coin's |mark delta since previous strategy submit| ≥ this value
+    # counts as an external trigger. Runtime-tunable via dispatch.yaml;
+    # no restart semantics (new pulls pick up the new value on next
+    # SystemSettings reload).
+    # ------------------------------------------------------------------
+    pm_submit_gate_price_breach_pct: float = 1.5
 
 
 class StrategySettings(BaseModel):

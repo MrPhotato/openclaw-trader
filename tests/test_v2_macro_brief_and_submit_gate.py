@@ -437,6 +437,45 @@ class SubmitGateTests(unittest.TestCase):
         finally:
             harness.cleanup()
 
+    def test_price_breach_threshold_honors_settings_override(self) -> None:
+        """Spec 015 FR-005: threshold reads from settings.orchestrator.pm_submit_gate_price_breach_pct."""
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            # Default 1.5 — a 1.2% move should NOT hit
+            lease = _fake_lease(
+                current_market_snapshot={
+                    "market": {
+                        "BTC": {"mark_price": "101.2"},
+                        "ETH": {"mark_price": "100.0"},
+                    }
+                }
+            )
+            prev_asset = _fake_prev_strategy_asset(
+                generated_at=datetime.now(UTC) - timedelta(hours=1),
+                submit_market_snapshot={
+                    "coins": {
+                        "BTC": {"mark_price": 100.0},
+                        "ETH": {"mark_price": 100.0},
+                    }
+                },
+            )
+            result = gateway.evaluate_strategy_submission_triggers(
+                lease=lease,
+                previous_strategy_asset=prev_asset,
+            )
+            self.assertNotIn("price_breach", result.hits)
+            # Lower threshold via settings override → same 1.2% move now hits
+            harness.container.settings.orchestrator.pm_submit_gate_price_breach_pct = 1.0
+            result2 = gateway.evaluate_strategy_submission_triggers(
+                lease=lease,
+                previous_strategy_asset=prev_asset,
+            )
+            self.assertIn("price_breach", result2.hits)
+            self.assertEqual(result2.details["price_breach"]["threshold_pct"], 1.0)
+        finally:
+            harness.cleanup()
+
     def test_no_triggers_marks_internal_reasoning_only(self) -> None:
         harness = build_test_harness()
         try:
