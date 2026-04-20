@@ -2818,18 +2818,18 @@ class AgentGatewayService:
             context_entry = market.market_context.get(coin) if market is not None else None
             if context_entry is not None:
                 series_dict = dict(context_entry.compressed_price_series or {})
+                # The "24h" key in compressed_price_series is misleading — in
+                # live data it carries ~90 DAILY bars (~3 months of history),
+                # not a 24-hour span. Prefer "15m" (96 bars × 15min = 24h) or
+                # "1h" (12 bars × 1h = 12h) instead. Upstream `change_pct`
+                # field is also observed inconsistent; compute from points.
                 candidate_series = (
-                    series_dict.get("24h")
-                    or series_dict.get("day")
-                    or next(iter(series_dict.values()), None)
+                    series_dict.get("15m")
+                    or series_dict.get("1h")
+                    or series_dict.get("4h")
+                    or series_dict.get("24h")
                 )
                 if candidate_series is not None:
-                    # Derive from points rather than the upstream `change_pct` —
-                    # observed 2026-04-20 that `change_pct` carried wrong
-                    # sign/magnitude (BTC 24h series first=71798 → last=75105
-                    # was reported as -15.97% instead of +4.6%). first-vs-last
-                    # close is self-consistent; fall back to the field only if
-                    # we have fewer than 2 points to compute with.
                     points = list(getattr(candidate_series, "points", []) or [])
                     if len(points) >= 2:
                         try:
@@ -2841,8 +2841,6 @@ class AgentGatewayService:
                                 )
                         except (TypeError, ValueError, AttributeError):
                             change_pct_24h = None
-                    if change_pct_24h is None:
-                        change_pct_24h = getattr(candidate_series, "change_pct", None)
             snapshot[coin] = {
                 "mark": mark_price,
                 "change_pct_24h": change_pct_24h,
