@@ -2824,7 +2824,25 @@ class AgentGatewayService:
                     or next(iter(series_dict.values()), None)
                 )
                 if candidate_series is not None:
-                    change_pct_24h = getattr(candidate_series, "change_pct", None)
+                    # Derive from points rather than the upstream `change_pct` —
+                    # observed 2026-04-20 that `change_pct` carried wrong
+                    # sign/magnitude (BTC 24h series first=71798 → last=75105
+                    # was reported as -15.97% instead of +4.6%). first-vs-last
+                    # close is self-consistent; fall back to the field only if
+                    # we have fewer than 2 points to compute with.
+                    points = list(getattr(candidate_series, "points", []) or [])
+                    if len(points) >= 2:
+                        try:
+                            first_close = float(getattr(points[0], "close", None))
+                            last_close = float(getattr(points[-1], "close", None))
+                            if first_close > 0:
+                                change_pct_24h = round(
+                                    (last_close - first_close) / first_close * 100.0, 4
+                                )
+                        except (TypeError, ValueError, AttributeError):
+                            change_pct_24h = None
+                    if change_pct_24h is None:
+                        change_pct_24h = getattr(candidate_series, "change_pct", None)
             snapshot[coin] = {
                 "mark": mark_price,
                 "change_pct_24h": change_pct_24h,
