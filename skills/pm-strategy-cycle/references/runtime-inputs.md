@@ -99,6 +99,14 @@ PY
   - `trigger_type`
 - 策略事实位于 `payload` 下
 - **`payload.decision_context` 是 spec 015 新增的聚合块**，PM 打开 pack 第一步读这里（详见 decision-sequence.md 第 0.a 步）
+- **`payload.daily_pnl_panel` 是今日 UTC 盈亏面板**（金额 USD，pct 是百分数例 `-1.08` 表示 -1.08%）：
+  - `today_open_equity_usd` / `today_current_equity_usd` / `today_peak_equity_usd` / `today_trough_equity_usd`
+  - `today_pnl_usd` = current - open
+  - `today_pnl_pct_of_open` = (current - open) / open × 100 —— **今日盈亏率**
+  - `today_drawdown_from_peak_pct` = 从今日峰值回撤；`today_peak_to_trough_pct` = 今日已经过的最大 peak-to-trough swing
+  - `yesterday_close_equity_usd` / `overnight_change_usd` / `overnight_change_pct`
+  - 判断"我今天的 thesis 是不是已经在赔钱"。`today_pnl_pct_of_open < -1.5%` 时应该在 `change_summary` 中显式回应，不能装作没看见
+  - `market.portfolio.unrealized_pnl_usd` 是 exchange 直接报的**聚合**浮盈浮亏（以此为准）。`position.entry_price` 与实时 mark 口径可能不一致，**不要自己 `(entry - mark) × qty` 手算个仓浮盈**——会得出错误结论
 - `market_context` 和 `portfolio` 位于 `payload.market` **内部**，不是顶层同级字段
 - `news_events` 是供 PM 审阅的精简近期新闻层，不是无限制的原始新闻转储
 - `latest_pm_trigger_event` 记录本次运行经审计的 PM 唤醒原因。固定节奏、工作流唤醒、直接代理消息和手动刷新都应记录在此

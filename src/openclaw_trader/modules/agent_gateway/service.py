@@ -2609,6 +2609,9 @@ class AgentGatewayService:
             elif isinstance(macro_snapshot, dict):
                 macro_prices_payload = macro_snapshot
         latest_macro_brief_payload = self._latest_macro_brief_runtime_payload()
+        daily_pnl_panel_payload = (
+            self.memory_assets.daily_pnl_panel() if self.memory_assets is not None else {}
+        )
         decision_context_payload = self._build_pm_decision_context(
             market=market,
             strategy_payload=strategy_payload or {},
@@ -2617,6 +2620,7 @@ class AgentGatewayService:
         pm_payload = {
             "trace_id": trace_id,
             "decision_context": decision_context_payload,
+            "daily_pnl_panel": daily_pnl_panel_payload,
             "market": pm_market_payload,
             "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
             "risk_brake_policy": self._risk_brake_policy_payload(),
@@ -2642,6 +2646,7 @@ class AgentGatewayService:
                 payload={
                     "trace_id": trace_id,
                     "market": rt_market_payload,
+                    "daily_pnl_panel": daily_pnl_panel_payload,
                     "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
                     "forecasts": self._forecast_payload(forecasts),
                     "news_events": self._compact_news_events(news_events, limit=5),
@@ -2659,6 +2664,7 @@ class AgentGatewayService:
                 payload={
                     "trace_id": trace_id,
                     "market": mea_market_payload,
+                    "daily_pnl_panel": daily_pnl_panel_payload,
                     "news_events": [item.model_dump(mode="json") for item in news_events],
                     "macro_memory": list(macro_memory or []),
                     "latest_strategy": mea_strategy_payload,

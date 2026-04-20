@@ -684,6 +684,117 @@ class MemoryAssetsService:
             )
         return briefs
 
+    def daily_pnl_panel(self, *, now: datetime | None = None) -> dict:
+        """Compute "今日盈亏" panel for runtime_pack injection.
+
+        Reads `portfolio_snapshot` history since yesterday 00:00 UTC via the
+        existing `portfolio_equity_timeseries` query (5-min buckets). Returns
+        open / current / peak / trough for today + yesterday's final close,
+        plus $ and % deltas agents can reason about without re-computing.
+
+        All equity values are USD; all pcts are fractions of 100 (e.g. -1.08).
+        Returns a dict with `as_of_utc` plus numeric fields (None-safe if
+        there's no snapshot data yet).
+        """
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        today_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday_start = today_start - timedelta(days=1)
+
+        try:
+            series = self.repository.portfolio_equity_timeseries(
+                since=yesterday_start.isoformat(),
+                bucket_minutes=5,
+            )
+        except Exception:  # noqa: BLE001
+            series = []
+
+        yesterday_points: list[tuple[datetime, float]] = []
+        today_points: list[tuple[datetime, float]] = []
+        for row in series or []:
+            created_at_raw = row.get("created_at")
+            try:
+                bucket_at = datetime.fromisoformat(str(created_at_raw).replace("Z", "+00:00"))
+            except Exception:  # noqa: BLE001
+                continue
+            if bucket_at.tzinfo is None:
+                bucket_at = bucket_at.replace(tzinfo=UTC)
+            try:
+                equity_value = float(row.get("total_equity_usd") or 0)
+            except (TypeError, ValueError):
+                continue
+            if equity_value <= 0:
+                continue
+            bucket_at = bucket_at.astimezone(UTC)
+            if bucket_at < today_start:
+                yesterday_points.append((bucket_at, equity_value))
+            else:
+                today_points.append((bucket_at, equity_value))
+
+        panel: dict = {
+            "as_of_utc": current.isoformat(),
+            "today_utc_date": today_start.date().isoformat(),
+            "today_open_equity_usd": None,
+            "today_current_equity_usd": None,
+            "today_peak_equity_usd": None,
+            "today_trough_equity_usd": None,
+            "today_pnl_usd": None,
+            "today_pnl_pct_of_open": None,
+            "today_drawdown_from_peak_pct": None,
+            "today_peak_to_trough_pct": None,
+            "yesterday_close_equity_usd": None,
+            "overnight_change_usd": None,
+            "overnight_change_pct": None,
+        }
+
+        if not today_points:
+            return panel
+
+        today_points.sort(key=lambda item: item[0])
+        today_open = today_points[0][1]
+        today_current = today_points[-1][1]
+        today_peak = max(today_points, key=lambda item: item[1])[1]
+        today_trough = min(today_points, key=lambda item: item[1])[1]
+        panel.update(
+            {
+                "today_open_equity_usd": round(today_open, 2),
+                "today_current_equity_usd": round(today_current, 2),
+                "today_peak_equity_usd": round(today_peak, 2),
+                "today_trough_equity_usd": round(today_trough, 2),
+                "today_pnl_usd": round(today_current - today_open, 4),
+                "today_pnl_pct_of_open": (
+                    round((today_current - today_open) / today_open * 100.0, 3)
+                    if today_open > 0
+                    else None
+                ),
+                "today_drawdown_from_peak_pct": (
+                    round((today_current - today_peak) / today_peak * 100.0, 3)
+                    if today_peak > 0
+                    else None
+                ),
+                "today_peak_to_trough_pct": (
+                    round((today_trough - today_peak) / today_peak * 100.0, 3)
+                    if today_peak > 0
+                    else None
+                ),
+            }
+        )
+
+        if yesterday_points:
+            yesterday_points.sort(key=lambda item: item[0])
+            yesterday_close = yesterday_points[-1][1]
+            panel.update(
+                {
+                    "yesterday_close_equity_usd": round(yesterday_close, 2),
+                    "overnight_change_usd": round(today_open - yesterday_close, 4),
+                    "overnight_change_pct": (
+                        round((today_open - yesterday_close) / yesterday_close * 100.0, 3)
+                        if yesterday_close > 0
+                        else None
+                    ),
+                }
+            )
+        return panel
+
     def get_pending_scheduled_rechecks(self) -> list[dict]:
         latest_strategy = self.get_latest_strategy()
         if latest_strategy is None:

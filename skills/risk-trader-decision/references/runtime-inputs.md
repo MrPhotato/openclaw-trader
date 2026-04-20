@@ -16,6 +16,11 @@ RT 应从 `agent_gateway` 拉取一个 `rt` 运行时数据包，然后按以下
 - `forecasts`
 - `news_events`
 - `macro_prices` — Brent/WTI/DXY/US10Y + BTC F&G + BTC ETF 活跃度代理。Brent 逼近 PM 失效条件时只看这里，**不要用 `web_fetch` 抓野站 Brent 价**（会拿到过时/滚动的 $90 vs $96 互相矛盾的数）
+- **`daily_pnl_panel`** — 今日 UTC 盈亏面板（金额 USD，pct 百分数）：
+  - `today_open_equity_usd` / `today_current_equity_usd` / `today_peak_equity_usd` / `today_trough_equity_usd`
+  - `today_pnl_pct_of_open`、`today_drawdown_from_peak_pct`、`today_peak_to_trough_pct`、`overnight_change_pct`
+  - 用途：做减仓/加仓前看"今天整体已经多深"。`today_drawdown_from_peak_pct < -1.2%` 说明已过 observe 档（配合 `risk_overlay.state` 看档位）
+  - `market.portfolio.unrealized_pnl_usd` 是 exchange 直接报的**聚合**浮盈（以此为准）。**不要用 `(entry_price - mark) × qty` 自己手算个仓 PnL** —— entry_price 与实时 mark 的口径可能不一致（VWAP vs 最新 fill），手算会得出和 exchange 报的完全不同的数
 - `latest_macro_brief`（spec 014）— Chief 的日频 regime 判断。**RT 不强制引用**，但可用于判断"我该不该加仓 / 维持 reduce_only"：
   - `missing=true` 或 `stale=true` → 默认保守，不主动 add，不突破 PM target band 上沿
   - `chief_regime_confidence="low"` → Chief 已连续 3 次看错 regime，RT 把 brief 的 directives 当作次要参考，以 PM 策略与市场结构为准
