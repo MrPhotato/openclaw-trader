@@ -79,6 +79,7 @@ class FakeAgentDispatcher:
     def run_cron_job_detached(self, *, job_id):
         from openclaw_trader.modules.workflow_orchestrator.agent_dispatch import DispatchResult
 
+        self.sends.append({"cron_run_job_id": job_id})
         return DispatchResult(ok=True, pid=99999)
 
     def fetch_cron_job_payload_message(self, *, job_id):
@@ -1671,6 +1672,61 @@ class AgentWakeMonitorTests(unittest.TestCase):
             )
             monitor.scan_once(now=datetime(2026, 4, 17, 1, 2, tzinfo=UTC))
             self.assertEqual(len(dispatcher.sends), 0)
+        finally:
+            harness.cleanup()
+
+    def test_use_cron_run_routes_via_cron_run_not_agent_send(self) -> None:
+        """Spec 014 regression: `openclaw agent --session-id <custom>` silently
+        falls back to `agent:<agent>:main`. Rules firing a non-main session
+        (e.g. chief macro-brief) must set use_cron_run=True so the dispatcher
+        invokes `openclaw cron run <job_id>` instead, which honors the cron's
+        own sessionKey routing."""
+        from openclaw_trader.modules.workflow_orchestrator.agent_wake import (
+            AgentWakeMonitor,
+            AgentWakeRuleConfig,
+            AgentWakeSettings,
+            CronTimePredicateConfig,
+            MessageSourceConfig,
+        )
+
+        harness = build_test_harness()
+        try:
+            harness.container.memory_assets.save_asset(
+                asset_type="strategy",
+                payload={"strategy_id": "fresh_for_cron_run_test"},
+                actor_role="pm",
+                group_key="2026-04-17",
+            )
+            rule = AgentWakeRuleConfig(
+                name="chief_daily_macro_brief",
+                agent="crypto-chief",
+                target_session_key="agent:crypto-chief:macro-brief-session",
+                message_source=MessageSourceConfig(kind="cron_job_payload", job_id="chief-brief-job"),
+                fire_when_any_of=(CronTimePredicateConfig(kind="cron_time", expr="30 0 * * *", tz="UTC"),),
+                cooldown_minutes=60,
+                enabled=True,
+                use_cron_run=True,
+            )
+            dispatcher = FakeAgentDispatcher(payload_by_job={"chief-brief-job": "should not be used"})
+            settings = AgentWakeSettings(enabled=True, scan_interval_seconds=60, rules=(rule,))
+            monitor = AgentWakeMonitor(
+                memory_assets=harness.container.memory_assets,
+                dispatcher=dispatcher,
+                settings=settings,
+                event_bus=harness.event_bus,
+            )
+            # Baseline scan before cron time.
+            monitor.scan_once(now=datetime(2026, 4, 17, 0, 29, tzinfo=UTC))
+            self.assertEqual(len(dispatcher.sends), 0)
+            # Cron crosses 00:30 → fires.
+            monitor.scan_once(now=datetime(2026, 4, 17, 0, 31, tzinfo=UTC))
+            self.assertEqual(len(dispatcher.sends), 1)
+            # Confirm it went via cron_run path (uses job_id) NOT agent send
+            # (which would have session_key / message).
+            send = dispatcher.sends[0]
+            self.assertEqual(send.get("cron_run_job_id"), "chief-brief-job")
+            self.assertNotIn("message", send)
+            self.assertNotIn("session_key", send)
         finally:
             harness.cleanup()
 

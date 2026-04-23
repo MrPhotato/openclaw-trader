@@ -69,6 +69,14 @@ class AgentWakeRuleConfig:
     enabled: bool = True
     thinking: str | None = None
     turn_timeout_seconds: int | None = None
+    # Fire via `openclaw cron run <job_id>` instead of `openclaw agent
+    # --session-id <key>`. Use this when the target_session_key is not
+    # `agent:<agent>:main`, because the `openclaw agent` CLI silently
+    # falls back to the agent's main session for any --session-id value
+    # it doesn't recognize as a UUID. `openclaw cron run` routes through
+    # the cron job's own `sessionKey` field, which openclaw DOES honor
+    # for non-UUID session keys.
+    use_cron_run: bool = False
 
 
 @dataclass(frozen=True)
@@ -174,27 +182,41 @@ class AgentWakeMonitor:
                 state["rules"][rule.name] = rule_state
                 continue
 
-            # Fire: resolve message, dispatch, record.
-            message = self.dispatcher.fetch_cron_job_payload_message(
-                job_id=rule.message_source.job_id
-            )
-            if not message:
-                rule_state["_last_eval_at_utc"] = current.isoformat()
-                rule_state["last_error"] = f"no_payload_message_for_job:{rule.message_source.job_id}"
-                rule_state["last_error_at_utc"] = current.isoformat()
-                state["rules"][rule.name] = rule_state
-                fire_results.append(
-                    {"rule": rule.name, "fired": False, "error": "missing_message_source", "predicate": fired_predicate}
+            # Fire: dispatch via one of two paths.
+            # - use_cron_run=True (preferred for non-main session_keys):
+            #   call `openclaw cron run <job_id>`, which routes through the
+            #   cron's own sessionKey (openclaw honors it even for custom
+            #   non-UUID keys like `agent:crypto-chief:macro-brief-session`).
+            # - use_cron_run=False (legacy path): fetch the message and call
+            #   `openclaw agent --session-id <key>`. openclaw silently falls
+            #   back to the agent's main session for any non-UUID key, so
+            #   this only works when target_session_key == agent:<agent>:main.
+            if rule.use_cron_run:
+                result = self.dispatcher.run_cron_job_detached(
+                    job_id=rule.message_source.job_id
                 )
-                continue
+                message = None  # not used on this path
+            else:
+                message = self.dispatcher.fetch_cron_job_payload_message(
+                    job_id=rule.message_source.job_id
+                )
+                if not message:
+                    rule_state["_last_eval_at_utc"] = current.isoformat()
+                    rule_state["last_error"] = f"no_payload_message_for_job:{rule.message_source.job_id}"
+                    rule_state["last_error_at_utc"] = current.isoformat()
+                    state["rules"][rule.name] = rule_state
+                    fire_results.append(
+                        {"rule": rule.name, "fired": False, "error": "missing_message_source", "predicate": fired_predicate}
+                    )
+                    continue
 
-            result = self.dispatcher.send_to_session(
-                agent=rule.agent,
-                session_key=rule.target_session_key,
-                message=message,
-                thinking=rule.thinking,
-                turn_timeout_seconds=rule.turn_timeout_seconds,
-            )
+                result = self.dispatcher.send_to_session(
+                    agent=rule.agent,
+                    session_key=rule.target_session_key,
+                    message=message,
+                    thinking=rule.thinking,
+                    turn_timeout_seconds=rule.turn_timeout_seconds,
+                )
             rule_state["_last_eval_at_utc"] = current.isoformat()
             rule_state["last_fire_at_utc"] = current.isoformat()
             rule_state["last_fire_predicate"] = fired_predicate

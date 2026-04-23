@@ -134,6 +134,7 @@ def _build_agent_wake_settings(orchestrator: object) -> AgentWakeSettings:
                     if raw.get("turn_timeout_seconds") is not None
                     else None
                 ),
+                use_cron_run=bool(raw.get("use_cron_run", False)),
             )
         )
     return AgentWakeSettings(
