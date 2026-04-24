@@ -8,6 +8,7 @@ import httpx
 
 from openclaw_trader.config.models import CoinbaseCredentials
 from openclaw_trader.shared.integrations.coinbase import CoinbaseAdvancedClient
+from openclaw_trader.shared.integrations.coinbase.intx import CoinbaseIntxRuntimeClient
 
 
 class CoinbaseAdvancedClientTests(unittest.TestCase):
@@ -176,6 +177,39 @@ class CoinbaseAdvancedClientTests(unittest.TestCase):
         self.assertFalse(preview.success)
         self.assertEqual(preview.message, "PREVIEW_INSUFFICIENT_FUNDS_FOR_FUTURES")
         client.close()
+
+
+class CoinbaseIntxRuntimeClientTests(unittest.TestCase):
+    """Regression: before 2026-04-25, `product()` cached the Coinbase
+    get_product response indefinitely. The response carries live fields
+    (price, index_price, funding_rate), so mark_price froze for 8+ hours
+    and silently broke PM submit-gate price_breach/quant_flip detectors.
+    Contract now: every `product()` call hits the API fresh.
+    """
+
+    def _bare_runtime(self) -> CoinbaseIntxRuntimeClient:
+        # Bypass __init__ to avoid loading credentials / get_key_permissions
+        runtime = object.__new__(CoinbaseIntxRuntimeClient)
+        runtime.client = Mock()
+        runtime.portfolio_uuid = "portfolio-test"
+        return runtime
+
+    def test_product_does_not_cache_and_fetches_on_each_call(self) -> None:
+        runtime = self._bare_runtime()
+        runtime.client.get_product = Mock(
+            side_effect=[
+                Mock(price=Decimal("78000"), raw={}),
+                Mock(price=Decimal("78100"), raw={}),
+                Mock(price=Decimal("78200"), raw={}),
+            ]
+        )
+        p1 = runtime.product("BTC")
+        p2 = runtime.product("BTC")
+        p3 = runtime.product("BTC")
+        self.assertEqual(runtime.client.get_product.call_count, 3)
+        self.assertEqual(p1.price, Decimal("78000"))
+        self.assertEqual(p2.price, Decimal("78100"))
+        self.assertEqual(p3.price, Decimal("78200"))
 
 
 if __name__ == "__main__":

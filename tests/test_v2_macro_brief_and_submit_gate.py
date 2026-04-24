@@ -601,6 +601,75 @@ class HesitationRejectionTests(unittest.TestCase):
         )
 
 
+class SubmitGateMetadataPersistenceTests(unittest.TestCase):
+    """Regression: before 2026-04-25, materialize_strategy_asset generated an
+    internal asset_id that didn't match payload.strategy_id. submit_strategy's
+    subsequent `get_asset(strategy_id)` lookup therefore always returned None,
+    and the submit_gate / submit_market_snapshot / submit_forecast_snapshot
+    metadata update was silently skipped for every PM submit.
+
+    That made the 2/5 snapshot-diff triggers (price_breach, quant_flip) dead:
+    each next submit's `_detect_*` functions saw prev_snapshot={} and bailed
+    out via `if not prev_coins: return None`. Only new_mea_event / risk_brake
+    / owner_push were actually catching external triggers.
+    """
+
+    def test_new_strategy_is_lookup_able_by_business_strategy_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            service = MemoryAssetsService(
+                MemoryAssetsRepository(SqliteDatabase(Path(tmp) / "state.db"))
+            )
+            strategy = service.materialize_strategy_asset(
+                trace_id="trace-1",
+                authored_payload=_structured_strategy_payload(),
+                trigger_type="pm_main_cron",
+                actor_role="pm",
+            )
+            strategy_id = str(strategy["strategy_id"])
+            asset = service.get_asset(strategy_id)
+            self.assertIsNotNone(
+                asset,
+                "materialize_strategy_asset must persist with asset_id=strategy_id so "
+                "submit_strategy's get_asset(strategy_id) lookup can find it.",
+            )
+            self.assertEqual(asset["asset_id"], strategy_id)
+
+    def test_submit_strategy_persists_submit_gate_metadata(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger=(
+                    "No previous strategy — baseline submit, no external hit expected."
+                ),
+            )
+            result = gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            strategy_id = str(result["strategy"]["strategy_id"])
+
+            asset = memory.get_asset(strategy_id)
+            self.assertIsNotNone(asset)
+            md = dict(asset.get("metadata") or {})
+            self.assertIn(
+                "submit_gate",
+                md,
+                "submit_gate metadata must persist on new strategy asset "
+                "(next submit's price_breach/quant_flip detectors diff against it).",
+            )
+            self.assertIn("submit_market_snapshot", md)
+            self.assertIn("submit_forecast_snapshot", md)
+
+            gate = md["submit_gate"]
+            self.assertIn("hits", gate)
+            self.assertIn("internal_reasoning_only", gate)
+            self.assertIn("details", gate)
+            self.assertIn("coins", md["submit_market_snapshot"])
+            self.assertIn("coins", md["submit_forecast_snapshot"])
+        finally:
+            harness.cleanup()
+
+
 # ---------------------------------------------------------------------------
 # Spec 015: notification + rt_trigger skip on internal_reasoning_only
 # ---------------------------------------------------------------------------

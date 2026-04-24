@@ -78,8 +78,13 @@ class MemoryAssetsService:
             }
         )
         canonical_payload = StrategyAsset.model_validate(canonical_payload).model_dump(mode="json")
+        # asset_id must equal payload.strategy_id — downstream submit_strategy
+        # looks up the just-created asset via get_asset(strategy_id) to stash
+        # submit_gate metadata. Without this, save_asset generates a separate
+        # internal id and the metadata update branch silently skips.
         self.save_asset(
             asset_type="strategy",
+            asset_id=str(canonical_payload["strategy_id"]),
             payload=canonical_payload,
             trace_id=trace_id,
             actor_role=actor_role,

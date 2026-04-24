@@ -51,16 +51,18 @@ class CoinbaseIntxRuntimeClient:
         self.portfolio_uuid = str(permissions.get("portfolio_uuid") or "").strip()
         if not self.portfolio_uuid:
             raise ValueError("coinbase intx portfolio_uuid missing from key permissions")
-        self._product_cache: dict[str, Any] = {}
 
     def product_id(self, coin: str) -> str:
         return f"{coin.upper()}-PERP-INTX"
 
     def product(self, coin: str):
-        target = coin.upper()
-        if target not in self._product_cache:
-            self._product_cache[target] = self.client.get_product(self.product_id(target))
-        return self._product_cache[target]
+        # Always fetch fresh: the product payload carries live fields
+        # (price, index_price, funding_rate, open_interest). A prior
+        # implementation cached the result indefinitely and froze mark_price
+        # for 8+ hours at a time, which silently broke the PM submit-gate's
+        # price_breach/quant_flip detectors. Current call rate (a handful
+        # per minute per coin) is well under Coinbase's public rate limits.
+        return self.client.get_product(self.product_id(coin))
 
     def snapshot(self, coin: str) -> dict[str, Any]:
         product = self.product(coin)
