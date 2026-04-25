@@ -2617,10 +2617,21 @@ class AgentGatewayService:
             strategy_payload=strategy_payload or {},
             latest_macro_brief_payload=latest_macro_brief_payload,
         )
+        # Chief retro 2026-04-24 directive support panels — surfaced into
+        # role-specific runtime_packs so each agent sees the data the
+        # directive needs them to reason about.
+        consecutive_holds_payload = self._compute_consecutive_holds(
+            strategy_payload=strategy_payload
+        )
+        regime_drift_payload = self._compute_regime_drift_indicators()
+        theoretical_ceiling_payload = self._compute_theoretical_profit_ceiling(
+            strategy_payload=strategy_payload
+        )
         pm_payload = {
             "trace_id": trace_id,
             "decision_context": decision_context_payload,
             "daily_pnl_panel": daily_pnl_panel_payload,
+            "theoretical_profit_ceiling": theoretical_ceiling_payload,
             "market": pm_market_payload,
             "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
             "risk_brake_policy": self._risk_brake_policy_payload(),
@@ -2647,6 +2658,8 @@ class AgentGatewayService:
                     "trace_id": trace_id,
                     "market": rt_market_payload,
                     "daily_pnl_panel": daily_pnl_panel_payload,
+                    "consecutive_holds": consecutive_holds_payload,
+                    "theoretical_profit_ceiling": theoretical_ceiling_payload,
                     "risk_limits": {coin: self._policy_payload(policy) for coin, policy in policies.items()},
                     "forecasts": self._forecast_payload(forecasts),
                     "news_events": self._compact_news_events(news_events, limit=5),
@@ -2665,6 +2678,7 @@ class AgentGatewayService:
                     "trace_id": trace_id,
                     "market": mea_market_payload,
                     "daily_pnl_panel": daily_pnl_panel_payload,
+                    "regime_drift_indicators": regime_drift_payload,
                     "news_events": [item.model_dump(mode="json") for item in news_events],
                     "macro_memory": list(macro_memory or []),
                     "latest_strategy": mea_strategy_payload,
@@ -2682,6 +2696,8 @@ class AgentGatewayService:
                     **{**pm_payload, "market": chief_market_payload},
                     "previous_strategy": chief_strategy_payload,
                     "execution_contexts": chief_execution_contexts,
+                    "consecutive_holds": consecutive_holds_payload,
+                    "regime_drift_indicators": regime_drift_payload,
                     "pending_learning_directives": self._pending_learning_directives_payload("crypto_chief"),
                 },
             ),
@@ -2798,6 +2814,7 @@ class AgentGatewayService:
             strategy_payload=strategy_payload,
             price_snapshot=price_snapshot,
         )
+        band_revision_streak = self._compute_band_revision_streak()
         return {
             "regime_summary": regime_summary,
             "price_snapshot": price_snapshot,
@@ -2807,7 +2824,392 @@ class AgentGatewayService:
             "chief_regime_confidence": (latest_macro_brief_payload or {}).get(
                 "chief_regime_confidence", "ok"
             ),
+            "band_revision_streak": band_revision_streak,
         }
+
+    def _compute_band_revision_streak(self, *, max_lookback: int = 8) -> dict[str, Any]:
+        """Chief retro 2026-04-24 directive support.
+
+        Counts consecutive most-recent PM submissions that share the same
+        target_gross_exposure_band_pct AND primary direction. ≥3 same-band
+        revisions are the warning signal: the next revision must either
+        widen the working band or explicitly surrender the daily target.
+
+        Returns: count, current_band, current_direction, since_rev, warning.
+        """
+        empty = {
+            "count": 0,
+            "current_band": None,
+            "current_direction": None,
+            "since_rev": None,
+            "warning": None,
+        }
+        if self.memory_assets is None:
+            return empty
+        recent = self.memory_assets.recent_assets(
+            asset_type="strategy", actor_role="pm", limit=max_lookback
+        )
+        if not recent:
+            return empty
+        fingerprints: list[tuple[Any, str, Any]] = []
+        for asset in recent:
+            payload = dict(asset.get("payload") or {})
+            band_raw = payload.get("target_gross_exposure_band_pct")
+            band_tup: tuple[float, float] | None = None
+            if isinstance(band_raw, (list, tuple)) and len(band_raw) == 2:
+                try:
+                    band_tup = (float(band_raw[0]), float(band_raw[1]))
+                except (TypeError, ValueError):
+                    band_tup = None
+            primary_dir = "flat"
+            for tgt in payload.get("targets") or []:
+                if not isinstance(tgt, dict):
+                    continue
+                state = str(tgt.get("state") or "").lower()
+                direction = str(tgt.get("direction") or "").lower()
+                if state == "active" and direction in ("long", "short"):
+                    primary_dir = direction
+                    break
+            fingerprints.append((band_tup, primary_dir, payload.get("revision_number")))
+        head_band, head_dir, _ = fingerprints[0]
+        streak = 1
+        since_rev = fingerprints[0][2]
+        for band, dir_, rev in fingerprints[1:]:
+            if band == head_band and dir_ == head_dir:
+                streak += 1
+                since_rev = rev  # earliest matching rev
+            else:
+                break
+        warning: str | None = None
+        if streak >= 3:
+            warning = (
+                "≥3 consecutive same-band same-direction revisions; per Chief retro "
+                "2026-04-24 directive, next submit must widen the working band OR "
+                "explicitly mark the daily target as surrendered."
+            )
+        elif streak == 2:
+            warning = (
+                "2 consecutive same-band revisions; if next submit also stays in this "
+                "band+direction without widening, the directive triggers."
+            )
+        return {
+            "count": streak,
+            "current_band": list(head_band) if head_band is not None else None,
+            "current_direction": head_dir,
+            "since_rev": since_rev,
+            "warning": warning,
+        }
+
+    _RT_ENTRY_OR_SCALE_ACTIONS = frozenset({"open", "add", "reduce", "flip"})
+
+    def _compute_consecutive_holds(
+        self,
+        *,
+        strategy_payload: dict[str, Any] | None,
+        max_lookback: int = 6,
+    ) -> dict[str, Any]:
+        """Chief retro 2026-04-24 directive support for RT.
+
+        Counts consecutive most-recent RT execution_batches with no entry/scale
+        decision (per user definition, "hold" = no action in {open, add,
+        reduce, flip}). When PM is in active long + risk_state=normal +
+        current exposure < band midpoint, ≥2 consecutive holds means RT is
+        substituting "wait for confirmation" for legitimate scale-up — the
+        directive requires writing wait condition, miss cost, and a challenge
+        to PM on the third batch.
+
+        Returns: count, last_action, gap_to_band_mid_pct (positive = below
+        mid, room to add), warning.
+        """
+        empty = {
+            "count": 0,
+            "last_action": None,
+            "gap_to_band_mid_pct": None,
+            "warning": None,
+        }
+        if self.memory_assets is None:
+            return empty
+        batches = self.memory_assets.recent_assets(
+            asset_type="execution_batch", actor_role="risk_trader", limit=max_lookback
+        )
+        streak = 0
+        last_action_label: str | None = None
+        for asset in batches:
+            payload = dict(asset.get("payload") or {})
+            decisions = payload.get("decisions") or []
+            saw_active = False
+            for d in decisions:
+                if not isinstance(d, dict):
+                    continue
+                action = str(d.get("action") or "").lower()
+                if action in self._RT_ENTRY_OR_SCALE_ACTIONS:
+                    saw_active = True
+                    break
+            if saw_active:
+                last_action_label = last_action_label or "entry_or_scale"
+                break
+            streak += 1
+            last_action_label = last_action_label or "hold"
+        gap_to_mid = self._compute_exposure_gap_to_band_midpoint(strategy_payload)
+        warning: str | None = None
+        if streak >= 2 and gap_to_mid is not None and gap_to_mid > 0:
+            warning = (
+                "≥2 consecutive holds while exposure sits below band midpoint with room "
+                "to scale; per Chief retro 2026-04-24 directive, next batch must write "
+                "explicit wait condition + miss cost + challenge to PM, OR add."
+            )
+        return {
+            "count": streak,
+            "last_action": last_action_label,
+            "gap_to_band_mid_pct": gap_to_mid,
+            "warning": warning,
+        }
+
+    def _compute_exposure_gap_to_band_midpoint(
+        self, strategy_payload: dict[str, Any] | None
+    ) -> float | None:
+        if not strategy_payload or self.memory_assets is None:
+            return None
+        band_raw = strategy_payload.get("target_gross_exposure_band_pct")
+        if not isinstance(band_raw, (list, tuple)) or len(band_raw) != 2:
+            return None
+        try:
+            lo, hi = float(band_raw[0]), float(band_raw[1])
+        except (TypeError, ValueError):
+            return None
+        mid = (lo + hi) / 2.0
+        portfolio = self.memory_assets.latest_asset(asset_type="portfolio_snapshot") or self.memory_assets.latest_portfolio()
+        if not portfolio:
+            return None
+        try:
+            payload = dict(portfolio.get("payload") or {})
+            equity = float(payload.get("total_equity_usd") or 0)
+            exposure = float(payload.get("total_exposure_usd") or 0)
+            if equity <= 0:
+                return None
+            current_pct = exposure / equity * 100.0
+            return round(mid - current_pct, 2)
+        except (TypeError, ValueError):
+            return None
+
+    def _compute_regime_drift_indicators(
+        self, *, max_lookback_news: int = 20, max_lookback_bridge: int = 1500
+    ) -> dict[str, Any]:
+        """Chief retro 2026-04-24 directive support for MEA.
+
+        Surfaces three signals MEA needs to translate "no new headline" into a
+        strategy-relevant statement instead of a default empty submission:
+        - zero_event_streak: how many consecutive recent news_submissions had
+          no events (long streak + improving prices = "regime is relaxing,
+          tell PM what's left to widen")
+        - hours_since_last_event: time since last real macro_event
+        - brent_delta_24h_pct: derived from runtime_bridge_state history
+        - btc_change_pct_24h: derived from runtime_bridge_state history
+        """
+        result: dict[str, Any] = {
+            "zero_event_streak": 0,
+            "hours_since_last_event": None,
+            "brent_delta_24h_pct": None,
+            "btc_change_pct_24h": None,
+        }
+        if self.memory_assets is None:
+            return result
+        recent_news = self.memory_assets.recent_assets(
+            asset_type="news_submission", limit=max_lookback_news
+        )
+        for asset in recent_news:
+            events = (asset.get("payload") or {}).get("events") or []
+            if events:
+                break
+            result["zero_event_streak"] += 1
+        latest_event = self.memory_assets.recent_assets(asset_type="macro_event", limit=1)
+        if latest_event:
+            ts_raw = latest_event[0].get("created_at")
+            try:
+                ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+                if ts_dt.tzinfo is None:
+                    ts_dt = ts_dt.replace(tzinfo=UTC)
+                hours = (datetime.now(UTC) - ts_dt.astimezone(UTC)).total_seconds() / 3600.0
+                result["hours_since_last_event"] = round(hours, 1)
+            except Exception:  # noqa: BLE001
+                pass
+        bridge_pair = self._bridge_state_pair_for_24h_delta(max_lookback_bridge)
+        if bridge_pair is not None:
+            current_payload, prior_payload = bridge_pair
+            result["brent_delta_24h_pct"] = self._extract_pct_delta(
+                current_payload, prior_payload, ("context", "macro_prices", "brent", "price")
+            )
+            result["btc_change_pct_24h"] = self._extract_pct_delta(
+                current_payload, prior_payload, ("context", "market", "market", "BTC", "mark_price")
+            )
+        return result
+
+    def _bridge_state_pair_for_24h_delta(
+        self, lookback_limit: int
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Find current + ~24h-ago runtime_bridge_state assets for delta math.
+
+        Recent records are dense (every 30s ≈ 2880/day), so a lookback of
+        ~1500 covers ~12h reliably. We pick the asset closest to (now - 24h)
+        without exceeding it.
+        """
+        if self.memory_assets is None:
+            return None
+        assets = self.memory_assets.recent_assets(
+            asset_type="runtime_bridge_state", limit=lookback_limit
+        )
+        if len(assets) < 2:
+            return None
+        current = dict((assets[0].get("payload") or {}))
+        target_dt = datetime.now(UTC) - timedelta(hours=24)
+        best = None
+        best_dt = None
+        for asset in assets[1:]:
+            ts_raw = asset.get("created_at")
+            try:
+                ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+                if ts_dt.tzinfo is None:
+                    ts_dt = ts_dt.replace(tzinfo=UTC)
+            except Exception:  # noqa: BLE001
+                continue
+            ts_dt = ts_dt.astimezone(UTC)
+            if best_dt is None or abs((ts_dt - target_dt).total_seconds()) < abs(
+                (best_dt - target_dt).total_seconds()
+            ):
+                best = asset
+                best_dt = ts_dt
+        if best is None:
+            return None
+        return current, dict((best.get("payload") or {}))
+
+    @staticmethod
+    def _extract_pct_delta(
+        current: dict[str, Any], prior: dict[str, Any], path: tuple[str, ...]
+    ) -> float | None:
+        def _walk(d: dict[str, Any], keys: tuple[str, ...]) -> Any:
+            cursor: Any = d
+            for key in keys:
+                if isinstance(cursor, dict):
+                    cursor = cursor.get(key)
+                else:
+                    return None
+            return cursor
+
+        try:
+            current_value = float(_walk(current, path))
+            prior_value = float(_walk(prior, path))
+            if prior_value <= 0:
+                return None
+            return round((current_value - prior_value) / prior_value * 100.0, 3)
+        except (TypeError, ValueError):
+            return None
+
+    def _compute_theoretical_profit_ceiling(
+        self, *, strategy_payload: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Chief retro 2026-04-24 directive support: quantify the gap between
+        what was achievable today and what the current authorization allows.
+
+        Pulls today's BTC max-favorable mark move (in PM's stated direction)
+        from the live mark_price embedded in `portfolio_snapshot.positions[0].
+        raw.mark_price.value` (this path bypasses the cached product call so
+        the history is real). Projects that move onto current actual exposure
+        and onto the band upper, surfacing the upside Chief flagged.
+        """
+        result: dict[str, Any] = {
+            "max_favorable_pct": None,
+            "primary_direction": None,
+            "current_exposure_pct_of_equity": None,
+            "band_upper_pct_of_equity": None,
+            "ceiling_at_current_pct_of_equity": None,
+            "ceiling_at_band_upper_pct_of_equity": None,
+        }
+        if self.memory_assets is None or not strategy_payload:
+            return result
+        primary_dir = None
+        for tgt in strategy_payload.get("targets") or []:
+            if not isinstance(tgt, dict):
+                continue
+            state = str(tgt.get("state") or "").lower()
+            direction = str(tgt.get("direction") or "").lower()
+            if state == "active" and direction in ("long", "short"):
+                primary_dir = direction
+                break
+        result["primary_direction"] = primary_dir
+        band_raw = strategy_payload.get("target_gross_exposure_band_pct")
+        band_upper: float | None = None
+        if isinstance(band_raw, (list, tuple)) and len(band_raw) == 2:
+            try:
+                band_upper = float(band_raw[1])
+                result["band_upper_pct_of_equity"] = round(band_upper, 2)
+            except (TypeError, ValueError):
+                band_upper = None
+        snapshots = self.memory_assets.recent_assets(
+            asset_type="portfolio_snapshot", limit=2000
+        )
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        marks: list[tuple[datetime, float]] = []
+        for asset in snapshots:
+            ts_raw = asset.get("created_at")
+            try:
+                ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+                if ts_dt.tzinfo is None:
+                    ts_dt = ts_dt.replace(tzinfo=UTC)
+            except Exception:  # noqa: BLE001
+                continue
+            ts_dt = ts_dt.astimezone(UTC)
+            if ts_dt < today_start:
+                continue
+            for pos in (asset.get("payload") or {}).get("positions") or []:
+                if not isinstance(pos, dict):
+                    continue
+                if str(pos.get("coin") or "").upper() != "BTC":
+                    continue
+                raw = pos.get("raw") or {}
+                mark_raw = raw.get("mark_price")
+                if isinstance(mark_raw, dict):
+                    mark_raw = mark_raw.get("value")
+                try:
+                    marks.append((ts_dt, float(mark_raw)))
+                except (TypeError, ValueError):
+                    continue
+                break
+        if not marks:
+            return result
+        marks.sort(key=lambda item: item[0])
+        open_mark = marks[0][1]
+        if open_mark <= 0:
+            return result
+        high = max(item[1] for item in marks)
+        low = min(item[1] for item in marks)
+        if primary_dir == "long":
+            max_favorable = (high - open_mark) / open_mark * 100.0
+        elif primary_dir == "short":
+            max_favorable = (open_mark - low) / open_mark * 100.0
+        else:
+            max_favorable = max(high - open_mark, open_mark - low) / open_mark * 100.0
+        result["max_favorable_pct"] = round(max_favorable, 3)
+        portfolio = self.memory_assets.latest_asset(asset_type="portfolio_snapshot") or self.memory_assets.latest_portfolio()
+        current_exposure_pct: float | None = None
+        if portfolio:
+            payload = dict(portfolio.get("payload") or {})
+            try:
+                eq = float(payload.get("total_equity_usd") or 0)
+                expo = float(payload.get("total_exposure_usd") or 0)
+                if eq > 0:
+                    current_exposure_pct = round(expo / eq * 100.0, 2)
+            except (TypeError, ValueError):
+                pass
+        result["current_exposure_pct_of_equity"] = current_exposure_pct
+        if current_exposure_pct is not None:
+            result["ceiling_at_current_pct_of_equity"] = round(
+                max_favorable * current_exposure_pct / 100.0, 4
+            )
+        if band_upper is not None:
+            result["ceiling_at_band_upper_pct_of_equity"] = round(
+                max_favorable * band_upper / 100.0, 4
+            )
+        return result
 
     @staticmethod
     def _build_decision_context_price_snapshot(market: DataIngestBundle) -> dict[str, Any]:

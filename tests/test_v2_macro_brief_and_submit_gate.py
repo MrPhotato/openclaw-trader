@@ -601,6 +601,304 @@ class HesitationRejectionTests(unittest.TestCase):
         )
 
 
+class ChiefRetroDirectiveSupportTests(unittest.TestCase):
+    """Chief 2026-04-24 retro identified 4 systemic gaps. Each gap got a
+    learning_directive written to the relevant agent's .learnings/*.md.
+    Those are agent-self-discipline rules. To make them enforce-able at the
+    data layer, four panels were added to the runtime_pack:
+    - PM `decision_context.band_revision_streak` (pull/pm)
+    - RT `consecutive_holds` (pull/rt)
+    - MEA `regime_drift_indicators` (pull/mea)
+    - cross-role `theoretical_profit_ceiling` (PM/RT/Chief)
+    """
+
+    def _seed_strategies(
+        self,
+        memory: MemoryAssetsService,
+        *,
+        bands: list[tuple[float, float]],
+        direction: str = "long",
+    ) -> list[dict]:
+        """Seed N strategies oldest→newest with the given bands."""
+        strategies: list[dict] = []
+        for band in bands:
+            payload = _structured_strategy_payload()
+            payload["target_gross_exposure_band_pct"] = list(band)
+            for tgt in payload["targets"]:
+                if tgt.get("symbol") == "BTC":
+                    tgt["state"] = "active"
+                    tgt["direction"] = direction
+                    break
+            strategy = memory.materialize_strategy_asset(
+                trace_id=f"seed-{len(strategies)}",
+                authored_payload=payload,
+                trigger_type="pm_main_cron",
+                actor_role="pm",
+            )
+            strategies.append(strategy)
+        return strategies
+
+    def test_band_revision_streak_counts_consecutive_same_band(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_strategies(
+                memory, bands=[(0, 5), (0, 10), (0, 10), (0, 10)]
+            )
+            result = gateway._compute_band_revision_streak()
+            self.assertEqual(result["count"], 3)
+            self.assertEqual(result["current_band"], [0, 10])
+            self.assertEqual(result["current_direction"], "long")
+            self.assertIn("≥3", result["warning"])
+        finally:
+            harness.cleanup()
+
+    def test_band_revision_streak_resets_on_band_change(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_strategies(memory, bands=[(0, 10), (0, 15)])
+            result = gateway._compute_band_revision_streak()
+            self.assertEqual(result["count"], 1)
+            self.assertEqual(result["current_band"], [0, 15])
+            self.assertIsNone(result["warning"])
+        finally:
+            harness.cleanup()
+
+    def test_band_revision_streak_resets_on_direction_change(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_strategies(memory, bands=[(0, 10)], direction="long")
+            self._seed_strategies(memory, bands=[(0, 10)], direction="short")
+            result = gateway._compute_band_revision_streak()
+            self.assertEqual(result["count"], 1)
+            self.assertEqual(result["current_direction"], "short")
+        finally:
+            harness.cleanup()
+
+    def test_consecutive_holds_counts_no_entry_or_scale_batches(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            # 3 hold batches (only `wait`/`hold` actions), then an `add`
+            for i, action_set in enumerate(
+                [
+                    [{"symbol": "BTC", "action": "hold"}],
+                    [{"symbol": "BTC", "action": "wait"}],
+                    [],  # empty decisions also counts as hold
+                    [{"symbol": "BTC", "action": "add"}],  # this one breaks the streak
+                ]
+            ):
+                memory.save_asset(
+                    asset_type="execution_batch",
+                    actor_role="risk_trader",
+                    payload={"decision_id": f"d-{i}", "decisions": action_set},
+                )
+            result = gateway._compute_consecutive_holds(strategy_payload=None)
+            self.assertEqual(
+                result["count"], 0,
+                "Most recent batch was an `add`, so no current hold streak."
+            )
+            self.assertEqual(result["last_action"], "entry_or_scale")
+        finally:
+            harness.cleanup()
+
+    def test_consecutive_holds_warns_when_below_band_midpoint(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            # Two consecutive holds, most recent first when queried
+            memory.save_asset(
+                asset_type="execution_batch",
+                actor_role="risk_trader",
+                payload={"decision_id": "d-old", "decisions": [{"symbol": "BTC", "action": "wait"}]},
+            )
+            memory.save_asset(
+                asset_type="execution_batch",
+                actor_role="risk_trader",
+                payload={"decision_id": "d-new", "decisions": [{"symbol": "BTC", "action": "hold"}]},
+            )
+            # Seed a portfolio_snapshot showing exposure WAY below band mid (0-10 band → mid=5)
+            memory.save_asset(
+                asset_type="portfolio_snapshot",
+                actor_role="system",
+                payload={
+                    "total_equity_usd": "1000.0",
+                    "total_exposure_usd": "10.0",  # 1% of equity, far below mid=5
+                    "positions": [],
+                },
+            )
+            strategy_payload = {"target_gross_exposure_band_pct": [0, 10]}
+            result = gateway._compute_consecutive_holds(strategy_payload=strategy_payload)
+            self.assertEqual(result["count"], 2)
+            self.assertEqual(result["last_action"], "hold")
+            self.assertGreater(
+                result["gap_to_band_mid_pct"], 0,
+                "Exposure (1%) is below band mid (5%), so gap should be positive (room to add)."
+            )
+            self.assertIn("≥2", result["warning"])
+        finally:
+            harness.cleanup()
+
+    def test_regime_drift_zero_event_streak(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            # 5 consecutive zero-event news submissions, then an event-bearing one
+            for i in range(5):
+                memory.save_asset(
+                    asset_type="news_submission",
+                    actor_role="macro_event_analyst",
+                    payload={"submission_id": f"news-zero-{i}", "events": []},
+                )
+            # event-bearing one is older (saved first → older), but recent_assets
+            # returns most-recent first so the streak should still count the
+            # 5 zero-event ones at the head
+            memory.save_asset(
+                asset_type="news_submission",
+                actor_role="macro_event_analyst",
+                payload={"submission_id": "news-with-event", "events": [{"event_id": "e1"}]},
+            )
+            # Now the most recent is the event-bearing one, so streak = 0
+            result = gateway._compute_regime_drift_indicators()
+            self.assertEqual(result["zero_event_streak"], 0)
+        finally:
+            harness.cleanup()
+
+    def test_regime_drift_zero_event_streak_when_all_recent_are_empty(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            for i in range(4):
+                memory.save_asset(
+                    asset_type="news_submission",
+                    actor_role="macro_event_analyst",
+                    payload={"submission_id": f"news-zero-{i}", "events": []},
+                )
+            result = gateway._compute_regime_drift_indicators()
+            self.assertEqual(result["zero_event_streak"], 4)
+        finally:
+            harness.cleanup()
+
+    def test_theoretical_profit_ceiling_long_direction(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            # Seed today portfolio snapshots: BTC marks 78000 → 78400 → 78200
+            # max_favorable_pct (long) = (78400 - 78000) / 78000 = 0.513%
+            now = datetime.now(UTC)
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            for offset_min, mark in [(0, 78000), (60, 78400), (120, 78200)]:
+                memory.save_asset(
+                    asset_type="portfolio_snapshot",
+                    actor_role="system",
+                    payload={
+                        "total_equity_usd": "1000.0",
+                        "total_exposure_usd": "50.0",  # 5% of equity
+                        "positions": [
+                            {
+                                "coin": "BTC",
+                                "side": "long",
+                                "raw": {"mark_price": {"value": str(mark)}},
+                            }
+                        ],
+                    },
+                )
+            strategy_payload = {
+                "target_gross_exposure_band_pct": [0, 10],
+                "targets": [
+                    {"symbol": "BTC", "state": "active", "direction": "long"},
+                ],
+            }
+            result = gateway._compute_theoretical_profit_ceiling(
+                strategy_payload=strategy_payload
+            )
+            self.assertEqual(result["primary_direction"], "long")
+            self.assertEqual(result["band_upper_pct_of_equity"], 10.0)
+            self.assertIsNotNone(result["max_favorable_pct"])
+            # Max BTC was 78400 vs open 78000 = +0.513%, with 10% band upper
+            # → ceiling at band upper = 0.513 * 10 / 100 ≈ 0.0513%
+            self.assertAlmostEqual(
+                result["ceiling_at_band_upper_pct_of_equity"], 0.0513, places=3
+            )
+            # At 5% actual exposure → 0.513 * 5 / 100 ≈ 0.0257%
+            self.assertAlmostEqual(
+                result["ceiling_at_current_pct_of_equity"], 0.0256, places=3
+            )
+        finally:
+            harness.cleanup()
+
+    def test_theoretical_profit_ceiling_short_uses_low(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            # Same marks but PM is SHORT → max favorable = (open - low) / open
+            for mark in [78000, 78400, 77600]:
+                memory.save_asset(
+                    asset_type="portfolio_snapshot",
+                    actor_role="system",
+                    payload={
+                        "total_equity_usd": "1000.0",
+                        "total_exposure_usd": "50.0",
+                        "positions": [
+                            {
+                                "coin": "BTC",
+                                "side": "short",
+                                "raw": {"mark_price": {"value": str(mark)}},
+                            }
+                        ],
+                    },
+                )
+            strategy_payload = {
+                "target_gross_exposure_band_pct": [0, 10],
+                "targets": [
+                    {"symbol": "BTC", "state": "active", "direction": "short"},
+                ],
+            }
+            result = gateway._compute_theoretical_profit_ceiling(
+                strategy_payload=strategy_payload
+            )
+            self.assertEqual(result["primary_direction"], "short")
+            # (78000 - 77600) / 78000 = 0.513%
+            self.assertAlmostEqual(result["max_favorable_pct"], 0.513, places=2)
+        finally:
+            harness.cleanup()
+
+    def test_panels_are_injected_into_runtime_packs(self) -> None:
+        """End-to-end: pull/pm, pull/rt, pull/mea each surface their panels."""
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            pm_pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            self.assertIn("decision_context", pm_pack.payload)
+            self.assertIn("band_revision_streak", pm_pack.payload["decision_context"])
+            self.assertIn("theoretical_profit_ceiling", pm_pack.payload)
+
+            rt_pack = gateway.pull_rt_runtime_input(trigger_type="rt_event_trigger", params={})
+            self.assertIn("consecutive_holds", rt_pack.payload)
+            self.assertIn("theoretical_profit_ceiling", rt_pack.payload)
+
+            mea_pack = gateway.pull_mea_runtime_input(trigger_type="mea_2h", params={})
+            self.assertIn("regime_drift_indicators", mea_pack.payload)
+            drift = mea_pack.payload["regime_drift_indicators"]
+            self.assertIn("zero_event_streak", drift)
+            self.assertIn("hours_since_last_event", drift)
+            self.assertIn("brent_delta_24h_pct", drift)
+            self.assertIn("btc_change_pct_24h", drift)
+        finally:
+            harness.cleanup()
+
+
 class SubmitGateMetadataPersistenceTests(unittest.TestCase):
     """Regression: before 2026-04-25, materialize_strategy_asset generated an
     internal asset_id that didn't match payload.strategy_id. submit_strategy's
