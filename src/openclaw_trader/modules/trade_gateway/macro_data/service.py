@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import Lock
@@ -72,48 +73,77 @@ class MacroDataService:
             return self._latest
 
     def _fetch_snapshot(self, *, now: datetime) -> MacroSnapshot:
-        symbols = dict(self._config.symbols or DEFAULT_MACRO_SYMBOLS)
-        errors: list[str] = []
+        """Fan all upstream HTTP calls out in parallel.
 
-        def _safe_quote(alias: str) -> MacroPrice:
+        Brent / WTI / DXY / US10Y / each ETF / Fear-Greed are independent
+        upstream queries with no ordering constraints. Running them serially
+        meant the bridge tick spent (sum of HTTP latencies) per refresh; with
+        the cadence dropped from 900s → 30s on 2026-04-25 that became a real
+        bottleneck (bridge cycle stretched from ~37s to ~120s). Submitting
+        them all to a small ThreadPoolExecutor cuts wall time to ~max latency
+        instead of sum. yfinance / alternative.me providers expose the same
+        `fetch_*` API so the surface stays unchanged; httpx.Client (used
+        underneath) is documented thread-safe so a single shared client per
+        provider is fine.
+        """
+        symbols = dict(self._config.symbols or DEFAULT_MACRO_SYMBOLS)
+        quote_aliases: tuple[str, ...] = ("brent", "wti", "dxy", "us10y_yield_pct")
+        etf_tickers: tuple[str, ...] = tuple(self._config.etf_tickers)
+
+        def _fetch_quote(alias: str) -> MacroPrice:
             yahoo = symbols.get(alias) or ""
             if not yahoo or self._price is None:
                 return MacroPrice(symbol=yahoo or alias, error="provider_disabled")
-            quote = self._price.fetch_quote(yahoo)
+            return self._price.fetch_quote(yahoo)
+
+        def _fetch_etf(ticker: str) -> EtfActivity:
+            if self._price is None:
+                return EtfActivity(ticker=ticker, error="provider_disabled")
+            return self._price.fetch_etf_activity(ticker)
+
+        def _fetch_fear_greed() -> FearGreedIndex:
+            if self._sentiment is None:
+                return FearGreedIndex(error="provider_disabled")
+            return self._sentiment.fetch_btc_fear_greed()
+
+        max_workers = max(1, len(quote_aliases) + len(etf_tickers) + 1)
+        with ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="macro_data"
+        ) as pool:
+            quote_futures = {alias: pool.submit(_fetch_quote, alias) for alias in quote_aliases}
+            etf_futures = {ticker: pool.submit(_fetch_etf, ticker) for ticker in etf_tickers}
+            fg_future = pool.submit(_fetch_fear_greed)
+
+        # Pool exits only after every submitted task completes — at this point
+        # every future is `done()`, so .result() is non-blocking. Errors are
+        # captured INSIDE each MacroPrice/EtfActivity/FearGreedIndex by the
+        # provider (same contract as before), so no exceptions escape here.
+        errors: list[str] = []
+        quotes: dict[str, MacroPrice] = {}
+        for alias, future in quote_futures.items():
+            quote = future.result()
+            quotes[alias] = quote
             if quote.error:
                 errors.append(f"{alias}:{quote.error}")
-            return quote
-
-        brent = _safe_quote("brent")
-        wti = _safe_quote("wti")
-        dxy = _safe_quote("dxy")
-        us10y = _safe_quote("us10y_yield_pct")
 
         etf_activity: dict[str, EtfActivity] = {}
-        for ticker in self._config.etf_tickers:
-            if self._price is None:
-                etf_activity[ticker] = EtfActivity(ticker=ticker, error="provider_disabled")
-                continue
-            result = self._price.fetch_etf_activity(ticker)
-            etf_activity[ticker] = result
-            if result.error:
-                errors.append(f"etf:{ticker}:{result.error}")
+        for ticker, future in etf_futures.items():
+            activity = future.result()
+            etf_activity[ticker] = activity
+            if activity.error:
+                errors.append(f"etf:{ticker}:{activity.error}")
 
-        if self._sentiment is not None:
-            fear_greed = self._sentiment.fetch_btc_fear_greed()
-            if fear_greed.error:
-                errors.append(f"fear_greed:{fear_greed.error}")
-        else:
-            fear_greed = FearGreedIndex(error="provider_disabled")
-            errors.append("fear_greed:provider_disabled")
+        fear_greed = fg_future.result()
+        if fear_greed.error:
+            errors.append(f"fear_greed:{fear_greed.error}")
 
         return MacroSnapshot(
             snapshot_id=new_id("macro_snapshot"),
             captured_at_utc=now,
-            brent=brent,
-            wti=wti,
-            dxy=dxy,
-            us10y_yield_pct=us10y,
+            brent=quotes["brent"],
+            wti=quotes["wti"],
+            dxy=quotes["dxy"],
+            us10y_yield_pct=quotes["us10y_yield_pct"],
             btc_fear_greed=fear_greed,
             btc_etf_activity=etf_activity,
             fetch_errors=errors,

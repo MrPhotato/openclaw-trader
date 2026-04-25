@@ -192,6 +192,77 @@ class MacroDataServiceTests(unittest.TestCase):
         self.assertEqual(snap.btc_fear_greed.error, "provider_disabled")
         self.assertIn("fear_greed:provider_disabled", snap.fetch_errors)
 
+    def test_upstream_fetches_run_in_parallel(self):
+        """Regression: pre-2026-04-25 the snapshot ran 4 quotes + N ETF +
+        1 fear-greed serially. After dropping the cadence to 30s, that
+        serial wall time stretched the runtime_bridge cycle from ~37s to
+        ~120s. Each upstream call now runs concurrently in a tiny thread
+        pool — total wall time should be ≈ max(latencies), not sum.
+        """
+        import threading
+        import time
+        from openclaw_trader.modules.trade_gateway.macro_data.models import (
+            EtfActivity,
+            FearGreedIndex,
+            MacroPrice,
+        )
+
+        per_call_delay = 0.10  # 100ms simulated upstream latency
+
+        class SlowPriceProvider:
+            def __init__(self) -> None:
+                self.threads_seen: set[str] = set()
+                self._lock = threading.Lock()
+
+            def fetch_quote(self, yahoo_symbol: str) -> MacroPrice:
+                with self._lock:
+                    self.threads_seen.add(threading.current_thread().name)
+                time.sleep(per_call_delay)
+                return MacroPrice(symbol=yahoo_symbol, price=1.0)
+
+            def fetch_etf_activity(self, ticker: str) -> EtfActivity:
+                with self._lock:
+                    self.threads_seen.add(threading.current_thread().name)
+                time.sleep(per_call_delay)
+                return EtfActivity(ticker=ticker, close=1.0, volume=1)
+
+        class SlowSentimentProvider:
+            def __init__(self) -> None:
+                self.threads_seen: set[str] = set()
+
+            def fetch_btc_fear_greed(self) -> FearGreedIndex:
+                self.threads_seen.add(threading.current_thread().name)
+                time.sleep(per_call_delay)
+                return FearGreedIndex(value=50)
+
+        price = SlowPriceProvider()
+        sentiment = SlowSentimentProvider()
+        svc = _build_service(price=price, sentiment=sentiment)
+
+        start = time.monotonic()
+        snap = svc.collect_snapshot(force_refresh=True)
+        wall_seconds = time.monotonic() - start
+
+        # 4 quotes + 2 ETFs + 1 fear-greed = 7 calls. Serial ≈ 0.70s.
+        # Parallel via ThreadPoolExecutor ≈ ~0.10-0.15s. We accept ≤0.40s
+        # as proof of concurrency (covers CI jitter without being too lax).
+        self.assertLess(
+            wall_seconds, 0.40,
+            f"upstream calls must run in parallel; observed wall time={wall_seconds:.3f}s "
+            f"(serial would be ~{7 * per_call_delay:.2f}s)",
+        )
+        # All work happened off the main thread (proving the pool was used).
+        all_threads = price.threads_seen | sentiment.threads_seen
+        self.assertGreaterEqual(
+            len(all_threads), 2,
+            f"expected ≥2 distinct worker threads; saw {all_threads}",
+        )
+        # Snapshot still assembles correctly with all 7 results in place.
+        assert snap is not None
+        self.assertEqual(snap.brent.price, 1.0)
+        self.assertEqual(snap.btc_fear_greed.value, 50)
+        self.assertEqual(len(snap.btc_etf_activity), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
