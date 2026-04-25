@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from statistics import mean, pstdev
@@ -146,24 +147,56 @@ class CoinbaseIntxMarketDataProvider:
             )
         return payload
 
+    # Window key → (Coinbase granularity, candle count, seconds per candle).
+    # Lookbacks pulled wide enough to render an actual K-line chart in the
+    # frontend. Coinbase caps each request at ~300 candles; these stay
+    # comfortably under that while giving each timeframe a real span
+    # (24h / 7d / 30d / 90d).
+    _CANDLE_SERIES_SPECS = (
+        ("15m", "FIFTEEN_MINUTE", 96, 900),
+        ("1h", "ONE_HOUR", 168, 3600),
+        ("4h", "FOUR_HOUR", 180, 14400),
+        ("24h", "ONE_DAY", 90, 86400),
+    )
+
     def collect_market_context(self, coins: list[str]) -> dict[str, MarketContextNormalized]:
+        """Fan out per-coin × per-granularity candle fetches in parallel.
+
+        For 2 coins × 4 granularities = 8 independent `get_public_candles`
+        calls. Running them serially meant ~8 × per-call latency on every
+        bridge tick (~14-23s in production), which dominated the bridge
+        cycle. ThreadPoolExecutor cuts wall time to ~max(latency). Coinbase
+        public-read 30 req/s limit easily absorbs an 8-way burst.
+        """
+        product_ids: dict[str, str] = {coin: self.runtime_client.product_id(coin) for coin in coins}
+        fetch_jobs: list[tuple[str, str, str, int, int]] = [
+            (coin, key, granularity, lookback, interval)
+            for coin in coins
+            for key, granularity, lookback, interval in self._CANDLE_SERIES_SPECS
+        ]
+        series_results: dict[tuple[str, str], CompressedPriceSeries] = {}
+        if fetch_jobs:
+            max_workers = max(1, min(len(fetch_jobs), 8))
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="candle-fetch") as pool:
+                future_map = {
+                    pool.submit(
+                        self._fetch_series,
+                        product_ids[coin],
+                        granularity=granularity,
+                        lookback=lookback,
+                        interval_seconds=interval,
+                    ): (coin, key)
+                    for (coin, key, granularity, lookback, interval) in fetch_jobs
+                }
+            for future, (coin, key) in future_map.items():
+                series_results[(coin, key)] = future.result()
         contexts: dict[str, MarketContextNormalized] = {}
         for coin in coins:
-            product_id = self.runtime_client.product_id(coin)
-            # Pull enough candles per window to render an actual K-line chart in the
-            # frontend. Coinbase caps each request at ~300 candles; these lookbacks
-            # stay comfortably under that while giving each timeframe a real span
-            # (24h / 7d / 30d / 90d).
-            series_payload = {
-                "15m": self._fetch_series(product_id, granularity="FIFTEEN_MINUTE", lookback=96, interval_seconds=900),
-                "1h": self._fetch_series(product_id, granularity="ONE_HOUR", lookback=168, interval_seconds=3600),
-                "4h": self._fetch_series(product_id, granularity="FOUR_HOUR", lookback=180, interval_seconds=14400),
-                "24h": self._fetch_series(product_id, granularity="ONE_DAY", lookback=90, interval_seconds=86400),
-            }
+            series_payload = {key: series_results[(coin, key)] for key, _, _, _ in self._CANDLE_SERIES_SPECS}
             liquidity = self._liquidity_snapshot(coin)
             contexts[coin] = MarketContextNormalized(
                 coin=coin,
-                product_id=product_id,
+                product_id=product_ids[coin],
                 compressed_price_series=series_payload,
                 key_levels=self._key_levels(series_payload),
                 breakout_retest_state=self._breakout_state(series_payload),
@@ -175,11 +208,37 @@ class CoinbaseIntxMarketDataProvider:
         return contexts
 
     def collect_execution_history(self, coins: list[str]) -> dict[str, ExecutionHistorySnapshot]:
+        """Fan out per-coin orders + fills calls in parallel.
+
+        2 coins × (list_orders + list_fills) = 4 independent calls. Same
+        rationale as `collect_market_context`: serial wall time dominates.
+        """
+        product_ids: dict[str, str] = {coin: self.runtime_client.product_id(coin) for coin in coins}
+        fetch_jobs: list[tuple[str, str, str]] = [
+            (coin, "orders", product_ids[coin]) for coin in coins
+        ] + [
+            (coin, "fills", product_ids[coin]) for coin in coins
+        ]
+
+        def _fetch(kind: str, product_id: str) -> list:
+            if kind == "orders":
+                return self.runtime_client.client.list_orders(product_id=product_id, limit=50)
+            return self.runtime_client.client.list_fills(product_id=product_id)
+
+        results: dict[tuple[str, str], list] = {}
+        if fetch_jobs:
+            max_workers = max(1, min(len(fetch_jobs), 4))
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="exec-history") as pool:
+                future_map = {
+                    pool.submit(_fetch, kind, pid): (coin, kind)
+                    for (coin, kind, pid) in fetch_jobs
+                }
+            for future, (coin, kind) in future_map.items():
+                results[(coin, kind)] = future.result()
         payload: dict[str, ExecutionHistorySnapshot] = {}
         for coin in coins:
-            product_id = self.runtime_client.product_id(coin)
-            orders = self.runtime_client.client.list_orders(product_id=product_id, limit=50)
-            fills = self.runtime_client.client.list_fills(product_id=product_id)[:20]
+            orders = results.get((coin, "orders"), [])
+            fills = results.get((coin, "fills"), [])[:20]
             failures = [
                 order
                 for order in orders
@@ -189,7 +248,7 @@ class CoinbaseIntxMarketDataProvider:
             open_orders = [self._build_open_order_snapshot(order) for order in orders if self._is_open_order(order)]
             payload[coin] = ExecutionHistorySnapshot(
                 coin=coin,
-                product_id=product_id,
+                product_id=product_ids[coin],
                 recent_orders=orders[:20],
                 recent_fills=fills,
                 failure_sources=failures,
