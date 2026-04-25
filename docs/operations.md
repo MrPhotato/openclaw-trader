@@ -121,40 +121,40 @@ launchctl kickstart -k gui/$(id -u)/ai.openclaw.trader
 
 Otherwise the live process continues running whatever code was loaded when Python started.
 
-## Bridge Refresh Timing Diagnostic
+## Bridge 刷新延迟诊断
 
-When `RuntimeBridgeMonitor` cycle wall time creeps up (agents wait too long on `pull/*` because cache is stale and inline `refresh_once` is slow), the env-gated timing instrumentation in `runtime_bridge.py` lets you see the per-phase breakdown without code changes.
+当 `RuntimeBridgeMonitor` 单次刷新 wall time 飙高时（症状：agent `pull/*` 卡顿，因为 cache stale 触发了 inline `refresh_once`，而 refresh 本身就慢），可以打开 `runtime_bridge.py` 里那段 env-flag 的 timing 仪器化代码，**无需改代码**就能看到每一段耗时分布。
 
-Enable, restart, observe, disable:
+开 → 重启 → 观察 → 关 → 重启：
 
 ```bash
 launchctl setenv OPENCLAW_BRIDGE_TIMING 1
 launchctl kickstart -k gui/$(id -u)/ai.openclaw.trader
-# wait ~2 minutes for several cycles, then read:
+# 等 ~2 分钟跑几个 cycle，然后看日志：
 grep "\[bridge-timing\]" ~/.openclaw-trader/logs/trader.stderr.log | tail -20
 launchctl unsetenv OPENCLAW_BRIDGE_TIMING
 launchctl kickstart -k gui/$(id -u)/ai.openclaw.trader
 ```
 
-Each `refresh_once` line shows wall time per phase:
+每一行 `refresh_once` 会拆出各阶段 wall time：
 
 ```
 [bridge-timing] refresh_once reason=scheduled total=16.7s primitives=5.5s forecasts=2.8s policies=0.0s build_inputs=5.0s payload_assemble=0.0s persist_portfolio=0.0s persist_bridge=0.0s
 ```
 
-Reference (2026-04-25 baseline after macro_data + market_data parallelization + targeted SQL helpers):
+**健康值参考**（2026-04-25 基线，已完成 macro_data + market_data 并行 + targeted SQL helper 后）：
 
-| Phase | Healthy | Yellow flag | Action |
+| 阶段 | 健康 | 黄牌 | 处置 |
 |---|---|---|---|
-| `total` | 12-20s | >40s | drill into the highest sub-phase |
-| `primitives` | 5-9s | >15s | check Coinbase HTTP latency / DB lock contention |
-| `forecasts` | 2-4s | >6s | quant inference regression — check `quant_intelligence` |
-| `build_inputs` | 4-7s | >15s | likely a panel scanning too many rows; grep the helper for big `limit=` values |
-| `persist_*` | <1s | >3s | DB lock contention; consider WAL mode |
+| `total` | 12-20s | >40s | 钻进时间最长的子阶段 |
+| `primitives` | 5-9s | >15s | 查 Coinbase HTTP 延迟 / DB 锁争用 |
+| `forecasts` | 2-4s | >6s | quant 推理退化——查 `quant_intelligence` |
+| `build_inputs` | 4-7s | >15s | 大概率是某个 panel 在扫太多行，grep 各 helper 找大 `limit=` 值 |
+| `persist_*` | <1s | >3s | DB 锁争用；考虑开 WAL mode |
 
-The `[bridge-timing] primitive <name> done=Xs` lines (one per `_collect_primitives` future) show which of the 6 parallel branches is the long pole — `market` is usually 5-7s, others should be sub-second.
+`[bridge-timing] primitive <name> done=Xs` 这些行（每个 `_collect_primitives` 子 future 一行）告诉你 6 个并行分支里哪个是长项——`market` 一般是 5-7s，其它都应该是亚秒级。
 
-Default off; never costs anything when the env var is unset.
+环境变量不设时这段代码完全不执行，**生产无成本**。
 
 ## Known Operational Edges
 
