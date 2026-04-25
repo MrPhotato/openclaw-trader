@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import copy
+import os
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -8,6 +11,17 @@ from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING, Any
 
 from ...shared.utils import new_id
+
+# 2026-04-25 temporary: log per-phase wall time inside refresh_once so we
+# can find the remaining ~80s overhead after market_data parallelization.
+# Set OPENCLAW_BRIDGE_TIMING=1 to enable; off by default so it cannot
+# accidentally pollute production logs after this debugging pass.
+_BRIDGE_TIMING_ENABLED = os.environ.get("OPENCLAW_BRIDGE_TIMING", "").lower() in {"1", "true", "yes"}
+
+
+def _bt_print(msg: str) -> None:
+    if _BRIDGE_TIMING_ENABLED:
+        print(f"[bridge-timing] {msg}", file=sys.stderr, flush=True)
 from ..news_events.models import NewsDigestEvent
 from ..news_events.service import NewsEventService
 from ..policy_risk.service import PolicyRiskService
@@ -84,6 +98,8 @@ class RuntimeBridgeMonitor:
         force_sync_news: bool = False,
     ) -> dict[str, Any]:
         trace = trace_id or new_id("trace")
+        t_start = time.monotonic()
+        t0 = t_start
         (
             market,
             news,
@@ -95,12 +111,16 @@ class RuntimeBridgeMonitor:
             trace_id=trace,
             force_sync_news=force_sync_news,
         )
+        t_primitives = time.monotonic() - t0
+        t0 = time.monotonic()
         latest_strategy = (
             latest_strategy_asset["payload"]
             if latest_strategy_asset and "payload" in latest_strategy_asset
             else latest_strategy_asset
         )
         forecasts = self.quant_intelligence.get_latest_forecasts(market)
+        t_forecasts = time.monotonic() - t0
+        t0 = time.monotonic()
         policies = self.policy_risk.evaluate(
             market=market,
             forecasts=forecasts,
@@ -108,6 +128,8 @@ class RuntimeBridgeMonitor:
             prior_risk_state=dict((prior_risk_state or {}).get("payload") or {}),
             latest_strategy=latest_strategy or {},
         )
+        t_policies = time.monotonic() - t0
+        t0 = time.monotonic()
         runtime_inputs = self.gateway.build_runtime_inputs(
             trace_id=trace,
             market=market,
@@ -118,6 +140,8 @@ class RuntimeBridgeMonitor:
             macro_memory=macro_memory,
             macro_snapshot=macro_snapshot,
         )
+        t_build_inputs = time.monotonic() - t0
+        t0 = time.monotonic()
         now = datetime.now(UTC)
         payload = {
             "state_id": new_id("runtime_bridge_state"),
@@ -147,14 +171,30 @@ class RuntimeBridgeMonitor:
                 for role, runtime_input in runtime_inputs.items()
             },
         }
+        t_payload_assemble = time.monotonic() - t0
+        t0 = time.monotonic()
         self._persist_portfolio_snapshot(trace_id=trace, market=market, reason=reason)
+        t_persist_portfolio = time.monotonic() - t0
+        t0 = time.monotonic()
         asset = self.memory_assets.materialize_runtime_bridge_state(
             trace_id=trace,
             authored_payload=payload,
             metadata={"refresh_reason": reason},
         )
+        t_persist_bridge = time.monotonic() - t0
         with self._lock:
             self._latest_asset = copy.deepcopy(asset)
+        t_total = time.monotonic() - t_start
+        _bt_print(
+            f"refresh_once reason={reason} total={t_total:.2f}s "
+            f"primitives={t_primitives:.2f}s "
+            f"forecasts={t_forecasts:.2f}s "
+            f"policies={t_policies:.2f}s "
+            f"build_inputs={t_build_inputs:.2f}s "
+            f"payload_assemble={t_payload_assemble:.2f}s "
+            f"persist_portfolio={t_persist_portfolio:.2f}s "
+            f"persist_bridge={t_persist_bridge:.2f}s"
+        )
         return asset
 
     def _loop(self) -> None:
@@ -179,13 +219,23 @@ class RuntimeBridgeMonitor:
         list[dict[str, Any]],
         MacroSnapshot | None,
     ]:
+        def _timed(label: str, fn, *args, **kwargs):
+            t0 = time.monotonic()
+            try:
+                result = fn(*args, **kwargs)
+                _bt_print(f"  primitive {label} done={time.monotonic()-t0:.2f}s")
+                return result
+            except Exception as exc:
+                _bt_print(f"  primitive {label} ERR={time.monotonic()-t0:.2f}s err={type(exc).__name__}")
+                raise
+
         with ThreadPoolExecutor(max_workers=6) as executor:
-            market_future = executor.submit(self.market_data.get_market_overview, trace_id=trace_id)
-            news_future = executor.submit(self.news_events.get_latest_news_batch, force_sync=force_sync_news)
-            strategy_future = executor.submit(self.memory_assets.get_latest_strategy)
-            risk_state_future = executor.submit(self.memory_assets.get_asset, "risk_brake_state")
-            macro_memory_future = executor.submit(self.memory_assets.get_macro_memory)
-            macro_future = executor.submit(self._safe_collect_macro_snapshot)
+            market_future = executor.submit(_timed, "market", self.market_data.get_market_overview, trace_id=trace_id)
+            news_future = executor.submit(_timed, "news", self.news_events.get_latest_news_batch, force_sync=force_sync_news)
+            strategy_future = executor.submit(_timed, "strategy", self.memory_assets.get_latest_strategy)
+            risk_state_future = executor.submit(_timed, "risk_state", self.memory_assets.get_asset, "risk_brake_state")
+            macro_memory_future = executor.submit(_timed, "macro_memory", self.memory_assets.get_macro_memory)
+            macro_future = executor.submit(_timed, "macro_snapshot", self._safe_collect_macro_snapshot)
             market = market_future.result()
             news = news_future.result()
             latest_strategy_asset = strategy_future.result()

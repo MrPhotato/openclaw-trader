@@ -108,6 +108,14 @@ class MemoryAssetsRepository:
     ) -> list[dict]:
         return self.assets.recent(asset_type=asset_type, actor_role=actor_role, limit=limit)
 
+    def btc_position_marks_since(self, since_utc_iso: str) -> list[tuple[str, float]]:
+        return self.assets.btc_position_marks_since(since_utc_iso)
+
+    def runtime_bridge_macro_market_pair_24h(
+        self, target_at_or_before_iso: str
+    ) -> tuple[dict | None, dict | None]:
+        return self.assets.runtime_bridge_macro_market_pair_24h(target_at_or_before_iso)
+
     def save_agent_session(self, state: AgentSessionState) -> None:
         self.sessions.save(state)
 

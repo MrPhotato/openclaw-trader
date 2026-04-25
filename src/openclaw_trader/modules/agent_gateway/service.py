@@ -3033,76 +3033,33 @@ class AgentGatewayService:
                 result["hours_since_last_event"] = round(hours, 1)
             except Exception:  # noqa: BLE001
                 pass
-        bridge_pair = self._bridge_state_pair_for_24h_delta(max_lookback_bridge)
-        if bridge_pair is not None:
-            current_payload, prior_payload = bridge_pair
-            result["brent_delta_24h_pct"] = self._extract_pct_delta(
-                current_payload, prior_payload, ("context", "macro_prices", "brent", "price")
+        # Use targeted SQL helper that pulls only the 4 scalar fields needed
+        # via json_extract. Replaces a previous recent_assets(limit=1500)
+        # scan that hauled MB of full bridge payload per refresh and
+        # dominated bridge cycle wall time on 2026-04-25 instrumentation.
+        target_iso = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+        latest_pair, prior_pair = self.memory_assets.runtime_bridge_macro_market_pair_24h(target_iso)
+        if latest_pair is not None and prior_pair is not None:
+            result["brent_delta_24h_pct"] = self._pct_delta_scalar(
+                latest_pair.get("brent_price"), prior_pair.get("brent_price")
             )
-            result["btc_change_pct_24h"] = self._extract_pct_delta(
-                current_payload, prior_payload, ("context", "market", "market", "BTC", "mark_price")
+            result["btc_change_pct_24h"] = self._pct_delta_scalar(
+                latest_pair.get("btc_mark_price"), prior_pair.get("btc_mark_price")
             )
         return result
 
-    def _bridge_state_pair_for_24h_delta(
-        self, lookback_limit: int
-    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
-        """Find current + ~24h-ago runtime_bridge_state assets for delta math.
-
-        Recent records are dense (every 30s ≈ 2880/day), so a lookback of
-        ~1500 covers ~12h reliably. We pick the asset closest to (now - 24h)
-        without exceeding it.
-        """
-        if self.memory_assets is None:
-            return None
-        assets = self.memory_assets.recent_assets(
-            asset_type="runtime_bridge_state", limit=lookback_limit
-        )
-        if len(assets) < 2:
-            return None
-        current = dict((assets[0].get("payload") or {}))
-        target_dt = datetime.now(UTC) - timedelta(hours=24)
-        best = None
-        best_dt = None
-        for asset in assets[1:]:
-            ts_raw = asset.get("created_at")
-            try:
-                ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-                if ts_dt.tzinfo is None:
-                    ts_dt = ts_dt.replace(tzinfo=UTC)
-            except Exception:  # noqa: BLE001
-                continue
-            ts_dt = ts_dt.astimezone(UTC)
-            if best_dt is None or abs((ts_dt - target_dt).total_seconds()) < abs(
-                (best_dt - target_dt).total_seconds()
-            ):
-                best = asset
-                best_dt = ts_dt
-        if best is None:
-            return None
-        return current, dict((best.get("payload") or {}))
-
     @staticmethod
-    def _extract_pct_delta(
-        current: dict[str, Any], prior: dict[str, Any], path: tuple[str, ...]
-    ) -> float | None:
-        def _walk(d: dict[str, Any], keys: tuple[str, ...]) -> Any:
-            cursor: Any = d
-            for key in keys:
-                if isinstance(cursor, dict):
-                    cursor = cursor.get(key)
-                else:
-                    return None
-            return cursor
-
+    def _pct_delta_scalar(current: float | None, prior: float | None) -> float | None:
+        if current is None or prior is None:
+            return None
         try:
-            current_value = float(_walk(current, path))
-            prior_value = float(_walk(prior, path))
-            if prior_value <= 0:
-                return None
-            return round((current_value - prior_value) / prior_value * 100.0, 3)
+            current_v = float(current)
+            prior_v = float(prior)
         except (TypeError, ValueError):
             return None
+        if prior_v <= 0:
+            return None
+        return round((current_v - prior_v) / prior_v * 100.0, 3)
 
     def _compute_theoretical_profit_ceiling(
         self, *, strategy_payload: dict[str, Any] | None
@@ -3144,44 +3101,24 @@ class AgentGatewayService:
                 result["band_upper_pct_of_equity"] = round(band_upper, 2)
             except (TypeError, ValueError):
                 band_upper = None
-        snapshots = self.memory_assets.recent_assets(
-            asset_type="portfolio_snapshot", limit=2000
-        )
+        # Use targeted SQL helper that pulls only (created_at, BTC mark) via
+        # json_extract today-window filter. Replaces a previous
+        # recent_assets(limit=2000) scan that loaded the full
+        # portfolio_snapshot payload for every row — this was the main
+        # contributor to the 78s `build_runtime_inputs` spend on bridge
+        # cycles measured 2026-04-25.
         today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-        marks: list[tuple[datetime, float]] = []
-        for asset in snapshots:
-            ts_raw = asset.get("created_at")
-            try:
-                ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-                if ts_dt.tzinfo is None:
-                    ts_dt = ts_dt.replace(tzinfo=UTC)
-            except Exception:  # noqa: BLE001
-                continue
-            ts_dt = ts_dt.astimezone(UTC)
-            if ts_dt < today_start:
-                continue
-            for pos in (asset.get("payload") or {}).get("positions") or []:
-                if not isinstance(pos, dict):
-                    continue
-                if str(pos.get("coin") or "").upper() != "BTC":
-                    continue
-                raw = pos.get("raw") or {}
-                mark_raw = raw.get("mark_price")
-                if isinstance(mark_raw, dict):
-                    mark_raw = mark_raw.get("value")
-                try:
-                    marks.append((ts_dt, float(mark_raw)))
-                except (TypeError, ValueError):
-                    continue
-                break
+        marks_raw = self.memory_assets.btc_position_marks_since(today_start.isoformat())
+        if not marks_raw:
+            return result
+        marks: list[float] = [m for _, m in marks_raw if m > 0]
         if not marks:
             return result
-        marks.sort(key=lambda item: item[0])
-        open_mark = marks[0][1]
+        open_mark = marks[0]
         if open_mark <= 0:
             return result
-        high = max(item[1] for item in marks)
-        low = min(item[1] for item in marks)
+        high = max(marks)
+        low = min(marks)
         if primary_dir == "long":
             max_favorable = (high - open_mark) / open_mark * 100.0
         elif primary_dir == "short":

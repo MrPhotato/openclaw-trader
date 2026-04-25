@@ -213,6 +213,14 @@ class MemoryAssetsService:
     ) -> list[dict]:
         return self.repository.recent_assets(asset_type=asset_type, actor_role=actor_role, limit=limit)
 
+    def btc_position_marks_since(self, since_utc_iso: str) -> list[tuple[str, float]]:
+        return self.repository.btc_position_marks_since(since_utc_iso)
+
+    def runtime_bridge_macro_market_pair_24h(
+        self, target_at_or_before_iso: str
+    ) -> tuple[dict | None, dict | None]:
+        return self.repository.runtime_bridge_macro_market_pair_24h(target_at_or_before_iso)
+
     def latest_rt_tactical_map(
         self,
         *,
