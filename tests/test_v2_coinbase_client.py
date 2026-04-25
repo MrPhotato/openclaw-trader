@@ -180,22 +180,42 @@ class CoinbaseAdvancedClientTests(unittest.TestCase):
 
 
 class CoinbaseIntxRuntimeClientTests(unittest.TestCase):
-    """Regression: before 2026-04-25, `product()` cached the Coinbase
-    get_product response indefinitely. The response carries live fields
-    (price, index_price, funding_rate), so mark_price froze for 8+ hours
-    and silently broke PM submit-gate price_breach/quant_flip detectors.
-    Contract now: every `product()` call hits the API fresh.
+    """Regression: pre-2026-04-25 the product cache was unbounded so
+    mark_price froze for 8+ hours and broke the PM submit-gate
+    price_breach/quant_flip detectors. Removing the cache entirely
+    overwhelmed the Coinbase REST client with every frontend market-context
+    poll + bridge tick + agent fan-out hitting fresh; under load the
+    client wedged on ReadTimeouts and froze the background workers.
+    Final contract: a short-TTL cache (5s by default) — fresh enough for
+    the submit-gate, but absorbs high-frequency callers within a tick
+    window.
     """
 
-    def _bare_runtime(self) -> CoinbaseIntxRuntimeClient:
+    def _bare_runtime(self, *, ttl_seconds: float = 5.0) -> CoinbaseIntxRuntimeClient:
         # Bypass __init__ to avoid loading credentials / get_key_permissions
         runtime = object.__new__(CoinbaseIntxRuntimeClient)
         runtime.client = Mock()
         runtime.portfolio_uuid = "portfolio-test"
+        runtime._product_cache = {}
+        runtime._product_cache_ttl_seconds = ttl_seconds
         return runtime
 
-    def test_product_does_not_cache_and_fetches_on_each_call(self) -> None:
-        runtime = self._bare_runtime()
+    def test_product_caches_within_ttl_window(self) -> None:
+        runtime = self._bare_runtime(ttl_seconds=5.0)
+        runtime.client.get_product = Mock(
+            return_value=Mock(price=Decimal("78000"), raw={}),
+        )
+        p1 = runtime.product("BTC")
+        p2 = runtime.product("BTC")
+        p3 = runtime.product("BTC")
+        self.assertEqual(runtime.client.get_product.call_count, 1)
+        self.assertIs(p2, p1)
+        self.assertIs(p3, p1)
+
+    def test_product_refetches_after_ttl_expires(self) -> None:
+        # TTL=0 means cache hit window is empty → every call refetches.
+        # Guards against re-introducing an unbounded cache.
+        runtime = self._bare_runtime(ttl_seconds=0.0)
         runtime.client.get_product = Mock(
             side_effect=[
                 Mock(price=Decimal("78000"), raw={}),

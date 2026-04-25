@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, ROUND_DOWN
@@ -51,18 +52,29 @@ class CoinbaseIntxRuntimeClient:
         self.portfolio_uuid = str(permissions.get("portfolio_uuid") or "").strip()
         if not self.portfolio_uuid:
             raise ValueError("coinbase intx portfolio_uuid missing from key permissions")
+        # Short-TTL cache: prior implementation cached forever and froze
+        # mark_price for 8+ hours; the opposite extreme (no cache) sent every
+        # frontend market-context poll + bridge tick + agent prompt fan-out
+        # into a fresh REST call, swamping the Coinbase HTTP client and
+        # producing ReadTimeouts that wedged background workers. 5s TTL
+        # keeps mark_price fresh enough for the PM submit-gate
+        # price_breach/quant_flip detectors (PM submits hours apart) while
+        # absorbing high-frequency callers within a single tick window.
+        self._product_cache: dict[str, tuple[float, Any]] = {}
+        self._product_cache_ttl_seconds: float = 5.0
 
     def product_id(self, coin: str) -> str:
         return f"{coin.upper()}-PERP-INTX"
 
     def product(self, coin: str):
-        # Always fetch fresh: the product payload carries live fields
-        # (price, index_price, funding_rate, open_interest). A prior
-        # implementation cached the result indefinitely and froze mark_price
-        # for 8+ hours at a time, which silently broke the PM submit-gate's
-        # price_breach/quant_flip detectors. Current call rate (a handful
-        # per minute per coin) is well under Coinbase's public rate limits.
-        return self.client.get_product(self.product_id(coin))
+        target = coin.upper()
+        now = time.monotonic()
+        cached = self._product_cache.get(target)
+        if cached is not None and (now - cached[0]) < self._product_cache_ttl_seconds:
+            return cached[1]
+        fresh = self.client.get_product(self.product_id(target))
+        self._product_cache[target] = (now, fresh)
+        return fresh
 
     def snapshot(self, coin: str) -> dict[str, Any]:
         product = self.product(coin)
