@@ -121,6 +121,41 @@ launchctl kickstart -k gui/$(id -u)/ai.openclaw.trader
 
 Otherwise the live process continues running whatever code was loaded when Python started.
 
+## Bridge Refresh Timing Diagnostic
+
+When `RuntimeBridgeMonitor` cycle wall time creeps up (agents wait too long on `pull/*` because cache is stale and inline `refresh_once` is slow), the env-gated timing instrumentation in `runtime_bridge.py` lets you see the per-phase breakdown without code changes.
+
+Enable, restart, observe, disable:
+
+```bash
+launchctl setenv OPENCLAW_BRIDGE_TIMING 1
+launchctl kickstart -k gui/$(id -u)/ai.openclaw.trader
+# wait ~2 minutes for several cycles, then read:
+grep "\[bridge-timing\]" ~/.openclaw-trader/logs/trader.stderr.log | tail -20
+launchctl unsetenv OPENCLAW_BRIDGE_TIMING
+launchctl kickstart -k gui/$(id -u)/ai.openclaw.trader
+```
+
+Each `refresh_once` line shows wall time per phase:
+
+```
+[bridge-timing] refresh_once reason=scheduled total=16.7s primitives=5.5s forecasts=2.8s policies=0.0s build_inputs=5.0s payload_assemble=0.0s persist_portfolio=0.0s persist_bridge=0.0s
+```
+
+Reference (2026-04-25 baseline after macro_data + market_data parallelization + targeted SQL helpers):
+
+| Phase | Healthy | Yellow flag | Action |
+|---|---|---|---|
+| `total` | 12-20s | >40s | drill into the highest sub-phase |
+| `primitives` | 5-9s | >15s | check Coinbase HTTP latency / DB lock contention |
+| `forecasts` | 2-4s | >6s | quant inference regression — check `quant_intelligence` |
+| `build_inputs` | 4-7s | >15s | likely a panel scanning too many rows; grep the helper for big `limit=` values |
+| `persist_*` | <1s | >3s | DB lock contention; consider WAL mode |
+
+The `[bridge-timing] primitive <name> done=Xs` lines (one per `_collect_primitives` future) show which of the 6 parallel branches is the long pole — `market` is usually 5-7s, others should be sub-second.
+
+Default off; never costs anything when the env var is unset.
+
 ## Known Operational Edges
 
 - network errors can still appear around exchange connectivity
