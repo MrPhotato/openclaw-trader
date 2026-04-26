@@ -53,6 +53,7 @@ class WorkflowOrchestratorService:
         risk_brake_monitor: RiskBrakeMonitor | None = None,
         retro_prep_monitor: RetroPrepMonitor | None = None,
         agent_wake_monitor: AgentWakeMonitor | None = None,
+        agent_failure_alert_monitor: "AgentFailureAlertMonitor | None" = None,
     ) -> None:
         self.memory_assets = memory_assets
         self.event_bus = event_bus
@@ -91,6 +92,9 @@ class WorkflowOrchestratorService:
         self._agent_wake_monitor = agent_wake_monitor
         if self._agent_wake_monitor is not None:
             self._agent_wake_monitor.start()
+        self._agent_failure_alert_monitor = agent_failure_alert_monitor
+        if self._agent_failure_alert_monitor is not None:
+            self._agent_failure_alert_monitor.start()
 
     def submit_command(self, command: ManualTriggerCommand) -> WorkflowCommandReceipt:
         blocked_reason = self._blocked_reason(command)
@@ -308,6 +312,8 @@ class WorkflowOrchestratorService:
             self._retro_prep_monitor.stop()
         if self._agent_wake_monitor is not None:
             self._agent_wake_monitor.stop()
+        if self._agent_failure_alert_monitor is not None:
+            self._agent_failure_alert_monitor.stop()
         if self._daily_reset_thread is not None:
             self._daily_reset_thread.join(timeout=1.0)
         self._background_executor.shutdown(wait=False, cancel_futures=False)

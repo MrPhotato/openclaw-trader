@@ -190,6 +190,21 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
                 dict(item) if isinstance(item, dict) else {}
                 for item in list(dispatch_payload.get("agent_wake_rules") or [])
             ],
+            agent_failure_alert_enabled=bool(
+                dispatch_payload.get("agent_failure_alert_enabled", False)
+            ),
+            agent_failure_alert_scan_interval_seconds=int(
+                dispatch_payload.get("agent_failure_alert_scan_interval_seconds", 60)
+            ),
+            agent_failure_alert_cooldown_minutes=int(
+                dispatch_payload.get("agent_failure_alert_cooldown_minutes", 60)
+            ),
+            agent_failure_alert_log_path=str(
+                dispatch_payload.get("agent_failure_alert_log_path", "~/.openclaw/logs/gateway.err.log")
+            ),
+            agent_failure_alert_tail_bytes=int(
+                dispatch_payload.get("agent_failure_alert_tail_bytes", 524288)
+            ),
             macro_data_enabled=bool(dispatch_payload.get("macro_data_enabled", False)),
             macro_data_refresh_interval_seconds=int(
                 dispatch_payload.get("macro_data_refresh_interval_seconds", 900)

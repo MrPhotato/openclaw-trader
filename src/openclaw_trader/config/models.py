@@ -388,6 +388,19 @@ class OrchestratorSettings(BaseModel):
     agent_wake_subprocess_timeout_seconds: int = 15
     agent_wake_rules: list[dict[str, object]] = Field(default_factory=list)
     # ------------------------------------------------------------------
+    # Agent LLM-failure → owner wecom alert (closes the gap where WO
+    # blindly retries every 30min into a quota-dead agent and the owner
+    # only finds out hours later). Tails gateway.err.log, recognises
+    # well-known fatal patterns (ChatGPT weekly limit, bailian month
+    # quota, OAuth expiry), debounces per (provider × failure_kind).
+    # See modules/workflow_orchestrator/agent_failure_alert.py.
+    # ------------------------------------------------------------------
+    agent_failure_alert_enabled: bool = False
+    agent_failure_alert_scan_interval_seconds: int = 60
+    agent_failure_alert_cooldown_minutes: int = 60
+    agent_failure_alert_log_path: str = "~/.openclaw/logs/gateway.err.log"
+    agent_failure_alert_tail_bytes: int = 524288
+    # ------------------------------------------------------------------
     # Macro data: non-crypto reference prices injected into runtime_pack
     # (Brent/WTI/DXY/10Y + BTC ETF activity + Fear & Greed). Fetched from
     # yfinance + alternative.me, cached in-process, refreshed by

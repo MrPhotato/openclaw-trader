@@ -60,6 +60,30 @@ class NotificationService:
         )
         return self._send_commands(trace_id=trace_id, commands=commands)
 
+    def notify_owner_alert(
+        self,
+        *,
+        trace_id: str,
+        alert_kind: str,
+        alert_message: str,
+    ) -> list[EventEnvelope]:
+        """Owner-only push for operational alerts (agent quota, gateway down,
+        provider auth expired, etc). Bypasses Chief — this is a system fault
+        signal, not a strategy event.
+        """
+        commands = self._build_recipient_commands(
+            message_type=alert_kind,
+            message="\n".join(["⚠️ OpenClaw 系统告警", alert_message.strip()]),
+            payload={
+                "trace_id": trace_id,
+                "alert_kind": alert_kind,
+                "alert_message": alert_message.strip(),
+            },
+            include_owner=True,
+            include_chief=False,
+        )
+        return self._send_commands(trace_id=trace_id, commands=commands)
+
     def handle_event(self, envelope: EventEnvelope) -> list[EventEnvelope]:
         if envelope.event_type != "strategy.submitted":
             return []

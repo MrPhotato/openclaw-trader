@@ -33,6 +33,10 @@ from ..modules.trade_gateway.market_data.adapters import CoinbaseIntxMarketDataP
 from ..modules.workflow_orchestrator import WorkflowOrchestratorService
 from ..modules.workflow_orchestrator.pm_recheck import PMRecheckConfig, PMRecheckMonitor
 from ..modules.workflow_orchestrator.agent_dispatch import AgentDispatcher, AgentDispatchConfig
+from ..modules.workflow_orchestrator.agent_failure_alert import (
+    AgentFailureAlertConfig,
+    AgentFailureAlertMonitor,
+)
 from ..modules.workflow_orchestrator.agent_wake import (
     AgentWakeMonitor,
     AgentWakeRuleConfig,
@@ -389,6 +393,23 @@ def build_container() -> ServiceContainer:
             settings=_build_agent_wake_settings(settings.orchestrator),
             event_bus=event_bus,
         )
+    agent_failure_alert_monitor = None
+    if bool(settings.orchestrator.agent_failure_alert_enabled):
+        agent_failure_alert_monitor = AgentFailureAlertMonitor(
+            memory_assets=memory_assets,
+            notification_service=notification_service,
+            config=AgentFailureAlertConfig(
+                enabled=True,
+                scan_interval_seconds=int(
+                    settings.orchestrator.agent_failure_alert_scan_interval_seconds
+                ),
+                cooldown_minutes=int(
+                    settings.orchestrator.agent_failure_alert_cooldown_minutes
+                ),
+                log_path=str(settings.orchestrator.agent_failure_alert_log_path),
+                tail_bytes=int(settings.orchestrator.agent_failure_alert_tail_bytes),
+            ),
+        )
     workflow_orchestrator = WorkflowOrchestratorService(
         memory_assets=memory_assets,
         event_bus=event_bus,
@@ -399,6 +420,7 @@ def build_container() -> ServiceContainer:
         risk_brake_monitor=risk_brake_monitor,
         retro_prep_monitor=retro_prep_monitor,
         agent_wake_monitor=agent_wake_monitor,
+        agent_failure_alert_monitor=agent_failure_alert_monitor,
     )
     return ServiceContainer(
         settings=settings,
