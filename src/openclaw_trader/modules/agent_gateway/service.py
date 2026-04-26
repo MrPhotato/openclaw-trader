@@ -2950,7 +2950,9 @@ class AgentGatewayService:
                 break
             streak += 1
             last_action_label = last_action_label or "hold"
-        gap_to_mid = self._compute_exposure_gap_to_band_midpoint(strategy_payload)
+        envelope = self._compute_exposure_envelope(strategy_payload)
+        gap_to_mid = envelope.get("gap_to_band_mid_pct_of_budget") if envelope else None
+        gap_to_ceiling = envelope.get("gap_to_envelope_ceiling_pct_of_budget") if envelope else None
         warning: str | None = None
         if streak >= 2 and gap_to_mid is not None and gap_to_mid > 0:
             warning = (
@@ -2961,34 +2963,95 @@ class AgentGatewayService:
         return {
             "count": streak,
             "last_action": last_action_label,
+            # Unit: % of exposure_budget (= equity × max_leverage), matching
+            # the unit PM uses for target_exposure_band_pct + rt_discretion_band_pct.
             "gap_to_band_mid_pct": gap_to_mid,
+            "gap_to_envelope_ceiling_pct": gap_to_ceiling,
+            "current_pct_of_exposure_budget": envelope.get("current_pct_of_budget") if envelope else None,
+            "envelope_ceiling_pct_of_budget": envelope.get("envelope_ceiling_pct_of_budget") if envelope else None,
             "warning": warning,
         }
 
-    def _compute_exposure_gap_to_band_midpoint(
+    def _compute_exposure_envelope(
         self, strategy_payload: dict[str, Any] | None
-    ) -> float | None:
+    ) -> dict[str, float | None] | None:
+        """Compute RT's actual exposure envelope vs PM's authorization, using
+        the SAME unit PM uses for target_exposure_band_pct (% of
+        exposure_budget = equity × max_leverage). Earlier version of this
+        helper used (notional / equity) which is in a DIFFERENT unit and
+        makes the "gap to band" answer wrong by ~leverage × — e.g. on a
+        4-26 BTC position the equity-unit gap looked like -14.77 (meaning
+        "way over") when in budget unit RT was actually at +1.05 below mid
+        (still room to add). Per spec 015 strategy contract: 所有持仓/暴露
+        相关百分比统一按 `total_equity_usd * max_leverage` 的 exposure
+        budget 口径表达.
+
+        Returns dict with:
+          current_pct_of_budget: notional / (equity × leverage) × 100
+          band_lo / band_hi / band_mid: from PM's target_gross_exposure_band_pct
+          discretion_pct: max rt_discretion_band_pct across active targets
+          envelope_ceiling_pct_of_budget: band_hi + discretion (the real
+            ceiling RT can move to without violating PM)
+          gap_to_band_mid_pct_of_budget: band_mid - current; positive = below
+          gap_to_envelope_ceiling_pct_of_budget: envelope_ceiling - current
+        """
         if not strategy_payload or self.memory_assets is None:
             return None
         band_raw = strategy_payload.get("target_gross_exposure_band_pct")
         if not isinstance(band_raw, (list, tuple)) or len(band_raw) != 2:
             return None
         try:
-            lo, hi = float(band_raw[0]), float(band_raw[1])
+            band_lo, band_hi = float(band_raw[0]), float(band_raw[1])
         except (TypeError, ValueError):
             return None
-        mid = (lo + hi) / 2.0
+        # Discretion: take the max across active targets — that's the largest
+        # extra envelope RT may use anywhere.
+        discretion = 0.0
+        for t in strategy_payload.get("targets") or []:
+            if not isinstance(t, dict):
+                continue
+            if str(t.get("state") or "").lower() != "active":
+                continue
+            try:
+                d = float(t.get("rt_discretion_band_pct") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if d > discretion:
+                discretion = d
         portfolio = self.memory_assets.latest_asset(asset_type="portfolio_snapshot") or self.memory_assets.latest_portfolio()
         if not portfolio:
             return None
         try:
             payload = dict(portfolio.get("payload") or {})
             equity = float(payload.get("total_equity_usd") or 0)
-            exposure = float(payload.get("total_exposure_usd") or 0)
+            exposure_notional = float(payload.get("total_exposure_usd") or 0)
             if equity <= 0:
                 return None
-            current_pct = exposure / equity * 100.0
-            return round(mid - current_pct, 2)
+            # Pull leverage from the largest position; default 1 if missing.
+            leverage = 1.0
+            positions = payload.get("positions") or []
+            if positions and isinstance(positions[0], dict):
+                try:
+                    leverage = float(positions[0].get("leverage") or 1.0) or 1.0
+                except (TypeError, ValueError):
+                    leverage = 1.0
+            exposure_budget = equity * leverage
+            if exposure_budget <= 0:
+                return None
+            current_pct_of_budget = exposure_notional / exposure_budget * 100.0
+            band_mid = (band_lo + band_hi) / 2.0
+            envelope_ceiling = band_hi + discretion
+            return {
+                "current_pct_of_budget": round(current_pct_of_budget, 2),
+                "band_lo": round(band_lo, 2),
+                "band_hi": round(band_hi, 2),
+                "band_mid": round(band_mid, 2),
+                "discretion_pct": round(discretion, 2),
+                "envelope_ceiling_pct_of_budget": round(envelope_ceiling, 2),
+                "gap_to_band_mid_pct_of_budget": round(band_mid - current_pct_of_budget, 2),
+                "gap_to_envelope_ceiling_pct_of_budget": round(envelope_ceiling - current_pct_of_budget, 2),
+                "leverage_assumed": round(leverage, 2),
+            }
         except (TypeError, ValueError):
             return None
 
@@ -3070,43 +3133,60 @@ class AgentGatewayService:
         Pulls today's BTC max-favorable mark move (in PM's stated direction)
         from the live mark_price embedded in `portfolio_snapshot.positions[0].
         raw.mark_price.value` (this path bypasses the cached product call so
-        the history is real). Projects that move onto current actual exposure
-        and onto the band upper, surfacing the upside Chief flagged.
+        the history is real). Projects that move onto:
+          - current actual notional (= what we'd realize if held all day)
+          - PM's band upper × leverage (max if RT used full band, no
+            discretion)
+          - PM's band upper + discretion × leverage (the REAL envelope
+            ceiling RT can use without violating PM)
+        All output PnL ceilings are in % of equity (the unit owner cares
+        about for P&L impact).
+
+        Spec 015 / strategy contract: target_exposure_band_pct +
+        rt_discretion_band_pct are in % of exposure_budget (= equity ×
+        leverage). Earlier version of this helper conflated that with %
+        of equity, undercounting the discretion-side ceiling by leverage.
         """
         result: dict[str, Any] = {
             "max_favorable_pct": None,
             "primary_direction": None,
-            "current_exposure_pct_of_equity": None,
-            "band_upper_pct_of_equity": None,
+            "current_notional_share_of_equity_pct": None,
+            "band_upper_pct_of_budget": None,
+            "discretion_pct_of_budget": None,
+            "envelope_ceiling_pct_of_budget": None,
             "ceiling_at_current_pct_of_equity": None,
             "ceiling_at_band_upper_pct_of_equity": None,
+            "ceiling_at_envelope_pct_of_equity": None,
         }
         if self.memory_assets is None or not strategy_payload:
             return result
         primary_dir = None
+        max_discretion = 0.0
         for tgt in strategy_payload.get("targets") or []:
             if not isinstance(tgt, dict):
                 continue
             state = str(tgt.get("state") or "").lower()
             direction = str(tgt.get("direction") or "").lower()
-            if state == "active" and direction in ("long", "short"):
+            if state == "active" and primary_dir is None and direction in ("long", "short"):
                 primary_dir = direction
-                break
+            try:
+                d = float(tgt.get("rt_discretion_band_pct") or 0.0)
+            except (TypeError, ValueError):
+                d = 0.0
+            if state == "active" and d > max_discretion:
+                max_discretion = d
         result["primary_direction"] = primary_dir
+        result["discretion_pct_of_budget"] = round(max_discretion, 2)
         band_raw = strategy_payload.get("target_gross_exposure_band_pct")
         band_upper: float | None = None
         if isinstance(band_raw, (list, tuple)) and len(band_raw) == 2:
             try:
                 band_upper = float(band_raw[1])
-                result["band_upper_pct_of_equity"] = round(band_upper, 2)
+                result["band_upper_pct_of_budget"] = round(band_upper, 2)
+                result["envelope_ceiling_pct_of_budget"] = round(band_upper + max_discretion, 2)
             except (TypeError, ValueError):
                 band_upper = None
-        # Use targeted SQL helper that pulls only (created_at, BTC mark) via
-        # json_extract today-window filter. Replaces a previous
-        # recent_assets(limit=2000) scan that loaded the full
-        # portfolio_snapshot payload for every row — this was the main
-        # contributor to the 78s `build_runtime_inputs` spend on bridge
-        # cycles measured 2026-04-25.
+        # Today's BTC range from live position marks
         today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         marks_raw = self.memory_assets.btc_position_marks_since(today_start.isoformat())
         if not marks_raw:
@@ -3126,26 +3206,40 @@ class AgentGatewayService:
         else:
             max_favorable = max(high - open_mark, open_mark - low) / open_mark * 100.0
         result["max_favorable_pct"] = round(max_favorable, 3)
+        # Project to PnL-as-%-of-equity ceilings.
         portfolio = self.memory_assets.latest_asset(asset_type="portfolio_snapshot") or self.memory_assets.latest_portfolio()
-        current_exposure_pct: float | None = None
-        if portfolio:
-            payload = dict(portfolio.get("payload") or {})
+        if not portfolio:
+            return result
+        payload = dict(portfolio.get("payload") or {})
+        try:
+            equity = float(payload.get("total_equity_usd") or 0)
+            current_notional = float(payload.get("total_exposure_usd") or 0)
+            if equity <= 0:
+                return result
+        except (TypeError, ValueError):
+            return result
+        leverage = 1.0
+        positions = payload.get("positions") or []
+        if positions and isinstance(positions[0], dict):
             try:
-                eq = float(payload.get("total_equity_usd") or 0)
-                expo = float(payload.get("total_exposure_usd") or 0)
-                if eq > 0:
-                    current_exposure_pct = round(expo / eq * 100.0, 2)
+                leverage = float(positions[0].get("leverage") or 1.0) or 1.0
             except (TypeError, ValueError):
-                pass
-        result["current_exposure_pct_of_equity"] = current_exposure_pct
-        if current_exposure_pct is not None:
-            result["ceiling_at_current_pct_of_equity"] = round(
-                max_favorable * current_exposure_pct / 100.0, 4
-            )
+                leverage = 1.0
+        # Current realised exposure as % of equity (different unit from
+        # band! — kept for owner-facing P&L intuition).
+        result["current_notional_share_of_equity_pct"] = round(current_notional / equity * 100.0, 2)
+        # PnL = notional × move%. As %-of-equity = notional / equity × move%.
+        result["ceiling_at_current_pct_of_equity"] = round(
+            current_notional / equity * max_favorable / 100.0 * 100.0, 4
+        )
+        # If RT had used full band: max_notional_at_band = band_upper% × equity × leverage
+        # PnL/equity = band_upper × leverage × move% / 100 / 100
         if band_upper is not None:
-            result["ceiling_at_band_upper_pct_of_equity"] = round(
-                max_favorable * band_upper / 100.0, 4
-            )
+            ceiling_band = band_upper * leverage * max_favorable / 10000.0 * 100.0
+            result["ceiling_at_band_upper_pct_of_equity"] = round(ceiling_band, 4)
+            envelope_pct = band_upper + max_discretion
+            ceiling_env = envelope_pct * leverage * max_favorable / 10000.0 * 100.0
+            result["ceiling_at_envelope_pct_of_equity"] = round(ceiling_env, 4)
         return result
 
     @staticmethod

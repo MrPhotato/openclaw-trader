@@ -823,17 +823,24 @@ class ChiefRetroDirectiveSupportTests(unittest.TestCase):
                 strategy_payload=strategy_payload
             )
             self.assertEqual(result["primary_direction"], "long")
-            self.assertEqual(result["band_upper_pct_of_equity"], 10.0)
+            self.assertEqual(result["band_upper_pct_of_budget"], 10.0)
+            self.assertEqual(result["discretion_pct_of_budget"], 0.0)
+            self.assertEqual(result["envelope_ceiling_pct_of_budget"], 10.0)
             self.assertIsNotNone(result["max_favorable_pct"])
-            # Max BTC was 78400 vs open 78000 = +0.513%, with 10% band upper
-            # → ceiling at band upper = 0.513 * 10 / 100 ≈ 0.0513%
+            # Test fixture has no leverage field on position → defaults to 1.
+            # band 10% × 1× × 0.513% / 100 = 0.0513% of equity
             self.assertAlmostEqual(
                 result["ceiling_at_band_upper_pct_of_equity"], 0.0513, places=3
             )
-            # At 5% actual exposure → 0.513 * 5 / 100 ≈ 0.0257%
+            # No discretion in fixture → envelope ceiling == band upper
             self.assertAlmostEqual(
-                result["ceiling_at_current_pct_of_equity"], 0.0256, places=3
+                result["ceiling_at_envelope_pct_of_equity"], 0.0513, places=3
             )
+            # Current notional 50 / equity 1000 = 5%; PnL = 5% × 0.513% = 0.0257%
+            self.assertAlmostEqual(
+                result["ceiling_at_current_pct_of_equity"], 0.0257, places=3
+            )
+            self.assertEqual(result["current_notional_share_of_equity_pct"], 5.0)
         finally:
             harness.cleanup()
 
@@ -871,6 +878,117 @@ class ChiefRetroDirectiveSupportTests(unittest.TestCase):
             self.assertEqual(result["primary_direction"], "short")
             # (78000 - 77600) / 78000 = 0.513%
             self.assertAlmostEqual(result["max_favorable_pct"], 0.513, places=2)
+        finally:
+            harness.cleanup()
+
+    def test_consecutive_holds_envelope_uses_budget_unit_with_discretion(self) -> None:
+        """Regression: earlier impl used (notional / equity) for the gap
+        computation, which is in % of equity — wrong unit. Strategy contract
+        says band/discretion are in % of exposure_budget (= equity ×
+        leverage). Verify the gap is computed in the correct unit AND that
+        discretion lifts the envelope ceiling above band upper.
+
+        Fixture: equity 1000, leverage 5, notional 100 (= 2% of budget).
+        Strategy: band [0, 10] + discretion 10 → envelope ceiling 20% of
+        budget. Expected: gap_to_band_mid = 5 - 2 = +3, gap_to_envelope
+        ceiling = 20 - 2 = +18.
+        """
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            memory.save_asset(
+                asset_type="portfolio_snapshot",
+                actor_role="system",
+                payload={
+                    "total_equity_usd": "1000.0",
+                    "total_exposure_usd": "100.0",
+                    "positions": [
+                        {
+                            "coin": "BTC",
+                            "side": "long",
+                            "leverage": "5",
+                            "raw": {"mark_price": {"value": "78000"}},
+                        }
+                    ],
+                },
+            )
+            strategy_payload = {
+                "target_gross_exposure_band_pct": [0, 10],
+                "targets": [
+                    {
+                        "symbol": "BTC",
+                        "state": "active",
+                        "direction": "long",
+                        "target_exposure_band_pct": [0, 10],
+                        "rt_discretion_band_pct": 10,
+                    }
+                ],
+            }
+            result = gateway._compute_consecutive_holds(strategy_payload=strategy_payload)
+            # Notional 100 / (equity 1000 × leverage 5) = 100 / 5000 = 2%.
+            self.assertAlmostEqual(result["current_pct_of_exposure_budget"], 2.0, places=2)
+            # Band mid = 5; gap = 5 - 2 = +3 (room to move toward mid).
+            self.assertAlmostEqual(result["gap_to_band_mid_pct"], 3.0, places=2)
+            # Envelope ceiling = band_hi + discretion = 10 + 10 = 20.
+            self.assertAlmostEqual(result["envelope_ceiling_pct_of_budget"], 20.0, places=2)
+            # Gap to envelope ceiling = 20 - 2 = +18 (lots of room).
+            self.assertAlmostEqual(result["gap_to_envelope_ceiling_pct"], 18.0, places=2)
+        finally:
+            harness.cleanup()
+
+    def test_theoretical_profit_ceiling_includes_discretion_envelope(self) -> None:
+        """Regression: previously projected only band_upper × move%; now must
+        also project (band_upper + discretion) × leverage × move% for the
+        envelope ceiling RT could realistically achieve.
+        """
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            for mark in [78000, 78400]:  # +0.513% favorable for long
+                memory.save_asset(
+                    asset_type="portfolio_snapshot",
+                    actor_role="system",
+                    payload={
+                        "total_equity_usd": "1000.0",
+                        "total_exposure_usd": "100.0",
+                        "positions": [
+                            {
+                                "coin": "BTC",
+                                "side": "long",
+                                "leverage": "5",
+                                "raw": {"mark_price": {"value": str(mark)}},
+                            }
+                        ],
+                    },
+                )
+            strategy_payload = {
+                "target_gross_exposure_band_pct": [0, 10],
+                "targets": [
+                    {
+                        "symbol": "BTC",
+                        "state": "active",
+                        "direction": "long",
+                        "rt_discretion_band_pct": 10,
+                    }
+                ],
+            }
+            result = gateway._compute_theoretical_profit_ceiling(
+                strategy_payload=strategy_payload
+            )
+            self.assertAlmostEqual(result["max_favorable_pct"], 0.513, places=2)
+            self.assertEqual(result["band_upper_pct_of_budget"], 10.0)
+            self.assertEqual(result["discretion_pct_of_budget"], 10.0)
+            self.assertEqual(result["envelope_ceiling_pct_of_budget"], 20.0)
+            # Band-upper-only PnL = 10% × 5x × 0.513% / 100 = 0.2565% of equity
+            self.assertAlmostEqual(
+                result["ceiling_at_band_upper_pct_of_equity"], 0.2565, places=3
+            )
+            # Envelope (band + discretion) PnL = 20% × 5x × 0.513% / 100 = 0.513% of equity
+            self.assertAlmostEqual(
+                result["ceiling_at_envelope_pct_of_equity"], 0.513, places=3
+            )
         finally:
             harness.cleanup()
 
