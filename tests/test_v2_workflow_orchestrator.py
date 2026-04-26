@@ -368,7 +368,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(len(harness.fake_session_controller.resets), 4)
             agent_sessions = harness.container.memory_assets.list_agent_sessions()
             self.assertTrue(
-                all(session["last_reset_command"] == "/new" for session in agent_sessions if session["agent_role"] != "system")
+                all(session["last_reset_command"] == "/compact" for session in agent_sessions if session["agent_role"] != "system")
             )
         finally:
             harness.cleanup()

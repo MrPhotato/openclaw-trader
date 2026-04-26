@@ -46,7 +46,7 @@ class ControlWorkflowHandler(WorkflowEventRecorder):
                 reset_result = self.services.agent_gateway.reset_agent_session(
                     agent_role=agent_role,
                     session_id=requested_session_id,
-                    reset_command="/new",
+                    reset_command="/compact",
                 )
                 effective_session_id = str(reset_result.get("effective_session_id") or requested_session_id)
                 reset_results.append(reset_result)
@@ -54,7 +54,7 @@ class ControlWorkflowHandler(WorkflowEventRecorder):
                     agent_role=agent_role,
                     session_id=effective_session_id,
                     status="active",
-                    last_reset_command="/new",
+                    last_reset_command="/compact",
                 )
                 reset_events.append(
                     self.services.agent_gateway.build_session_reset_event(
@@ -66,5 +66,5 @@ class ControlWorkflowHandler(WorkflowEventRecorder):
                 )
             if reset_events:
                 self.record_events(reset_events)
-            return {"reset_command": "/new", "reset_results": reset_results}
+            return {"reset_command": "/compact", "reset_results": reset_results}
         raise ValueError(f"unsupported control command: {command.command_type.value}")
