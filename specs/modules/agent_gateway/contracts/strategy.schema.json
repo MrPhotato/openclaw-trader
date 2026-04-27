@@ -201,6 +201,48 @@
           }
         }
       }
+    },
+    "price_rechecks": {
+      "type": "array",
+      "description": "Event-driven (vs time-driven) PM wakes. PriceRecheckMonitor evaluates each subscription every ~30s against runtime_bridge_state.context; satisfaction triggers a one-shot pm_trigger_event. Per-subscription dedup: each (strategy_id, subscription_id) fires at most once per strategy revision.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subscription_id",
+          "metric",
+          "operator",
+          "threshold",
+          "scope",
+          "reason"
+        ],
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable PM-authored id; used for dedup keys."
+          },
+          "metric": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Dotted path under runtime_bridge_state.context, restricted to: market.market.<COIN>.mark_price | market.market.<COIN>.index_price | macro_prices.<symbol>.price."
+          },
+          "operator": {
+            "type": "string",
+            "enum": [">=", "<=", ">", "<"]
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }

@@ -401,6 +401,20 @@ class OrchestratorSettings(BaseModel):
     agent_failure_alert_log_path: str = "~/.openclaw/logs/gateway.err.log"
     agent_failure_alert_tail_bytes: int = 524288
     # ------------------------------------------------------------------
+    # Price-conditioned PM recheck (event-driven sibling of
+    # scheduled_recheck). PM authors `price_rechecks` on each strategy;
+    # PriceRecheckMonitor evaluates them every ~30s against
+    # runtime_bridge_state.context and dispatches PM via session_send +
+    # pm_trigger_event when any subscription's condition is satisfied.
+    # See modules/workflow_orchestrator/price_recheck.py.
+    # ------------------------------------------------------------------
+    price_recheck_enabled: bool = False
+    price_recheck_scan_interval_seconds: int = 30
+    price_recheck_global_cooldown_seconds: int = 60
+    price_recheck_pm_session_key: str = "agent:pm:main"
+    price_recheck_cron_subprocess_timeout_seconds: int = 15
+    price_recheck_openclaw_bin: str = "openclaw"
+    # ------------------------------------------------------------------
     # Macro data: non-crypto reference prices injected into runtime_pack
     # (Brent/WTI/DXY/10Y + BTC ETF activity + Fear & Greed). Fetched from
     # yfinance + alternative.me, cached in-process, refreshed by

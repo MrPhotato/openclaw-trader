@@ -95,3 +95,29 @@ class WorkflowTriggerBridge:
             actor_role="system",
             group_key=strategy_id,
         )
+
+    def record_price_recheck_state(
+        self,
+        *,
+        trace_id: str,
+        strategy_id: str,
+        price_rechecks: list[dict[str, object]],
+    ) -> None:
+        """Companion to record_recheck_state for the event-driven (vs
+        time-driven) PM wake subscriptions. PriceRecheckMonitor reads back
+        the latest record per strategy_id and watches each subscription
+        against runtime_bridge_state. Audit trail (one row per submission)
+        matches the scheduled_recheck_state pattern.
+        """
+        self.memory_assets.save_asset(
+            asset_type="price_recheck_state",
+            asset_id=new_id("price_recheck_state"),
+            payload={
+                "strategy_id": strategy_id,
+                "price_rechecks": price_rechecks,
+                "recorded_at_utc": datetime.now(UTC).isoformat(),
+            },
+            trace_id=trace_id,
+            actor_role="system",
+            group_key=strategy_id,
+        )

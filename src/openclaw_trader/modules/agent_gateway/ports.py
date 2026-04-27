@@ -48,3 +48,11 @@ class TriggerContextBridge(Protocol):
         strategy_id: str,
         rechecks: list[dict[str, object]],
     ) -> None: ...
+
+    def record_price_recheck_state(
+        self,
+        *,
+        trace_id: str,
+        strategy_id: str,
+        price_rechecks: list[dict[str, object]],
+    ) -> None: ...

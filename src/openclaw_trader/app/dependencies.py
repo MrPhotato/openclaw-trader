@@ -37,6 +37,10 @@ from ..modules.workflow_orchestrator.agent_failure_alert import (
     AgentFailureAlertConfig,
     AgentFailureAlertMonitor,
 )
+from ..modules.workflow_orchestrator.price_recheck import (
+    PriceRecheckConfig,
+    PriceRecheckMonitor,
+)
 from ..modules.workflow_orchestrator.agent_wake import (
     AgentWakeMonitor,
     AgentWakeRuleConfig,
@@ -393,6 +397,26 @@ def build_container() -> ServiceContainer:
             settings=_build_agent_wake_settings(settings.orchestrator),
             event_bus=event_bus,
         )
+    price_recheck_monitor = None
+    if bool(settings.orchestrator.price_recheck_enabled):
+        price_recheck_monitor = PriceRecheckMonitor(
+            memory_assets=memory_assets,
+            event_bus=event_bus,
+            config=PriceRecheckConfig(
+                enabled=True,
+                scan_interval_seconds=int(
+                    settings.orchestrator.price_recheck_scan_interval_seconds
+                ),
+                global_cooldown_seconds=int(
+                    settings.orchestrator.price_recheck_global_cooldown_seconds
+                ),
+                pm_session_key=str(settings.orchestrator.price_recheck_pm_session_key),
+                cron_subprocess_timeout_seconds=int(
+                    settings.orchestrator.price_recheck_cron_subprocess_timeout_seconds
+                ),
+                openclaw_bin=str(settings.orchestrator.price_recheck_openclaw_bin),
+            ),
+        )
     agent_failure_alert_monitor = None
     if bool(settings.orchestrator.agent_failure_alert_enabled):
         agent_failure_alert_monitor = AgentFailureAlertMonitor(
@@ -421,6 +445,7 @@ def build_container() -> ServiceContainer:
         retro_prep_monitor=retro_prep_monitor,
         agent_wake_monitor=agent_wake_monitor,
         agent_failure_alert_monitor=agent_failure_alert_monitor,
+        price_recheck_monitor=price_recheck_monitor,
     )
     return ServiceContainer(
         settings=settings,

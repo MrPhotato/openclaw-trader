@@ -404,6 +404,11 @@ class AgentGatewayService:
                 strategy_id=str(strategy_payload.get("strategy_id")),
                 rechecks=list(strategy_payload.get("scheduled_rechecks") or []),
             )
+            self.trigger_bridge.record_price_recheck_state(
+                trace_id=lease.pack.trace_id,
+                strategy_id=str(strategy_payload.get("strategy_id")),
+                price_rechecks=list(strategy_payload.get("price_rechecks") or []),
+            )
         return {
             "trace_id": lease.pack.trace_id,
             "input_id": input_id,

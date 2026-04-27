@@ -205,6 +205,24 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
             agent_failure_alert_tail_bytes=int(
                 dispatch_payload.get("agent_failure_alert_tail_bytes", 524288)
             ),
+            price_recheck_enabled=bool(
+                dispatch_payload.get("price_recheck_enabled", False)
+            ),
+            price_recheck_scan_interval_seconds=int(
+                dispatch_payload.get("price_recheck_scan_interval_seconds", 30)
+            ),
+            price_recheck_global_cooldown_seconds=int(
+                dispatch_payload.get("price_recheck_global_cooldown_seconds", 60)
+            ),
+            price_recheck_pm_session_key=str(
+                dispatch_payload.get("price_recheck_pm_session_key", "agent:pm:main")
+            ),
+            price_recheck_cron_subprocess_timeout_seconds=int(
+                dispatch_payload.get("price_recheck_cron_subprocess_timeout_seconds", 15)
+            ),
+            price_recheck_openclaw_bin=str(
+                dispatch_payload.get("price_recheck_openclaw_bin", "openclaw")
+            ),
             macro_data_enabled=bool(dispatch_payload.get("macro_data_enabled", False)),
             macro_data_refresh_interval_seconds=int(
                 dispatch_payload.get("macro_data_refresh_interval_seconds", 900)

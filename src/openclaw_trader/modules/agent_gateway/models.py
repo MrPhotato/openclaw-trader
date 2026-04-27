@@ -198,6 +198,23 @@ class StrategyScheduledRecheck(BaseModel):
     reason: str
 
 
+class StrategyPriceRecheck(BaseModel):
+    """Event-driven PM wake subscription. Sibling of scheduled_rechecks but
+    fires on a runtime_bridge_state metric crossing a threshold instead of
+    on a wall-clock timestamp. Each (strategy_id, subscription_id) fires at
+    most once per strategy revision.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    subscription_id: str = Field(min_length=1)
+    metric: str = Field(min_length=1)
+    operator: Literal[">=", "<=", ">", "<"]
+    threshold: float
+    scope: str
+    reason: str = Field(min_length=1)
+
+
 class StrategySubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -209,6 +226,7 @@ class StrategySubmission(BaseModel):
     change_summary: StrategyChangeSummary
     targets: list[StrategySubmissionTarget] = Field(default_factory=list)
     scheduled_rechecks: list[StrategyScheduledRecheck] = Field(default_factory=list)
+    price_rechecks: list[StrategyPriceRecheck] = Field(default_factory=list)
 
     @field_validator("portfolio_thesis", mode="before")
     @classmethod

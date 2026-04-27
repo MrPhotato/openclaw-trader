@@ -142,6 +142,20 @@ class ScheduledRecheck(BaseModel):
     reason: str
 
 
+class PriceRecheck(BaseModel):
+    """Event-driven PM wake subscription. Evaluated by PriceRecheckMonitor
+    every ~30s against runtime_bridge_state.context. Each (strategy_id,
+    subscription_id) fires at most once per strategy revision.
+    """
+
+    subscription_id: str = Field(min_length=1)
+    metric: str = Field(min_length=1)
+    operator: Literal[">=", "<=", ">", "<"]
+    threshold: float
+    scope: str
+    reason: str = Field(min_length=1)
+
+
 class StrategyAsset(BaseModel):
     strategy_id: str
     strategy_day_utc: str
@@ -157,6 +171,7 @@ class StrategyAsset(BaseModel):
     change_summary: StrategyChangeSummary
     targets: list[StrategyTargetAsset] = Field(default_factory=list)
     scheduled_rechecks: list[ScheduledRecheck] = Field(default_factory=list)
+    price_rechecks: list[PriceRecheck] = Field(default_factory=list)
     # Spec 015 FR-006 / scenario 2: when a PM submission has no external
     # trigger (no new MEA event, no price breach, no quant flip, no risk_brake,
     # no owner_push), the revision is still persisted but tagged low-weight.
