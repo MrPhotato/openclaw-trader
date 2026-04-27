@@ -23,6 +23,7 @@ description: PM 策略审查与正式策略提交。当 PM 需要审查结构化
 - **每次拉到 runtime pack 后先读 `since_last_strategy` 面板**。它告诉你距上一版策略过了多久、期间 MEA 推了多少条（其中多少条真改变了 flip_trigger）、RT 有没有执行完、你今天已经修订过几次、带宽震荡了多少 pp。**这些数字必须先看，再决定是否继续往下组合新策略**。
 - `input_id` 是不透明的 lease token——从 runtime pack 原样复制，绝不猜测、推导或重写。
 - 必须始终填写 `flip_triggers` 字段：具体说明什么条件下翻转方向（long→short、short→long、或从 active risk 转为 flat/only_reduce）。
+- **散文 `flip_triggers` 里每写一个带数值阈值的条件，`price_rechecks[]` 里必须有一条结构化订阅对应**，否则那条条件永远不会被自动监控（RT 不自治执行 flip_triggers）。详见 [price-rechecks-authoring.md](references/price-rechecks-authoring.md)。被 price_recheck 触发醒来时 `latest_pm_trigger_event.trigger_type == "price_recheck"` + `fired_subscriptions[]`。
 - 必须始终提交恰好 2 个 `targets`：`BTC`、`ETH` 各一个。不可操作的币种标记 `watch` 或 `disabled` 加 flat 方向，不要省略。
 - **你的策略直接决定团队这轮赚多少钱。给了方向就给足空间——当 thesis 正在被验证时，主动扩大敞口带宽是纪律，不是冒险。RT 需要足够的 discretion 空间才能把判断变成利润。**
 
@@ -51,3 +52,4 @@ description: PM 策略审查与正式策略提交。当 PM 需要审查结构化
 - [runtime-inputs.md](references/runtime-inputs.md)
 - [decision-sequence.md](references/decision-sequence.md)
 - [formal-output.md](references/formal-output.md)
+- [price-rechecks-authoring.md](references/price-rechecks-authoring.md)
