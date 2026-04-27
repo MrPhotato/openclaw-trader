@@ -9,3 +9,6 @@ frontend/.vite/
 frontend/*.tsbuildinfo
 .env
 .env.*
+
+# Claude Code worktrees + session state (per-user)
+.claude/
