@@ -341,5 +341,117 @@ class PriceRecheckMonitorTests(unittest.TestCase):
             h.cleanup()
 
 
+class PriceRecheckSubscriptionsPanelTests(unittest.TestCase):
+    """Stage 3: decision_context.price_recheck_subscriptions panel.
+
+    Surfaces, at PM submit time, every pending subscription with current
+    observed value + signed distance-to-trigger as %. Lets PM see "你的雷
+    离触发还有 X%" without crawling bridge state.
+    """
+
+    def test_panel_empty_when_strategy_has_no_subscriptions(self) -> None:
+        h = build_test_harness()
+        try:
+            gw = h.container.agent_gateway
+            result = gw._compute_price_recheck_subscriptions(strategy_payload={})
+            self.assertEqual(result["subscriptions"], [])
+            self.assertEqual(result["summary"]["count"], 0)
+        finally:
+            h.cleanup()
+
+    def test_panel_distance_to_trigger_for_btc_breakout(self) -> None:
+        """BTC at 78000, threshold 80000 with operator >= → distance =
+        (80000 - 78000) / 80000 = 2.5%. Not satisfied yet."""
+        h = build_test_harness()
+        try:
+            gw = h.container.agent_gateway
+            mem = h.container.memory_assets
+            _seed_bridge(mem, btc_mark=78000)
+            strategy_payload = {
+                "price_rechecks": [
+                    {"subscription_id": "btc_up", "metric": "market.market.BTC.mark_price",
+                     "operator": ">=", "threshold": 80000, "scope": "portfolio", "reason": "r"},
+                ]
+            }
+            result = gw._compute_price_recheck_subscriptions(strategy_payload=strategy_payload)
+            sub = result["subscriptions"][0]
+            self.assertEqual(sub["observed_value"], 78000.0)
+            self.assertAlmostEqual(sub["distance_pct_to_trigger"], 2.5, places=3)
+            self.assertFalse(sub["satisfied_now"])
+            self.assertTrue(sub["metric_in_whitelist"])
+            self.assertAlmostEqual(result["summary"]["closest_distance_pct"], 2.5, places=3)
+            self.assertFalse(result["summary"]["any_satisfied_now"])
+        finally:
+            h.cleanup()
+
+    def test_panel_marks_satisfied_when_threshold_already_breached(self) -> None:
+        """BTC at 81000 already > threshold 80000 → distance is negative
+        (already past), satisfied_now=True. Monitor will fire on next
+        scan if dedup state allows."""
+        h = build_test_harness()
+        try:
+            gw = h.container.agent_gateway
+            mem = h.container.memory_assets
+            _seed_bridge(mem, btc_mark=81000)
+            strategy_payload = {
+                "price_rechecks": [
+                    {"subscription_id": "x", "metric": "market.market.BTC.mark_price",
+                     "operator": ">=", "threshold": 80000, "scope": "portfolio", "reason": "r"},
+                ]
+            }
+            result = gw._compute_price_recheck_subscriptions(strategy_payload=strategy_payload)
+            sub = result["subscriptions"][0]
+            self.assertTrue(sub["satisfied_now"])
+            # signed distance: (80000 - 81000) / 80000 = -1.25%
+            self.assertAlmostEqual(sub["distance_pct_to_trigger"], -1.25, places=3)
+            self.assertTrue(result["summary"]["any_satisfied_now"])
+        finally:
+            h.cleanup()
+
+    def test_panel_flags_invalid_metric_path(self) -> None:
+        """Metric outside whitelist → metric_in_whitelist=False, observed=None,
+        and panel summary flags any_invalid_metric=True."""
+        h = build_test_harness()
+        try:
+            gw = h.container.agent_gateway
+            mem = h.container.memory_assets
+            _seed_bridge(mem, btc_mark=78000)
+            strategy_payload = {
+                "price_rechecks": [
+                    {"subscription_id": "evil", "metric": "forecasts.BTC.confidence",
+                     "operator": ">=", "threshold": 0.5, "scope": "portfolio", "reason": "r"},
+                ]
+            }
+            result = gw._compute_price_recheck_subscriptions(strategy_payload=strategy_payload)
+            sub = result["subscriptions"][0]
+            self.assertFalse(sub["metric_in_whitelist"])
+            self.assertIsNone(sub["observed_value"])
+            self.assertTrue(result["summary"]["any_invalid_metric"])
+        finally:
+            h.cleanup()
+
+    def test_panel_handles_short_operators_with_signed_distance(self) -> None:
+        """Brent 99 vs threshold 105 with operator <= → distance is
+        signed: (99 - 105) / 105 = -5.71%; observed already past
+        threshold downward, satisfied_now=True."""
+        h = build_test_harness()
+        try:
+            gw = h.container.agent_gateway
+            mem = h.container.memory_assets
+            _seed_bridge(mem, brent_price=99.0)
+            strategy_payload = {
+                "price_rechecks": [
+                    {"subscription_id": "brent_down", "metric": "macro_prices.brent.price",
+                     "operator": "<=", "threshold": 105.0, "scope": "portfolio", "reason": "r"},
+                ]
+            }
+            result = gw._compute_price_recheck_subscriptions(strategy_payload=strategy_payload)
+            sub = result["subscriptions"][0]
+            self.assertAlmostEqual(sub["distance_pct_to_trigger"], -5.714, places=2)
+            self.assertTrue(sub["satisfied_now"])
+        finally:
+            h.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

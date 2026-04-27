@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -2820,6 +2821,9 @@ class AgentGatewayService:
             price_snapshot=price_snapshot,
         )
         band_revision_streak = self._compute_band_revision_streak()
+        price_recheck_subscriptions = self._compute_price_recheck_subscriptions(
+            strategy_payload=strategy_payload
+        )
         return {
             "regime_summary": regime_summary,
             "price_snapshot": price_snapshot,
@@ -2830,7 +2834,121 @@ class AgentGatewayService:
                 "chief_regime_confidence", "ok"
             ),
             "band_revision_streak": band_revision_streak,
+            "price_recheck_subscriptions": price_recheck_subscriptions,
         }
+
+    _PRICE_RECHECK_METRIC_PATTERNS = (
+        re.compile(r"^market\.market\.[A-Z0-9_-]+\.mark_price$"),
+        re.compile(r"^market\.market\.[A-Z0-9_-]+\.index_price$"),
+        re.compile(r"^macro_prices\.[a-z0-9_]+\.price$"),
+    )
+
+    def _compute_price_recheck_subscriptions(
+        self, *, strategy_payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Stage-3 panel: surface PM's pending price_rechecks subscriptions
+        with current observed value + distance-to-trigger as % so PM can see
+        at submit time which 'mines' she's already laid and how close they
+        are to firing — without having to crawl runtime_bridge_state by hand.
+
+        Returns:
+          subscriptions: list of per-sub dicts with observed + distance
+          summary: count + closest_distance_pct + any_invalid_metric flag
+        """
+        result: dict[str, Any] = {
+            "subscriptions": [],
+            "summary": {
+                "count": 0,
+                "closest_distance_pct": None,
+                "any_invalid_metric": False,
+                "any_satisfied_now": False,
+            },
+        }
+        if self.memory_assets is None:
+            return result
+        subs = list((strategy_payload or {}).get("price_rechecks") or [])
+        if not subs:
+            return result
+        bridge_asset = self.memory_assets.latest_runtime_bridge_state_asset()
+        context = dict(((bridge_asset or {}).get("payload") or {}).get("context") or {})
+
+        any_invalid = False
+        any_satisfied = False
+        closest_abs: float | None = None
+        out: list[dict[str, Any]] = []
+        for sub in subs:
+            if not isinstance(sub, dict):
+                continue
+            sub_id = str(sub.get("subscription_id") or "")
+            metric = str(sub.get("metric") or "")
+            operator = str(sub.get("operator") or "")
+            try:
+                threshold = float(sub.get("threshold"))
+            except (TypeError, ValueError):
+                threshold = None  # type: ignore[assignment]
+
+            metric_allowed = any(p.match(metric) for p in self._PRICE_RECHECK_METRIC_PATTERNS)
+            observed = self._resolve_price_recheck_metric(context, metric) if metric_allowed else None
+            distance_pct: float | None = None
+            satisfied: bool | None = None
+            if observed is not None and threshold is not None and threshold != 0:
+                # Distance is signed — positive = how far observed must move
+                # in operator's direction to clear the threshold; negative =
+                # already clear (will fire on next monitor scan if dedup
+                # state allows).
+                if operator in (">=", ">"):
+                    distance_pct = round((threshold - observed) / threshold * 100.0, 3)
+                    satisfied = observed >= threshold if operator == ">=" else observed > threshold
+                elif operator in ("<=", "<"):
+                    distance_pct = round((observed - threshold) / threshold * 100.0, 3)
+                    satisfied = observed <= threshold if operator == "<=" else observed < threshold
+            if not metric_allowed:
+                any_invalid = True
+            if satisfied:
+                any_satisfied = True
+            if distance_pct is not None:
+                abs_d = abs(distance_pct)
+                if closest_abs is None or abs_d < closest_abs:
+                    closest_abs = abs_d
+            out.append(
+                {
+                    "subscription_id": sub_id,
+                    "metric": metric,
+                    "operator": operator,
+                    "threshold": threshold,
+                    "scope": str(sub.get("scope") or ""),
+                    "reason": str(sub.get("reason") or ""),
+                    "metric_in_whitelist": metric_allowed,
+                    "observed_value": observed,
+                    "distance_pct_to_trigger": distance_pct,
+                    "satisfied_now": satisfied,
+                }
+            )
+        result["subscriptions"] = out
+        result["summary"] = {
+            "count": len(out),
+            "closest_distance_pct": closest_abs,
+            "any_invalid_metric": any_invalid,
+            "any_satisfied_now": any_satisfied,
+        }
+        return result
+
+    @staticmethod
+    def _resolve_price_recheck_metric(
+        context: dict[str, Any], metric: str
+    ) -> float | None:
+        cursor: Any = context
+        for key in metric.split("."):
+            if isinstance(cursor, dict):
+                cursor = cursor.get(key)
+            else:
+                return None
+            if cursor is None:
+                return None
+        try:
+            return float(cursor)
+        except (TypeError, ValueError):
+            return None
 
     def _compute_band_revision_streak(self, *, max_lookback: int = 8) -> dict[str, Any]:
         """Chief retro 2026-04-24 directive support.
