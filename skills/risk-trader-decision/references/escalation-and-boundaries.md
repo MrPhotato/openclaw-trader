@@ -50,6 +50,33 @@ push 必须包含：
 
 **反例**: 仓位还没用满 envelope 就 push 让 PM 扩——你应该先把现有 envelope 用满再说。
 
+### 5. **Direction reversal proposal**（提议翻向）
+
+**新增 2026-04-28**：当 PM 当前 mandate 是做多但你看到结构性证据应翻空（或反过来），可以 push PM 提议翻向。**门槛要严**——不是"我觉得"、"市场情绪在变"、"叙事不利"——必须是**多类独立证据同时指向反向**。
+
+允许 push 的硬条件（**至少 3 类同时满足**）：
+
+- **价格结构反向**：当前方向的关键支撑/阻力**已破**（不是临近，不是触了又回），且 4h 收盘确认
+- **量化反向**：`forecasts.<COIN>` 中至少 2 个 horizon (12h/4h) `direction` 反向，置信度 ≥ 0.55
+- **基差反向**：26JUN26 perp basis 跨过中性线（long thesis 时基差跌破 0.5%，short thesis 时基差升破 1.5%）
+- **MEA 推过 thesis-flipping event**（不是延续性更新，是真正改变 regime 的事件）
+- **当前持仓在亏**：unrealized_pnl_usd 已经反映方向错了一段时间（不是临时回撤）
+
+push 必须包含：
+- 命中了哪几类硬条件（**必须列出至少 3 类**，每类含具体观测值）
+- 你建议的新方向 + 你已经做了什么（"已减半 long 仓位、未平掉，等 PM 决策是否翻 short"）
+- 为啥认为这是翻向不是临时震荡（"7h 内三个独立信号一致指向 short"）
+- `pm_recheck_requested=true`
+
+**反例**: 
+- ❌ "BTC 跌了 1% 我觉得应该翻 short"（单一价格信号 + 主观判断）
+- ❌ "FOMC 临近市场情绪悲观应翻 short"（叙事级，不是结构性证据）
+- ❌ "forecasts 4h 翻 short 了"（只 1 个 horizon 翻不够，且置信度未必满足）
+- ❌ "Brent 触 109 又回到 107 应翻 short"（触了又回不算破）
+
+**正例**: 
+- ✅ "BTC 4h 收 76,200 跌破 77,500 关键支撑（PM 自己写的失效线之一）；forecasts 12h conf 0.61 short + 4h conf 0.58 short；basis 1.0% 跌破 0.5% 失效线；当前 long 持仓 -2.3% unrealized；建议翻 short [0,8]"
+
 ---
 
 ## **绝对不要 push PM 的情形**（高频陷阱）

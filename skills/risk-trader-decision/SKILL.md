@@ -57,11 +57,12 @@ description: RT 执行决策工作流。当 RT 被条件触发、心跳回退或
 - 不要重新定义投资组合方向。
 - 不要绕过 `policy_risk`。
 - 所有 RT 工作在当前 session 完成。不要使用 `sessions_spawn`、子代理或子会话来拉取 runtime pack、思考或暂存执行决策。
-- **push PM 是高成本动作**：每次 `sessions_send → agent:pm:main` 都会强制 PM 起一个完整 turn，并消耗 PM 的"修订/天 ≤3 次"配额。**仅以下 4 类情形允许 push PM**（详细判定 + 反例见 [escalation-and-boundaries.md](references/escalation-and-boundaries.md)）：
+- **push PM 是高成本动作**：每次 `sessions_send → agent:pm:main` 都会强制 PM 起一个完整 turn，并消耗 PM 的"修订/天 ≤3 次"配额。**仅以下 5 类情形允许 push PM**（详细判定 + 反例见 [escalation-and-boundaries.md](references/escalation-and-boundaries.md)）：
   1. **Hard threshold breach** —— PM 自己写在 `flip_triggers` / `price_rechecks[]` 里的具体阈值**真的穿了**（临近 / 差一点 / 触了又回 都不算）
   2. **Execution blocked** —— PM mandate 自相矛盾或锁住，你没法表达任何 reasonable action（带 `pm_recheck_requested=true`）
   3. **System brake / liquidity / reconciliation** —— policy_risk 红灯、流动性骤降、对账偏差、执行链异常
   4. **Band widening request** —— 你已用满 `band upper + rt_discretion_band_pct` 整个 envelope，thesis 还在被验证，envelope 顶死你无法再加（带 `pm_recheck_requested=true`）
+  5. **Direction reversal proposal** —— 至少 3 类独立结构性证据同时指向反向（价格结构破位 + 量化反向 + 基差反向 + MEA thesis-flipping event + 当前持仓在亏中**至少 3 项**），不是叙事或情绪（带 `pm_recheck_requested=true`）
 - **临近 / 矛盾 / 数据校对 / 例行汇报 / 叙事级别的风险汇集**——一律不 push，写进 `tactical_map.notes` 自己消化
 - 需要联系 MEA 或 Chief 时，直接用 `sessions_send` 发到他们的 main session（标准更松，因为不消耗 PM 配额）。不要创建 helper session。
 - 不要决定交易所机制——执行层在审批后发单。
