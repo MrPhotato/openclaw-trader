@@ -305,6 +305,35 @@ class AgentGatewayService:
                 ],
                 error_kind="hesitation_unjustified",
             )
+        # Spec 2026-04-29 FR: every numerical threshold PM writes in
+        # flip_triggers prose MUST have a corresponding structured
+        # subscription in price_rechecks[]. Without this enforcement, the
+        # 4-27 spec was technically optional and PM (verified 4-29 rev457)
+        # kept writing 5-condition flip_triggers with empty price_rechecks
+        # — meaning none of those conditions ever auto-fired.
+        unmonitored_count = self._count_unmonitored_flip_thresholds(envelope.payload)
+        if unmonitored_count > 0:
+            schema_ref, prompt_ref = self._submission_contract("strategy")
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=[
+                    (
+                        f"unmonitored_flip_thresholds: flip_triggers prose contains "
+                        f"{unmonitored_count} numerical threshold(s) (e.g. ' > 79000', "
+                        "' < 100') but price_rechecks[] is empty or has fewer entries. "
+                        "Every numerical condition you write in flip_triggers must have "
+                        "a corresponding structured subscription in price_rechecks (see "
+                        "skills/pm-strategy-cycle/references/price-rechecks-authoring.md). "
+                        "Without it, the condition will NEVER auto-fire — RT does not "
+                        "execute flip_triggers autonomously, and no monitor watches your "
+                        "prose. Resubmit with one price_rechecks[] entry per numerical "
+                        "threshold (whitelisted metrics: market.market.<COIN>.{mark,index}_price | "
+                        "macro_prices.{brent,wti,dxy,us10y_yield_pct}.price)."
+                    )
+                ],
+                error_kind="unmonitored_flip_thresholds",
+            )
         # Persist current market/forecast snapshot onto the new strategy so
         # the NEXT submit can diff against it (spec 015 FR-003).
         current_market_snapshot = self._snapshot_market_for_submit_gate(lease)
@@ -2842,6 +2871,41 @@ class AgentGatewayService:
         re.compile(r"^market\.market\.[A-Z0-9_-]+\.index_price$"),
         re.compile(r"^macro_prices\.[a-z0-9_]+\.price$"),
     )
+
+    # Detect prose patterns like ">$108", "> 108", ">= 77,500", "<$100",
+    # "< 75000". Captures the operator group so we can reason about it
+    # downstream if needed. Comma-separated thousands handled (77,500 →
+    # 77500). Optional currency prefix ($), optional whitespace, optional
+    # decimal. Excludes plain "约 100" or "在 105 附近" — those have no
+    # operator so they're advisory prose, not a hard threshold.
+    _FLIP_TRIGGER_THRESHOLD_PATTERN = re.compile(
+        r"(?:>=|<=|>|<)\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?"
+    )
+
+    @classmethod
+    def _count_unmonitored_flip_thresholds(cls, payload: dict[str, Any]) -> int:
+        """Returns how many numerical thresholds in flip_triggers prose
+        have NO corresponding price_rechecks subscription.
+
+        Conservative heuristic: count distinct threshold matches in the
+        prose vs len(price_rechecks). If prose has N thresholds and
+        price_rechecks has M, return max(0, N - M). This means PM can
+        merge two prose conditions into one subscription if she wants
+        (e.g. one subscription guards two related thresholds), but
+        cannot get away with zero subscriptions when prose has any
+        threshold.
+        """
+        prose = str((payload or {}).get("flip_triggers") or "")
+        if not prose:
+            return 0
+        matches = cls._FLIP_TRIGGER_THRESHOLD_PATTERN.findall(prose)
+        # Dedup near-duplicate matches (same number with different ops)
+        unique_thresholds = {m.replace(" ", "").replace(",", "").lstrip("$") for m in matches}
+        threshold_count = len(unique_thresholds)
+        if threshold_count == 0:
+            return 0
+        rechecks = list((payload or {}).get("price_rechecks") or [])
+        return max(0, threshold_count - len(rechecks))
 
     def _compute_price_recheck_subscriptions(
         self, *, strategy_payload: dict[str, Any]

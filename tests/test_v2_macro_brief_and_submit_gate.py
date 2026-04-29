@@ -601,6 +601,164 @@ class HesitationRejectionTests(unittest.TestCase):
         )
 
 
+class UnmonitoredFlipThresholdTests(unittest.TestCase):
+    """submit_strategy must reject revisions whose flip_triggers prose
+    contains numerical thresholds (operator + number) when price_rechecks[]
+    has fewer entries — verified 2026-04-29: PM was writing 5-condition
+    flip_triggers with empty price_rechecks, meaning none of the
+    conditions ever auto-fired (RT does not autonomously execute
+    flip_triggers, no monitor watches the prose).
+    """
+
+    def test_count_helper_no_thresholds(self) -> None:
+        from openclaw_trader.modules.agent_gateway.service import AgentGatewayService
+
+        self.assertEqual(
+            AgentGatewayService._count_unmonitored_flip_thresholds(
+                {"flip_triggers": "维持谨慎，等待确认", "price_rechecks": []}
+            ),
+            0,
+        )
+
+    def test_count_helper_advisory_prose_no_operator(self) -> None:
+        """'Brent 在 100 附近', 'BTC 大约 78K' have NO operator → not a
+        threshold; should not require price_rechecks."""
+        from openclaw_trader.modules.agent_gateway.service import AgentGatewayService
+
+        self.assertEqual(
+            AgentGatewayService._count_unmonitored_flip_thresholds(
+                {"flip_triggers": "Brent 在 100 附近，BTC 大约 78K，地缘紧张",
+                 "price_rechecks": []}
+            ),
+            0,
+        )
+
+    def test_count_helper_unique_thresholds(self) -> None:
+        """Same number repeated with same op should dedupe (>$79000 and >79000
+        are the same threshold). 5 distinct numerical conditions → 5."""
+        from openclaw_trader.modules.agent_gateway.service import AgentGatewayService
+
+        prose = (
+            "BTC 4h 收盘 >$79,000 + Brent <$100 → 翻 long; "
+            "BTC <$75,000 + Brent >$112 → 加大 short; "
+            "ETH <$2,280 → 重入 short"
+        )
+        self.assertEqual(
+            AgentGatewayService._count_unmonitored_flip_thresholds(
+                {"flip_triggers": prose, "price_rechecks": []}
+            ),
+            5,
+        )
+
+    def test_count_helper_satisfied_when_subscriptions_match(self) -> None:
+        from openclaw_trader.modules.agent_gateway.service import AgentGatewayService
+
+        prose = "BTC > 79000 → flip long; BTC < 75000 → escalate short"
+        self.assertEqual(
+            AgentGatewayService._count_unmonitored_flip_thresholds(
+                {"flip_triggers": prose, "price_rechecks": [
+                    {"subscription_id": "btc_up"},
+                    {"subscription_id": "btc_down"},
+                ]}
+            ),
+            0,
+        )
+
+    def test_submit_rejects_when_thresholds_unmonitored(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            # Inject prose with 2 numerical thresholds, but leave price_rechecks empty
+            body["flip_triggers"] = "BTC 4h 收 > 79000 → flip long; BTC < 75000 → escalate short"
+            body["price_rechecks"] = []
+            with self.assertRaises(SubmissionValidationError) as ctx:
+                gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertEqual(ctx.exception.error_kind, "unmonitored_flip_thresholds")
+            errors_text = " ".join(getattr(ctx.exception, "errors", []) or [])
+            self.assertIn("2 numerical threshold", errors_text)
+            self.assertIn("price_rechecks", errors_text)
+        finally:
+            harness.cleanup()
+
+    def test_submit_accepts_when_thresholds_have_subscriptions(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            body["flip_triggers"] = "BTC > 79000 → flip long; BTC < 75000 → escalate short"
+            body["price_rechecks"] = [
+                {"subscription_id": "btc_up", "metric": "market.market.BTC.mark_price",
+                 "operator": ">=", "threshold": 79000.0, "scope": "portfolio",
+                 "reason": "BTC breakout"},
+                {"subscription_id": "btc_down", "metric": "market.market.BTC.mark_price",
+                 "operator": "<=", "threshold": 75000.0, "scope": "portfolio",
+                 "reason": "BTC breakdown"},
+            ]
+            result = gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertTrue(result["internal_reasoning_only"])
+        finally:
+            harness.cleanup()
+
+    def test_submit_accepts_when_flip_triggers_has_no_thresholds(self) -> None:
+        """Back-compat: existing test fixtures use prose like 'flip when X'
+        and 'sub-72K structural break' — no operator, no enforcement."""
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            # default flip_triggers is "BTC sub-72K structural break" — no operator
+            body["price_rechecks"] = []
+            result = gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertTrue(result["internal_reasoning_only"])
+        finally:
+            harness.cleanup()
+
+    def _seed_prev_strategy(self, memory: MemoryAssetsService) -> None:
+        payload = _structured_strategy_payload()
+        strategy = memory.materialize_strategy_asset(
+            trace_id="seed-trace", authored_payload=payload,
+            trigger_type="manual", actor_role="pm",
+        )
+        strategy_id = str(strategy["strategy_id"])
+        memory.save_asset(
+            asset_type="strategy", asset_id=strategy_id, payload=strategy,
+            trace_id="seed-trace", actor_role="pm",
+            group_key=str(strategy["strategy_day_utc"]),
+            metadata={
+                "submit_market_snapshot": {
+                    "captured_at_utc": None,
+                    "coins": {"BTC": {"mark_price": 100.0}, "ETH": {"mark_price": 100.0}},
+                },
+                "submit_forecast_snapshot": {
+                    "coins": {
+                        "BTC": {"12h": {"direction": "long", "confidence": 0.72},
+                                "4h": {"direction": "long", "confidence": 0.68},
+                                "1h": {"direction": "flat", "confidence": 0.51}},
+                        "ETH": {"12h": {"direction": "long", "confidence": 0.72},
+                                "4h": {"direction": "long", "confidence": 0.68},
+                                "1h": {"direction": "flat", "confidence": 0.51}},
+                    },
+                },
+            },
+        )
+
+
 class ChiefRetroDirectiveSupportTests(unittest.TestCase):
     """Chief 2026-04-24 retro identified 4 systemic gaps. Each gap got a
     learning_directive written to the relevant agent's .learnings/*.md.
