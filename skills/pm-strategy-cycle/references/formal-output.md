@@ -9,6 +9,8 @@
 重要字段（每次都必须考虑）：
 - `portfolio_mode`
 - `target_gross_exposure_band_pct`
+- `band_confidence_tier` —— `"standard"`（默认，band 上限 15%）或 `"high"`（band 上限 30%，需配 `band_confidence_evidence` ≥ 30 字 + 当前 ladder=normal）
+- `band_confidence_evidence` —— 仅在 `tier="high"` 时必填的一句话证据（说明 flip_trigger 全确认 / regime 已转向）
 - `portfolio_thesis` ——**结构化数组**（spec 015 FR-001）；每个论断带 `statement`/`evidence_type`/`evidence_sources`
 - `portfolio_invalidation`
 - `flip_triggers`
@@ -17,6 +19,7 @@
 - `target_exposure_band_pct`
 - `rt_discretion_band_pct`
 - `scheduled_rechecks[]`
+- **`price_rechecks[]` —— 不是可选项**。`flip_triggers` 散文里每写一个带 `> / < / >= / <=` + 数值的硬阈值，`price_rechecks[]` 必须有一条对应的结构化订阅，否则 submit_gate 会以 `unmonitored_flip_thresholds` 拒绝。每条订阅必须包含：`subscription_id`（你起的稳定英文 id）、`metric`（白名单 metric path）、`operator`（**严格只能是 `">="` / `"<="` / `">"` / `"<"` 这四个字面量；不能写 `"gt"` / `"lt"` / `"ge"` / `"le"`**）、`threshold`（数字）、`scope`、`reason`。详见 [price-rechecks-authoring.md](price-rechecks-authoring.md)
 
 规则：
 - 正式提交必须是且仅是一个 JSON 对象。
@@ -97,9 +100,47 @@ curl -s -X POST http://127.0.0.1:8788/api/agent/submit/strategy \
         "scope": "portfolio",
         "reason": "下一个主要日内结构更新后重新评估。"
       }
+    ],
+    "price_rechecks": [
+      {
+        "subscription_id": "btc_breakdown_75k",
+        "metric": "market.market.BTC.mark_price",
+        "operator": "<",
+        "threshold": 75000.0,
+        "scope": "portfolio",
+        "reason": "BTC 跌破 75K 触发升级 short 至 15% 的预案"
+      },
+      {
+        "subscription_id": "brent_breakout_112",
+        "metric": "macro_prices.brent.price",
+        "operator": ">=",
+        "threshold": 112.0,
+        "scope": "portfolio",
+        "reason": "Brent 突破 112 + BTC <75K 双确认 → 升级 short"
+      }
     ]
   }'
 ```
+
+**关于 `band_confidence_tier="high"` 的提交形态**（仅在你判定为高把握、且当前 `decision_context.band_tier_eligibility.high_eligible == true` 时使用）：
+
+```jsonc
+{
+  "input_id": "input_from_pull_pack",
+  "portfolio_mode": "defensive",
+  "target_gross_exposure_band_pct": [0, 25],
+  "band_confidence_tier": "high",
+  "band_confidence_evidence": "Flip trigger 全确认: BTC 4h 收盘 < 75000 + Brent 外部报价 > 112 持续 12h + DXY 上行突破 99，三条件同时验证，regime 已确认转向 risk_off。",
+  // ... portfolio_thesis / portfolio_invalidation / flip_triggers / change_summary / targets / scheduled_rechecks / price_rechecks 同上
+}
+```
+
+`high` 档的硬约束（gate 校验，违反即拒）：
+- `band_upper` ≤ 30%（超过 30 必拒）
+- `band_confidence_evidence` ≥ 30 字（boilerplate 不算；retro 会审计）
+- 当前 `risk_brake_state.portfolio_state_ladder_high == "normal"`（`observe`/`reduce`/`exit` 任一在烧均拒）
+
+这三条任意一条不满足，submit_gate 返回 `error_kind: "band_tier_violation"`。
 
 API 兼容性说明：
 - `submit/strategy` 接受两种格式：
@@ -113,3 +154,8 @@ API 兼容性说明：
 - `flip_triggers`，不是 `regime_switch_triggers`
 - `change_summary`，不是 `summary`
 - `input_id` 必须原样从拉取桥接返回的值中携带回来
+- `price_rechecks[]` 字段精确叫这个名，不是 `price_recheck` / `rechecks` / `subscriptions`
+- `price_rechecks[].subscription_id`（不是 `id` / `label` / `name` / `subscription`）
+- `price_rechecks[].operator` 严格用 `">="` / `"<="` / `">"` / `"<"`；**禁止** `"gt"` / `"lt"` / `"ge"` / `"le"` / `"<="` 之外的任何变体
+- `price_rechecks[].metric` 必须命中白名单：`market.market.<COIN>.mark_price` / `market.market.<COIN>.index_price` / `macro_prices.<sym>.price`（`<sym>` ∈ `brent`/`wti`/`dxy`/`us10y_yield_pct`）
+- `band_confidence_tier` 严格用 `"standard"` / `"high"`；写 `"normal"` / `"aggressive"` / `"max"` 都会被 schema 拒
