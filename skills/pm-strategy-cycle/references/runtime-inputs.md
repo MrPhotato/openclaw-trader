@@ -62,7 +62,20 @@ PY
       "last_thesis_evidence_breakdown": {"price_action_pct": 40, "quant_forecast_pct": 25, "narrative_pct": 5, "regime_pct": 30},
       "thesis_price_alignment_flag": "aligned",
       "macro_brief_age_hours": 4.5,
-      "chief_regime_confidence": "ok"
+      "chief_regime_confidence": "ok",
+      "band_tier_eligibility": {
+        "ladder_state": "normal",
+        "high_eligible": true,
+        "high_blocked_reason": null,
+        "previous_tier": "standard",
+        "previous_band_upper_pct": 15.0,
+        "standard_ceiling_pct": 15.0,
+        "high_ceiling_pct": 30.0,
+        "headroom_to_standard_ceiling_pp": 0.0,
+        "headroom_to_high_ceiling_pp": 15.0,
+        "evidence_min_chars": 30,
+        "recommendation": "上一版已贴近 standard 上限（15%）..."
+      }
     },
     "market": {
       "market": {},
@@ -99,6 +112,12 @@ PY
   - `trigger_type`
 - 策略事实位于 `payload` 下
 - **`payload.decision_context` 是 spec 015 新增的聚合块**，PM 打开 pack 第一步读这里（详见 decision-sequence.md 第 0.a 步）
+- **`decision_context.band_tier_eligibility`**（2026-04-29 加）告诉你**当前能不能开 high 档**、**上一版离两个天花板还有多少 pp 余地**：
+  - `ladder_state`：当前组合 ladder（`normal` / `observe` / `reduce` / `exit` / `breaker`）。**只有 `normal` 才允许升 high**
+  - `high_eligible`：等价于 `ladder_state == "normal"`。`true` 时你可以把 `band_confidence_tier` 设为 `"high"`、写 ≥30 字 `band_confidence_evidence`、把 band_upper 开到最多 30%；`false` 时 submit_gate 会拒，`high_blocked_reason` 给出原因
+  - `previous_tier` / `previous_band_upper_pct`：上一版用了哪档、band_upper 到了哪
+  - `headroom_to_standard_ceiling_pp` / `headroom_to_high_ceiling_pp`：上一版距两档天花板还有几 pp。**贴近 0 时再"加码"就要切档，而不是硬挤 standard**
+  - `recommendation`：当上一版已贴近 standard 上限（15%）且 high 当前可用时，会显式提示"下一档不是再挤 standard，而是升 high"。**这条出现时不要忽略**
 - **`payload.daily_pnl_panel` 是今日 UTC 盈亏面板**（金额 USD，pct 是百分数例 `-1.08` 表示 -1.08%）：
   - `today_open_equity_usd` / `today_current_equity_usd` / `today_peak_equity_usd` / `today_trough_equity_usd`
   - `today_pnl_usd` = current - open

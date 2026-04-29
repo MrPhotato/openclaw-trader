@@ -2867,6 +2867,9 @@ class AgentGatewayService:
         price_recheck_subscriptions = self._compute_price_recheck_subscriptions(
             strategy_payload=strategy_payload
         )
+        band_tier_eligibility = self._compute_band_tier_eligibility(
+            strategy_payload=strategy_payload
+        )
         return {
             "regime_summary": regime_summary,
             "price_snapshot": price_snapshot,
@@ -2878,6 +2881,7 @@ class AgentGatewayService:
             ),
             "band_revision_streak": band_revision_streak,
             "price_recheck_subscriptions": price_recheck_subscriptions,
+            "band_tier_eligibility": band_tier_eligibility,
         }
 
     _PRICE_RECHECK_METRIC_PATTERNS = (
@@ -2997,6 +3001,93 @@ class AgentGatewayService:
         if not isinstance(payload, dict):
             return "normal"
         return str(payload.get("portfolio_state_ladder_high") or "normal").lower()
+
+    def _compute_band_tier_eligibility(
+        self, *, strategy_payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Surface to PM at runtime-pack pull time:
+        - what the previous strategy's tier + band were
+        - what the current ladder state is
+        - whether high tier is currently authorable (ladder == 'normal')
+        - the standard / high ceilings + what the previous band leaves on
+          the table at each tier
+
+        PM was observed (Rev458) writing 'standard' with band [0,15] AND
+        change_summary "等 Powell 后决定是否加码至 15%" — i.e. treating
+        15% as the absolute ceiling without considering the high tier or
+        understanding why the gate would have rejected it (ladder=observe).
+        This panel makes both facts visible up front so PM can reason about
+        the tier explicitly instead of defaulting.
+        """
+        ladder_state = self._read_portfolio_risk_ladder_state()
+        high_eligible = ladder_state == "normal"
+        if high_eligible:
+            high_blocked_reason = None
+        else:
+            high_blocked_reason = (
+                f"portfolio_state_ladder_high='{ladder_state}'，需先回到 normal "
+                f"（UTC 滚日重置或 risk_brake 自然回落）才能升 high"
+            )
+
+        prev_tier = str((strategy_payload or {}).get("band_confidence_tier") or "standard")
+        prev_band_upper: float | None = None
+        prev_band_raw = (strategy_payload or {}).get("target_gross_exposure_band_pct")
+        if isinstance(prev_band_raw, list) and len(prev_band_raw) >= 2:
+            try:
+                prev_band_upper = float(prev_band_raw[1])
+            except (TypeError, ValueError):
+                prev_band_upper = None
+
+        # Headroom: how much PM could expand band_upper while staying within
+        # each tier, given the previous band as the anchor. Negative means
+        # the previous band is already over that tier's ceiling (shouldn't
+        # happen — gate would have rejected — but handled defensively).
+        headroom_standard_pp: float | None = None
+        headroom_high_pp: float | None = None
+        if prev_band_upper is not None:
+            headroom_standard_pp = round(
+                self._BAND_TIER_STANDARD_CEILING_PCT - prev_band_upper, 2
+            )
+            headroom_high_pp = round(
+                self._BAND_TIER_HIGH_CEILING_PCT - prev_band_upper, 2
+            )
+
+        # PM-facing recommendation: if previous tier was standard AND prev
+        # band is at or near the standard ceiling AND high tier is eligible,
+        # surface a hint that the next escalation step is tier=high, not
+        # squeezing more out of standard.
+        recommendation: str | None = None
+        if (
+            prev_tier == "standard"
+            and prev_band_upper is not None
+            and prev_band_upper >= self._BAND_TIER_STANDARD_CEILING_PCT - 1.0
+            and high_eligible
+        ):
+            recommendation = (
+                "上一版已贴近 standard 上限（15%）。如果 thesis 仍在被验证，"
+                "下一档不是再挤 standard，而是显式升 `band_confidence_tier=\"high\"` "
+                "（需附 ≥30 字 `band_confidence_evidence`）以打开到 30%。"
+            )
+        elif prev_tier == "standard" and not high_eligible:
+            recommendation = (
+                "high 档当前不可用（"
+                + (high_blocked_reason or "ladder 非 normal")
+                + "）。在这扇窗关上之前，仅可在 standard 范围内行动。"
+            )
+
+        return {
+            "ladder_state": ladder_state,
+            "high_eligible": high_eligible,
+            "high_blocked_reason": high_blocked_reason,
+            "previous_tier": prev_tier,
+            "previous_band_upper_pct": prev_band_upper,
+            "standard_ceiling_pct": self._BAND_TIER_STANDARD_CEILING_PCT,
+            "high_ceiling_pct": self._BAND_TIER_HIGH_CEILING_PCT,
+            "headroom_to_standard_ceiling_pp": headroom_standard_pp,
+            "headroom_to_high_ceiling_pp": headroom_high_pp,
+            "evidence_min_chars": self._BAND_TIER_HIGH_EVIDENCE_MIN_LEN,
+            "recommendation": recommendation,
+        }
 
     @classmethod
     def _count_unmonitored_flip_thresholds(cls, payload: dict[str, Any]) -> int:

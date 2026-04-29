@@ -933,6 +933,156 @@ class BandConfidenceTierTests(unittest.TestCase):
         )
 
 
+class BandTierEligibilityPanelTests(unittest.TestCase):
+    """Spec 2026-04-29 follow-up: PM was observed authoring band [0,15] in
+    'standard' tier with change_summary "等 Powell 后决定是否加码至 15%" —
+    treating 15% as the wall without considering the high tier. The panel
+    surfaces (a) current ladder, (b) high eligibility, (c) headroom to each
+    ceiling, and (d) a recommendation when prev band is at the standard
+    ceiling AND high is currently authorable."""
+
+    def test_high_eligible_when_ladder_normal(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            # No risk_brake_state asset → ladder reads as 'normal' (default).
+            result = gateway._compute_band_tier_eligibility(strategy_payload={})
+            self.assertEqual(result["ladder_state"], "normal")
+            self.assertTrue(result["high_eligible"])
+            self.assertIsNone(result["high_blocked_reason"])
+            self.assertEqual(result["standard_ceiling_pct"], 15.0)
+            self.assertEqual(result["high_ceiling_pct"], 30.0)
+            self.assertEqual(result["evidence_min_chars"], 30)
+        finally:
+            harness.cleanup()
+
+    def test_high_blocked_when_ladder_observe(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            harness.container.memory_assets.save_asset(
+                asset_type="risk_brake_state",
+                asset_id="risk_brake_state",
+                actor_role="system",
+                payload={"portfolio_state_ladder_high": "observe"},
+            )
+            result = gateway._compute_band_tier_eligibility(strategy_payload={})
+            self.assertEqual(result["ladder_state"], "observe")
+            self.assertFalse(result["high_eligible"])
+            self.assertIn("observe", result["high_blocked_reason"])
+            self.assertIn("normal", result["high_blocked_reason"])
+        finally:
+            harness.cleanup()
+
+    def test_headroom_reflects_previous_band(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            result = gateway._compute_band_tier_eligibility(
+                strategy_payload={
+                    "band_confidence_tier": "standard",
+                    "target_gross_exposure_band_pct": [0, 12],
+                }
+            )
+            self.assertEqual(result["previous_tier"], "standard")
+            self.assertEqual(result["previous_band_upper_pct"], 12.0)
+            # 15 - 12 = 3pp left in standard
+            self.assertEqual(result["headroom_to_standard_ceiling_pp"], 3.0)
+            # 30 - 12 = 18pp left if PM upgrades to high
+            self.assertEqual(result["headroom_to_high_ceiling_pp"], 18.0)
+        finally:
+            harness.cleanup()
+
+    def test_recommendation_fires_when_at_standard_ceiling_and_high_eligible(self) -> None:
+        """The 'should I upgrade tier' nudge — fires only when prev band ≥
+        14% (standard ceiling minus 1pp slack) AND ladder is normal. This
+        is exactly the case PM was missing in Rev458."""
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            result = gateway._compute_band_tier_eligibility(
+                strategy_payload={
+                    "band_confidence_tier": "standard",
+                    "target_gross_exposure_band_pct": [0, 15],
+                }
+            )
+            self.assertIsNotNone(result["recommendation"])
+            self.assertIn("standard", result["recommendation"])
+            self.assertIn("high", result["recommendation"])
+        finally:
+            harness.cleanup()
+
+    def test_recommendation_warns_when_high_not_eligible_in_standard_tier(self) -> None:
+        """Other failure mode PM hit in Rev458: in 'standard' but ladder is
+        observe, so ANY thought of escalation should be deferred."""
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            harness.container.memory_assets.save_asset(
+                asset_type="risk_brake_state",
+                asset_id="risk_brake_state",
+                actor_role="system",
+                payload={"portfolio_state_ladder_high": "observe"},
+            )
+            result = gateway._compute_band_tier_eligibility(
+                strategy_payload={
+                    "band_confidence_tier": "standard",
+                    "target_gross_exposure_band_pct": [0, 15],
+                }
+            )
+            self.assertIsNotNone(result["recommendation"])
+            self.assertIn("不可用", result["recommendation"])
+            self.assertIn("observe", result["recommendation"])
+        finally:
+            harness.cleanup()
+
+    def test_no_recommendation_when_band_well_below_standard_ceiling(self) -> None:
+        """Don't nag PM about tier upgrades when band has plenty of room
+        in the standard tier (< 14% threshold)."""
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            result = gateway._compute_band_tier_eligibility(
+                strategy_payload={
+                    "band_confidence_tier": "standard",
+                    "target_gross_exposure_band_pct": [0, 8],
+                }
+            )
+            self.assertIsNone(result["recommendation"])
+        finally:
+            harness.cleanup()
+
+    def test_panel_surfaces_in_pm_runtime_pack_decision_context(self) -> None:
+        """Wire-up check: the panel actually appears under
+        decision_context.band_tier_eligibility when PM pulls a runtime pack."""
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            pack = gateway.pull_pm_runtime_input(
+                trigger_type="pm_main_cron", params={}
+            )
+            self.assertIn("decision_context", pack.payload)
+            ctx = pack.payload["decision_context"]
+            self.assertIn("band_tier_eligibility", ctx)
+            panel = ctx["band_tier_eligibility"]
+            for key in (
+                "ladder_state",
+                "high_eligible",
+                "high_blocked_reason",
+                "previous_tier",
+                "previous_band_upper_pct",
+                "standard_ceiling_pct",
+                "high_ceiling_pct",
+                "headroom_to_standard_ceiling_pp",
+                "headroom_to_high_ceiling_pp",
+                "evidence_min_chars",
+                "recommendation",
+            ):
+                self.assertIn(key, panel)
+        finally:
+            harness.cleanup()
+
+
 class ChiefRetroDirectiveSupportTests(unittest.TestCase):
     """Chief 2026-04-24 retro identified 4 systemic gaps. Each gap got a
     learning_directive written to the relevant agent's .learnings/*.md.
