@@ -220,6 +220,8 @@ class StrategySubmission(BaseModel):
 
     portfolio_mode: str
     target_gross_exposure_band_pct: list[float] = Field(default_factory=list)
+    band_confidence_tier: Literal["standard", "high"] = "standard"
+    band_confidence_evidence: str = ""
     portfolio_thesis: list[StrategyThesisClaim] = Field(min_length=1)
     portfolio_invalidation: str
     flip_triggers: str

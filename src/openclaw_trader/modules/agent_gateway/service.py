@@ -334,6 +334,20 @@ class AgentGatewayService:
                 ],
                 error_kind="unmonitored_flip_thresholds",
             )
+        # Band ceiling tier (added 2026-04-29). Standard tier caps band_upper
+        # at 15%; high tier raises to 30% but requires (a) the portfolio risk
+        # ladder is `normal` (no observe/reduce/exit active) and (b) PM has
+        # written a non-empty `band_confidence_evidence` attesting to the
+        # flip-trigger confirmation that justifies a wider band.
+        band_tier_error = self._validate_band_confidence_tier(envelope.payload)
+        if band_tier_error is not None:
+            schema_ref, prompt_ref = self._submission_contract("strategy")
+            raise SubmissionValidationError(
+                schema_ref=schema_ref,
+                prompt_ref=prompt_ref,
+                errors=[band_tier_error[1]],
+                error_kind=band_tier_error[0],
+            )
         # Persist current market/forecast snapshot onto the new strategy so
         # the NEXT submit can diff against it (spec 015 FR-003).
         current_market_snapshot = self._snapshot_market_for_submit_gate(lease)
@@ -2881,6 +2895,108 @@ class AgentGatewayService:
     _FLIP_TRIGGER_THRESHOLD_PATTERN = re.compile(
         r"(?:>=|<=|>|<)\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?"
     )
+
+    # Standard tier band ceiling. Anything above this requires high tier.
+    _BAND_TIER_STANDARD_CEILING_PCT = 15.0
+    # High tier ceiling. Above this is rejected unconditionally — a 30%
+    # band already implies ≈150% notional at 5x leverage; expanding further
+    # belongs in the policy_risk hard caps, not in PM's discretion.
+    _BAND_TIER_HIGH_CEILING_PCT = 30.0
+    _BAND_TIER_HIGH_EVIDENCE_MIN_LEN = 30
+
+    def _validate_band_confidence_tier(
+        self, payload: dict[str, Any]
+    ) -> tuple[str, str] | None:
+        """Returns (error_kind, message) when band tier rules are violated, else None.
+
+        Rules:
+          - tier="standard" (default): band_upper ≤ 15%.
+          - tier="high": band_upper ≤ 30% AND
+                        (a) portfolio_risk_state ladder == 'normal'
+                        (b) band_confidence_evidence is non-empty (≥ 30 chars)
+        Set tier="high" gratuitously (band_upper ≤ 15) is allowed but pointless;
+        we don't reject it so PM can pre-stage the field.
+        """
+        band_raw = (payload or {}).get("target_gross_exposure_band_pct") or []
+        try:
+            band_upper = float(band_raw[1])
+        except (IndexError, TypeError, ValueError):
+            return None  # band malformed — schema validator will reject earlier
+        tier = str((payload or {}).get("band_confidence_tier") or "standard").lower()
+        evidence = str((payload or {}).get("band_confidence_evidence") or "").strip()
+
+        if tier == "standard":
+            if band_upper > self._BAND_TIER_STANDARD_CEILING_PCT:
+                return (
+                    "band_tier_violation",
+                    (
+                        f"band_tier_violation: target_gross_exposure_band_pct upper "
+                        f"{band_upper:.1f}% exceeds the 'standard' tier ceiling "
+                        f"({self._BAND_TIER_STANDARD_CEILING_PCT:.0f}%). To author a "
+                        f"wider band, set `band_confidence_tier: \"high\"` and provide "
+                        f"`band_confidence_evidence` justifying the higher conviction. "
+                        f"High tier is only valid when the portfolio risk ladder is "
+                        f"'normal' (no observe/reduce/exit active)."
+                    ),
+                )
+            return None
+
+        if tier != "high":
+            return (
+                "band_tier_violation",
+                f"band_tier_violation: unknown band_confidence_tier '{tier}'.",
+            )
+
+        # tier == "high"
+        if band_upper > self._BAND_TIER_HIGH_CEILING_PCT:
+            return (
+                "band_tier_violation",
+                (
+                    f"band_tier_violation: target_gross_exposure_band_pct upper "
+                    f"{band_upper:.1f}% exceeds the 'high' tier ceiling "
+                    f"({self._BAND_TIER_HIGH_CEILING_PCT:.0f}%). Wider exposure must "
+                    f"come from raising the policy_risk hard caps, not from PM "
+                    f"submissions."
+                ),
+            )
+        if len(evidence) < self._BAND_TIER_HIGH_EVIDENCE_MIN_LEN:
+            return (
+                "band_tier_violation",
+                (
+                    f"band_tier_violation: band_confidence_tier='high' requires "
+                    f"band_confidence_evidence (≥ {self._BAND_TIER_HIGH_EVIDENCE_MIN_LEN} "
+                    f"chars) attesting to flip-trigger confirmation. Got "
+                    f"{len(evidence)} chars."
+                ),
+            )
+        ladder_state = self._read_portfolio_risk_ladder_state()
+        if ladder_state != "normal":
+            return (
+                "band_tier_violation",
+                (
+                    f"band_tier_violation: band_confidence_tier='high' requires the "
+                    f"portfolio risk ladder to be 'normal' (no observe/reduce/exit "
+                    f"active). Current ladder state: '{ladder_state}'. Wait for the "
+                    f"ladder to reset (UTC rollover or risk recovery), or downgrade "
+                    f"the tier to 'standard'."
+                ),
+            )
+        return None
+
+    def _read_portfolio_risk_ladder_state(self) -> str:
+        """Read the current portfolio_state_ladder_high from risk_brake_state.
+        Returns 'normal' when the asset is missing or malformed (not the
+        worst-case fallback — risk_brake's own fallback for missing state is
+        'normal' too, so the gate doesn't false-block early in the day)."""
+        if self.memory_assets is None:
+            return "normal"
+        asset = self.memory_assets.get_asset("risk_brake_state")
+        if asset is None:
+            return "normal"
+        payload = asset.get("payload")
+        if not isinstance(payload, dict):
+            return "normal"
+        return str(payload.get("portfolio_state_ladder_high") or "normal").lower()
 
     @classmethod
     def _count_unmonitored_flip_thresholds(cls, payload: dict[str, Any]) -> int:

@@ -31,6 +31,17 @@
         "type": "number"
       }
     },
+    "band_confidence_tier": {
+      "description": "Confidence tier governing the band ceiling. 'standard' caps band_upper at 15%; 'high' raises it to 30% and requires (a) portfolio_risk_state ladder == normal and (b) non-empty band_confidence_evidence.",
+      "type": "string",
+      "enum": ["standard", "high"],
+      "default": "standard"
+    },
+    "band_confidence_evidence": {
+      "description": "When band_confidence_tier='high', PM's one-line attestation that flip_triggers are confirmed and the regime supports a 25-30% band. Audited by Chief retro.",
+      "type": "string",
+      "default": ""
+    },
     "portfolio_thesis": {
       "description": "Structured list of thesis claims (spec 015 FR-001). Each claim tags the evidence it relies on so the submit-gate can audit narrative-over-price bias.",
       "type": "array",

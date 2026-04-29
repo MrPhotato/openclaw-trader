@@ -26,6 +26,7 @@ description: PM 策略审查与正式策略提交。当 PM 需要审查结构化
 - **散文 `flip_triggers` 里每写一个带数值阈值的条件，`price_rechecks[]` 里必须有一条结构化订阅对应**，否则那条条件永远不会被自动监控（RT 不自治执行 flip_triggers）。详见 [price-rechecks-authoring.md](references/price-rechecks-authoring.md)。被 price_recheck 触发醒来时 `latest_pm_trigger_event.trigger_type == "price_recheck"` + `fired_subscriptions[]`。
 - 必须始终提交恰好 2 个 `targets`：`BTC`、`ETH` 各一个。不可操作的币种标记 `watch` 或 `disabled` 加 flat 方向，不要省略。
 - **你的策略直接决定团队这轮赚多少钱。给了方向就给足空间——当 thesis 正在被验证时，主动扩大敞口带宽是纪律，不是冒险。RT 需要足够的 discretion 空间才能把判断变成利润。**
+- **band 上限 = 15%（标准档）；若你判定为高把握，可将 `band_confidence_tier` 设为 `"high"` 把上限提到 30%**。高档的两个硬条件：(a) 当前 `risk_brake_state.portfolio_state_ladder_high == "normal"`（无 observe/reduce/exit 在烧），(b) 在 `band_confidence_evidence` 字段里写一句 ≥30 字的证据，说明 flip_trigger 全确认 / regime 已转向 / 多重信号同时验证。条件不全的 high 提交会被 submit_gate 直接拒。**不要默认走标准档**——thesis 充分验证时把仓位拉满才是纪律。
 
 ## 工作流
 1. 读取 [runtime-inputs.md](references/runtime-inputs.md)，了解实时拉取桥接、字段布局和工作示例。

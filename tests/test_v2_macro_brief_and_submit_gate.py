@@ -273,7 +273,7 @@ def _structured_strategy_payload(
     ]
     return {
         "portfolio_mode": "normal",
-        "target_gross_exposure_band_pct": [0, 20],
+        "target_gross_exposure_band_pct": [0, 15],
         "portfolio_thesis": claims,
         "portfolio_invalidation": "Basis drop",
         "flip_triggers": "BTC sub-72K structural break",
@@ -726,6 +726,180 @@ class UnmonitoredFlipThresholdTests(unittest.TestCase):
             body["price_rechecks"] = []
             result = gateway.submit_strategy(input_id=pack.input_id, payload=body)
             self.assertTrue(result["internal_reasoning_only"])
+        finally:
+            harness.cleanup()
+
+    def _seed_prev_strategy(self, memory: MemoryAssetsService) -> None:
+        payload = _structured_strategy_payload()
+        strategy = memory.materialize_strategy_asset(
+            trace_id="seed-trace", authored_payload=payload,
+            trigger_type="manual", actor_role="pm",
+        )
+        strategy_id = str(strategy["strategy_id"])
+        memory.save_asset(
+            asset_type="strategy", asset_id=strategy_id, payload=strategy,
+            trace_id="seed-trace", actor_role="pm",
+            group_key=str(strategy["strategy_day_utc"]),
+            metadata={
+                "submit_market_snapshot": {
+                    "captured_at_utc": None,
+                    "coins": {"BTC": {"mark_price": 100.0}, "ETH": {"mark_price": 100.0}},
+                },
+                "submit_forecast_snapshot": {
+                    "coins": {
+                        "BTC": {"12h": {"direction": "long", "confidence": 0.72},
+                                "4h": {"direction": "long", "confidence": 0.68},
+                                "1h": {"direction": "flat", "confidence": 0.51}},
+                        "ETH": {"12h": {"direction": "long", "confidence": 0.72},
+                                "4h": {"direction": "long", "confidence": 0.68},
+                                "1h": {"direction": "flat", "confidence": 0.51}},
+                    },
+                },
+            },
+        )
+
+
+class BandConfidenceTierTests(unittest.TestCase):
+    """Spec 2026-04-29: PM can author exposure bands above 15% only when
+    setting band_confidence_tier='high', which additionally requires a
+    non-empty band_confidence_evidence and a `normal` portfolio risk ladder.
+    Reasoning: the 15% soft ceiling kept PM hesitant; the high tier lets PM
+    open up to 30% when conviction is real, while the gate keeps the system
+    honest by requiring (a) explicit attestation and (b) a calm regime."""
+
+    def test_standard_tier_allows_band_at_or_below_15(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            body["target_gross_exposure_band_pct"] = [0, 15]
+            result = gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertTrue(result["internal_reasoning_only"])
+        finally:
+            harness.cleanup()
+
+    def test_standard_tier_rejects_band_above_15(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            body["target_gross_exposure_band_pct"] = [0, 20]
+            # tier defaults to "standard"
+            with self.assertRaises(SubmissionValidationError) as ctx:
+                gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertEqual(ctx.exception.error_kind, "band_tier_violation")
+            errors_text = " ".join(getattr(ctx.exception, "errors", []) or [])
+            self.assertIn("standard", errors_text)
+            self.assertIn("20.0%", errors_text)
+        finally:
+            harness.cleanup()
+
+    def test_high_tier_allows_band_up_to_30_with_evidence_and_normal_ladder(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            # Default state: no risk_brake_state asset → ladder reads as 'normal'
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            body["target_gross_exposure_band_pct"] = [0, 28]
+            body["band_confidence_tier"] = "high"
+            body["band_confidence_evidence"] = (
+                "Flip trigger 全确认: BTC 4h 收盘 < 75000, Brent > 112, "
+                "DXY 上行突破，三条件已 12h 持续，regime 已确认转向"
+            )
+            result = gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertTrue(result["internal_reasoning_only"])
+        finally:
+            harness.cleanup()
+
+    def test_high_tier_rejects_band_above_30(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            body["target_gross_exposure_band_pct"] = [0, 35]
+            body["band_confidence_tier"] = "high"
+            body["band_confidence_evidence"] = (
+                "Conviction extreme - want to push to 35% band on a flip-trigger storm"
+            )
+            with self.assertRaises(SubmissionValidationError) as ctx:
+                gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertEqual(ctx.exception.error_kind, "band_tier_violation")
+            errors_text = " ".join(getattr(ctx.exception, "errors", []) or [])
+            self.assertIn("'high'", errors_text)
+            self.assertIn("30%", errors_text)
+        finally:
+            harness.cleanup()
+
+    def test_high_tier_rejects_when_evidence_missing_or_too_short(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            body["target_gross_exposure_band_pct"] = [0, 25]
+            body["band_confidence_tier"] = "high"
+            body["band_confidence_evidence"] = "ok"  # too short
+            with self.assertRaises(SubmissionValidationError) as ctx:
+                gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertEqual(ctx.exception.error_kind, "band_tier_violation")
+            errors_text = " ".join(getattr(ctx.exception, "errors", []) or [])
+            self.assertIn("band_confidence_evidence", errors_text)
+        finally:
+            harness.cleanup()
+
+    def test_high_tier_rejects_when_portfolio_ladder_not_normal(self) -> None:
+        harness = build_test_harness()
+        try:
+            gateway = harness.container.agent_gateway
+            memory = harness.container.memory_assets
+            self._seed_prev_strategy(memory)
+            # Seed risk_brake_state with ladder == 'observe' (early warning
+            # tier), which should block any high-confidence band escalation.
+            memory.save_asset(
+                asset_type="risk_brake_state",
+                asset_id="risk_brake_state",
+                actor_role="system",
+                payload={"portfolio_state_ladder_high": "observe"},
+            )
+            pack = gateway.pull_pm_runtime_input(trigger_type="pm_main_cron", params={})
+            body = _structured_strategy_payload(
+                why_no_external_trigger="Routine recheck without external trigger.",
+            )
+            body["target_gross_exposure_band_pct"] = [0, 25]
+            body["band_confidence_tier"] = "high"
+            body["band_confidence_evidence"] = (
+                "Flip trigger 全确认: BTC 4h 收盘 < 75000, Brent > 112, regime 已转向"
+            )
+            with self.assertRaises(SubmissionValidationError) as ctx:
+                gateway.submit_strategy(input_id=pack.input_id, payload=body)
+            self.assertEqual(ctx.exception.error_kind, "band_tier_violation")
+            errors_text = " ".join(getattr(ctx.exception, "errors", []) or [])
+            self.assertIn("ladder", errors_text)
+            self.assertIn("observe", errors_text)
         finally:
             harness.cleanup()
 
