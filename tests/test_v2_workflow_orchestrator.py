@@ -237,8 +237,9 @@ def _seed_risk_brake_state(harness, payload: dict) -> None:
 
 
 def _build_risk_brake_monitor(harness, *, provider: MutableMarketDataProvider | None = None):
-    runner = FakeCronRunner()
-    dispatcher = FakeAgentDispatcher(payload_by_job={"pm-job": "RISK BRAKE PM WAKE"})
+    dispatcher = FakeAgentDispatcher(
+        payload_by_job={"pm-job": "RISK BRAKE PM WAKE", "rt-job": "RISK BRAKE RT WAKE"}
+    )
     monitor = RiskBrakeMonitor(
         memory_assets=harness.container.memory_assets,
         market_data=DataIngestService(provider or MutableMarketDataProvider()),
@@ -250,12 +251,13 @@ def _build_risk_brake_monitor(harness, *, provider: MutableMarketDataProvider | 
             scan_interval_seconds=30,
             rt_job_id="rt-job",
             pm_job_id="pm-job",
+            rt_session_key="agent:risk-trader:main",
+            pm_session_key="agent:pm:main",
             cron_subprocess_timeout_seconds=15,
         ),
-        cron_runner=runner,
         agent_dispatcher=dispatcher,
     )
-    return monitor, runner, dispatcher
+    return monitor, dispatcher
 
 
 def _build_pm_recheck_monitor(harness, *, config: PMRecheckConfig | None = None):
@@ -1167,7 +1169,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "last_position_state_by_coin": {"BTC": "normal"},
                 },
             )
-            monitor, runner, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
 
             self.assertTrue(result["triggered"])
@@ -1175,7 +1177,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(result["state"], "reduce")
             self.assertFalse(result["rt_dispatched"])
             self.assertTrue(result["pm_dispatched"])
-            self.assertEqual(runner.runs, [])  # PM now goes through dispatcher, not cron runner
+            # Reduce: PM only, no RT wake.
             self.assertEqual(len(dispatcher.sends), 1)
             self.assertEqual(dispatcher.sends[0]["agent"], "pm")
             self.assertEqual(dispatcher.sends[0]["session_key"], "agent:pm:main")
@@ -1221,7 +1223,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "last_position_state_by_coin": {"BTC": "normal"},
                 },
             )
-            monitor, runner, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
 
             self.assertTrue(result["triggered"])
@@ -1229,8 +1231,18 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(result["state"], "observe")
             self.assertTrue(result["rt_dispatched"])
             self.assertFalse(result["pm_dispatched"])
-            self.assertEqual(runner.runs, ["rt-job"])
+            # RT goes through send_to_session (not the cron runner) so the
+            # observe wake survives even when RT's regular cron is mid-turn.
+            self.assertEqual(len(dispatcher.sends), 1)
+            self.assertEqual(dispatcher.sends[0]["agent"], "risk-trader")
+            self.assertEqual(dispatcher.sends[0]["session_key"], "agent:risk-trader:main")
             self.assertNotIn("pm_trigger_event_id", result)
+            # Whole-book trigger names every currently-positioned coin so RT
+            # knows what book to refresh.
+            self.assertIn("BTC", result["coins"])
+            # Per-coin policy snapshots are populated even though no actions
+            # were taken (used to be empty for observe).
+            self.assertIn("BTC", result["position_risk_state_by_coin"])
             # No auto-order, no portfolio lock.
             self.assertEqual(len(harness.fake_broker.executed), 0)
             state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
@@ -1262,7 +1274,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "last_position_state_by_coin": {"BTC": "normal"},
                 },
             )
-            monitor, runner, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
 
             self.assertTrue(result["triggered"])
@@ -1270,7 +1282,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(result["state"], "exit")
             self.assertFalse(result["rt_dispatched"])
             self.assertTrue(result["pm_dispatched"])
-            self.assertEqual(runner.runs, [])  # PM now goes through dispatcher, not cron runner
+            # Exit: PM only.
             self.assertEqual(len(dispatcher.sends), 1)
             self.assertEqual(dispatcher.sends[0]["agent"], "pm")
             self.assertEqual(dispatcher.sends[0]["session_key"], "agent:pm:main")
@@ -1310,7 +1322,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     },
                 },
             )
-            monitor, runner, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
 
             self.assertTrue(result["triggered"])
@@ -1318,7 +1330,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(result["state"], "exit")
             self.assertFalse(result["rt_dispatched"])
             self.assertTrue(result["pm_dispatched"])
-            self.assertEqual(runner.runs, [])  # PM now goes through dispatcher, not cron runner
+            # Per-coin exit: PM only.
             self.assertEqual(len(dispatcher.sends), 1)
             self.assertEqual(dispatcher.sends[0]["agent"], "pm")
             self.assertEqual(dispatcher.sends[0]["session_key"], "agent:pm:main")
@@ -1363,7 +1375,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     },
                 },
             )
-            monitor, runner, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
 
             self.assertTrue(result["triggered"])
@@ -1371,8 +1383,18 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(result["state"], "observe")
             self.assertTrue(result["rt_dispatched"])
             self.assertFalse(result["pm_dispatched"])
-            self.assertEqual(runner.runs, ["rt-job"])
+            # RT goes through send_to_session, same fix as portfolio observe.
+            self.assertEqual(len(dispatcher.sends), 1)
+            self.assertEqual(dispatcher.sends[0]["agent"], "risk-trader")
+            self.assertEqual(dispatcher.sends[0]["session_key"], "agent:risk-trader:main")
             self.assertNotIn("pm_trigger_event_id", result)
+            # The coin that crossed observe is named in the event payload, and
+            # its policy snapshot is included for diagnostics.
+            self.assertEqual(result["coins"], ["BTC"])
+            self.assertIn("BTC", result["position_risk_state_by_coin"])
+            self.assertEqual(
+                result["position_risk_state_by_coin"]["BTC"]["state"], "observe"
+            )
             # No auto-order, no per-coin lock.
             self.assertEqual(len(harness.fake_broker.executed), 0)
             state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
@@ -1411,7 +1433,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     },
                 },
             )
-            monitor, runner, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
 
             self.assertTrue(result["triggered"])
@@ -1419,7 +1441,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             self.assertEqual(result["state"], "reduce")
             self.assertFalse(result["rt_dispatched"])
             self.assertTrue(result["pm_dispatched"])
-            self.assertEqual(runner.runs, [])  # PM now goes through dispatcher, not cron runner
+            # Per-coin reduce: PM only.
             self.assertEqual(len(dispatcher.sends), 1)
             self.assertEqual(dispatcher.sends[0]["agent"], "pm")
             self.assertEqual(dispatcher.sends[0]["session_key"], "agent:pm:main")
@@ -1466,11 +1488,11 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     },
                 },
             )
-            monitor, runner, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, dispatcher = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
 
             self.assertFalse(result["triggered"])
-            self.assertEqual(runner.runs, [])
+            self.assertEqual(dispatcher.sends, [])
             self.assertEqual(len(harness.fake_broker.executed), 0)
 
             state_asset = harness.container.memory_assets.get_asset("risk_brake_state")
@@ -1499,7 +1521,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "last_position_state_by_coin": {"BTC": "normal"},
                 },
             )
-            monitor, _, _ = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, _ = _build_risk_brake_monitor(harness, provider=provider)
             result = monitor.scan_once(now=now)
             self.assertTrue(result["triggered"])
             self.assertEqual(result["state"], "reduce")
@@ -1529,7 +1551,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "portfolio_state_ladder_high": "reduce",
                 },
             )
-            monitor, _, _ = _build_risk_brake_monitor(harness, provider=provider)
+            monitor, _ = _build_risk_brake_monitor(harness, provider=provider)
             monitor.scan_once(now=today)
 
             state_asset = harness.container.memory_assets.get_asset("risk_brake_state")

@@ -174,6 +174,12 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
                     "d4153cc9-1cbf-431d-b45a-d822054672c5",
                 )
             ),
+            risk_brake_rt_session_key=str(
+                dispatch_payload.get("risk_brake_rt_session_key", "agent:risk-trader:main")
+            ),
+            risk_brake_pm_session_key=str(
+                dispatch_payload.get("risk_brake_pm_session_key", "agent:pm:main")
+            ),
             risk_brake_cron_subprocess_timeout_seconds=int(
                 dispatch_payload.get("risk_brake_cron_subprocess_timeout_seconds", 15)
             ),

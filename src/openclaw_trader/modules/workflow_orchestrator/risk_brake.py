@@ -19,7 +19,7 @@ from ..trade_gateway.market_data.service import DataIngestService
 from .events import EVENT_RISK_BRAKE_TRIGGERED, MODULE_NAME
 from .agent_dispatch import AgentDispatcher, AgentDispatchConfig
 from .pm_trigger import record_pm_trigger_event
-from .rt_trigger import DEFAULT_RT_JOB_ID, CronRunResult, OpenClawCronRunner
+from .rt_trigger import DEFAULT_RT_JOB_ID
 
 
 DEFAULT_PM_JOB_ID = "d4153cc9-1cbf-431d-b45a-d822054672c5"
@@ -33,6 +33,7 @@ class RiskBrakeConfig:
     scan_interval_seconds: int = 30
     rt_job_id: str = DEFAULT_RT_JOB_ID
     pm_job_id: str = DEFAULT_PM_JOB_ID
+    rt_session_key: str = "agent:risk-trader:main"
     pm_session_key: str = "agent:pm:main"
     cron_subprocess_timeout_seconds: int = 15
     openclaw_bin: str = "openclaw"
@@ -48,7 +49,6 @@ class RiskBrakeMonitor:
         trade_execution: ExecutionGatewayService,
         event_bus: EventBus | None = None,
         config: RiskBrakeConfig | None = None,
-        cron_runner: OpenClawCronRunner | None = None,
         agent_dispatcher: AgentDispatcher | None = None,
     ) -> None:
         self.memory_assets = memory_assets
@@ -57,13 +57,8 @@ class RiskBrakeMonitor:
         self.trade_execution = trade_execution
         self.event_bus = event_bus
         self.config = config or RiskBrakeConfig()
-        # RT still dispatches via openclaw cron (isolated session) — RT's
-        # main-session migration is a separate question. PM, on the other
-        # hand, is unified into its main session via agent_dispatcher.
-        self.cron_runner = cron_runner or OpenClawCronRunner(
-            openclaw_bin=self.config.openclaw_bin,
-            timeout_seconds=self.config.cron_subprocess_timeout_seconds,
-        )
+        # Both RT and PM dispatch via send_to_session (jobs.json's payload
+        # message stays the source of truth, but WO owns the dispatch).
         self.agent_dispatcher = agent_dispatcher or AgentDispatcher(
             config=AgentDispatchConfig(
                 openclaw_bin=self.config.openclaw_bin,
@@ -150,12 +145,13 @@ class RiskBrakeMonitor:
             return None
 
         event_id = new_id("risk_brake")
+        affected_coins = list(plan["affected_coins"])
         payload: dict[str, Any] = {
             "event_id": event_id,
             "detected_at_utc": now.isoformat(),
             "scope": plan["scope"],
             "state": plan["state"],
-            "coins": sorted(plan["actions"].keys()),
+            "coins": affected_coins,
             "risk_lock_updates": plan["risk_lock_updates"],
             "portfolio_risk_state": plan["portfolio_risk_state"],
             "position_risk_state_by_coin": plan["position_risk_state_by_coin"],
@@ -205,7 +201,7 @@ class RiskBrakeMonitor:
             strategy_key=current_strategy_key,
             scope=scope,
             state_name=state_name,
-            coins=sorted(plan["actions"].keys()),
+            coins=affected_coins,
             dispatch_rt=dispatch_rt,
             dispatch_pm=dispatch_pm,
         )
@@ -307,6 +303,9 @@ class RiskBrakeMonitor:
         # Portfolio trumps position when its rank is ≥ the worst per-coin.
         # Otherwise we fire at position scope (a single coin breached more
         # aggressively than the whole book).
+        portfolio_positioned_coins = sorted(
+            str(position.coin).upper() for position in market.portfolio.positions
+        )
         if portfolio_rank >= highest_position_rank and portfolio_level is not None:
             scope = "portfolio"
             state_name = portfolio_level
@@ -336,6 +335,10 @@ class RiskBrakeMonitor:
                         "triggered_at_utc": now_iso,
                     }
             # observe: no action, no lock — RT-only notification.
+            # Whole-book trigger: name every currently-positioned coin so the
+            # event payload tells RT which book it should refresh on, not just
+            # the (possibly empty for observe) action subset.
+            affected_coins = portfolio_positioned_coins or sorted(action_map.keys())
         else:
             scope = "position"
             # state_name = the highest rising level across all affected coins;
@@ -362,11 +365,19 @@ class RiskBrakeMonitor:
                         "triggered_at_utc": now_iso,
                     }
                 # observe: no action, no lock.
+            # Per-coin trigger: name every coin that just rose (including
+            # observe-tier risers, which carry no action_map entry but are
+            # exactly what RT needs to look at).
+            affected_coins = sorted(position_rising.keys())
+        # The event payload keeps the full per-coin policy snapshot, not just
+        # action-takers, so observe events still carry diagnostic info instead
+        # of empty {} (used to be filtered by `if coin in action_map`).
         return {
             "scope": scope,
             "state": state_name,
             "reason_label": reason_label,
             "actions": action_map,
+            "affected_coins": affected_coins,
             "risk_lock_updates": risk_lock_updates,
             "portfolio_risk_state": next(
                 (
@@ -378,7 +389,6 @@ class RiskBrakeMonitor:
             "position_risk_state_by_coin": {
                 coin: policy.position_risk_state.model_dump(mode="json")
                 for coin, policy in policies.items()
-                if coin in action_map
             },
         }
 
@@ -536,24 +546,40 @@ class RiskBrakeMonitor:
         tripped. Observe pings only RT; portfolio reduce / exit ping only PM
         (after the system has already auto-executed the order); position-
         level events still ping both arms."""
-        rt_running: bool | None = None
-        rt_result: CronRunResult | None = None
         rt_skip_reason: str | None = None
         pm_skip_reason: str | None = None
         rt_dispatched = False
+        rt_dispatch_pid: int | None = None
+        rt_dispatch_error: str | None = None
         pm_dispatched = False
         pm_dispatch_pid: int | None = None
         pm_dispatch_error: str | None = None
 
+        # RT goes through send_to_session (same pattern as PM): queues into
+        # RT's main session instead of `openclaw cron run`. Two reasons:
+        #   1. cron_running used to silently swallow ~40% of observe wakes
+        #      when RT's regular 15m cron happened to be mid-turn.
+        #   2. send_to_session keeps RT in a single ongoing session so wake
+        #      messages accumulate context across fires.
+        # The wake message itself reuses the RT cron job's payload.message so
+        # jobs.json stays the single edit point for the prompt text.
         if dispatch_rt:
-            rt_running = self.cron_runner.is_running(job_id=self.config.rt_job_id)
-            if rt_running:
-                rt_skip_reason = "cron_running"
+            rt_message = self.agent_dispatcher.fetch_cron_job_payload_message(
+                job_id=self.config.rt_job_id
+            )
+            if not rt_message:
+                rt_skip_reason = "missing_rt_payload_message"
             else:
-                rt_result = self.cron_runner.run_now(job_id=self.config.rt_job_id)
+                rt_result = self.agent_dispatcher.send_to_session(
+                    agent="risk-trader",
+                    session_key=self.config.rt_session_key,
+                    message=rt_message,
+                )
                 rt_dispatched = bool(rt_result.ok)
+                rt_dispatch_pid = rt_result.pid
+                rt_dispatch_error = rt_result.error
                 if not rt_dispatched:
-                    rt_skip_reason = "cron_run_failed"
+                    rt_skip_reason = f"dispatch_failed:{rt_result.error or 'unknown'}"
                 else:
                     self._record_rt_dispatch(now=now, trace_id=trace_id, reason=reason)
         else:
@@ -562,8 +588,9 @@ class RiskBrakeMonitor:
         summary: dict[str, Any] = {
             "rt_dispatched": rt_dispatched,
             "rt_skip_reason": rt_skip_reason,
-            "rt_cron_stdout": _truncate(rt_result.stdout if rt_result else "", 800),
-            "rt_cron_stderr": _truncate(rt_result.stderr if rt_result else "", 800),
+            "rt_dispatch_pid": rt_dispatch_pid,
+            "rt_dispatch_error": rt_dispatch_error,
+            "rt_dispatch_target": self.config.rt_session_key if dispatch_rt else None,
             "pm_dispatched": pm_dispatched,
             "pm_skip_reason": None,
         }
@@ -852,7 +879,3 @@ def _to_decimal(raw: Any) -> Decimal:
         return Decimal("0")
 
 
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."

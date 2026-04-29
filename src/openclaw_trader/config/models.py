@@ -374,6 +374,8 @@ class OrchestratorSettings(BaseModel):
     risk_brake_scan_interval_seconds: int = 30
     risk_brake_rt_job_id: str = "ccbf7286-dba4-4d57-bebe-932340374492"
     risk_brake_pm_job_id: str = "d4153cc9-1cbf-431d-b45a-d822054672c5"
+    risk_brake_rt_session_key: str = "agent:risk-trader:main"
+    risk_brake_pm_session_key: str = "agent:pm:main"
     risk_brake_cron_subprocess_timeout_seconds: int = 15
     risk_brake_openclaw_bin: str = "openclaw"
     # ------------------------------------------------------------------

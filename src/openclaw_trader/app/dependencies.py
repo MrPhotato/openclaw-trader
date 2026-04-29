@@ -354,6 +354,8 @@ def build_container() -> ServiceContainer:
                 scan_interval_seconds=int(settings.orchestrator.risk_brake_scan_interval_seconds),
                 rt_job_id=str(settings.orchestrator.risk_brake_rt_job_id),
                 pm_job_id=str(settings.orchestrator.risk_brake_pm_job_id),
+                rt_session_key=str(settings.orchestrator.risk_brake_rt_session_key),
+                pm_session_key=str(settings.orchestrator.risk_brake_pm_session_key),
                 cron_subprocess_timeout_seconds=int(
                     settings.orchestrator.risk_brake_cron_subprocess_timeout_seconds
                 ),
