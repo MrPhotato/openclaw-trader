@@ -211,6 +211,54 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
             agent_failure_alert_tail_bytes=int(
                 dispatch_payload.get("agent_failure_alert_tail_bytes", 524288)
             ),
+            memory_retention_enabled=bool(
+                dispatch_payload.get("memory_retention_enabled", False)
+            ),
+            memory_retention_scan_interval_seconds=int(
+                dispatch_payload.get("memory_retention_scan_interval_seconds", 3600)
+            ),
+            memory_retention_max_deletes_per_type_per_scan=int(
+                dispatch_payload.get("memory_retention_max_deletes_per_type_per_scan", 50000)
+            ),
+            memory_retention_policies={
+                str(k): str(v)
+                for k, v in dict(dispatch_payload.get("memory_retention_policies") or {}).items()
+            } if dispatch_payload.get("memory_retention_policies") else {
+                # Defaults match `OrchestrationSettings.memory_retention_policies`
+                # — inlined here so a config file that doesn't declare the key
+                # still gets the safe defaults rather than no policies (= no
+                # retention, which is the bug we're fixing).
+                "runtime_bridge_state": "48h",
+                "market_key_snapshot": "48h",
+                "market_light_snapshot": "48h",
+                "portfolio_snapshot": "30d",
+                "rt_trigger_event": "30d",
+                "agent_runtime_lease": "30d",
+                "runtime_pack_issue": "30d",
+                "runtime_pack_consumed": "30d",
+                "pm_trigger_event": "30d",
+                "execution_batch": "30d",
+                "execution_authorization": "30d",
+                "execution_result": "30d",
+                "policy_guard": "30d",
+                "rt_tactical_map": "30d",
+                "forecast_bundle": "30d",
+                "notification_result": "30d",
+                "direct_reminder": "30d",
+                "submission_error": "30d",
+                "external_cadence_wakeup": "30d",
+                "risk_brake_event": "30d",
+                "strategy": "180d",
+                "learning_directive": "180d",
+                "chief_retro": "180d",
+                "retro_brief": "180d",
+                "retro_case": "180d",
+                "macro_brief": "180d",
+                "macro_daily_memory": "180d",
+                "macro_event": "180d",
+                "news_submission": "180d",
+                "news_batch": "180d",
+            },
             price_recheck_enabled=bool(
                 dispatch_payload.get("price_recheck_enabled", False)
             ),

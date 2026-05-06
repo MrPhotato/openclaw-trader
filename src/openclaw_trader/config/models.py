@@ -403,6 +403,56 @@ class OrchestratorSettings(BaseModel):
     agent_failure_alert_log_path: str = "~/.openclaw/logs/gateway.err.log"
     agent_failure_alert_tail_bytes: int = 524288
     # ------------------------------------------------------------------
+    # Memory-asset retention monitor: prunes append-only event/snapshot
+    # rows from the `assets` table per-asset_type TTL. Without this,
+    # `runtime_bridge_state` (10s cadence) etc. grow the db monotonically
+    # — verified 2026-05-07 to be the cause of a 47 GB db that crossed
+    # sqlite's B-tree corruption threshold. Default policies are tuned
+    # so QI-relevant data and cross-day business knowledge stay long
+    # enough; only system observability snapshots are aggressively rolled.
+    # See modules/workflow_orchestrator/memory_retention.py.
+    # ------------------------------------------------------------------
+    memory_retention_enabled: bool = False
+    memory_retention_scan_interval_seconds: int = 3600
+    memory_retention_max_deletes_per_type_per_scan: int = 50000
+    memory_retention_policies: dict[str, str] = Field(
+        default_factory=lambda: {
+            # Hot — system snapshots, only `latest_*` ever read
+            "runtime_bridge_state": "48h",
+            "market_key_snapshot": "48h",
+            "market_light_snapshot": "48h",
+            # Warm — audit/retro window
+            "portfolio_snapshot": "30d",
+            "rt_trigger_event": "30d",
+            "agent_runtime_lease": "30d",
+            "runtime_pack_issue": "30d",
+            "runtime_pack_consumed": "30d",
+            "pm_trigger_event": "30d",
+            "execution_batch": "30d",
+            "execution_authorization": "30d",
+            "execution_result": "30d",
+            "policy_guard": "30d",
+            "rt_tactical_map": "30d",
+            "forecast_bundle": "30d",
+            "notification_result": "30d",
+            "direct_reminder": "30d",
+            "submission_error": "30d",
+            "external_cadence_wakeup": "30d",
+            "risk_brake_event": "30d",
+            # Cold — cross-day business knowledge
+            "strategy": "180d",
+            "learning_directive": "180d",
+            "chief_retro": "180d",
+            "retro_brief": "180d",
+            "retro_case": "180d",
+            "macro_brief": "180d",
+            "macro_daily_memory": "180d",
+            "macro_event": "180d",
+            "news_submission": "180d",
+            "news_batch": "180d",
+        }
+    )
+    # ------------------------------------------------------------------
     # Price-conditioned PM recheck (event-driven sibling of
     # scheduled_recheck). PM authors `price_rechecks` on each strategy;
     # PriceRecheckMonitor evaluates them every ~30s against

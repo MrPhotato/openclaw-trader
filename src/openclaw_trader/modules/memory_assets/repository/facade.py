@@ -116,6 +116,12 @@ class MemoryAssetsRepository:
     ) -> tuple[dict | None, dict | None]:
         return self.assets.runtime_bridge_macro_market_pair_24h(target_at_or_before_iso)
 
+    def prune_assets_older_than(self, *, asset_type: str, cutoff_utc_iso: str) -> int:
+        return self.assets.prune_older_than(asset_type=asset_type, cutoff_utc_iso=cutoff_utc_iso)
+
+    def count_assets_by_type(self, *, asset_type: str) -> int:
+        return self.assets.count_by_type(asset_type=asset_type)
+
     def save_agent_session(self, state: AgentSessionState) -> None:
         self.sessions.save(state)
 

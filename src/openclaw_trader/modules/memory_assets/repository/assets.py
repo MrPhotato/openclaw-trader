@@ -153,6 +153,30 @@ class AssetRepository:
             prior_row = conn.execute(prior_sql, (target_at_or_before_iso,)).fetchone()
         return _row_to_dict(latest_row), _row_to_dict(prior_row)
 
+    def prune_older_than(self, *, asset_type: str, cutoff_utc_iso: str) -> int:
+        """Delete `assets` rows of the given type whose created_at < cutoff.
+        Returns deleted row count.
+
+        Used by MemoryAssetsRetentionMonitor — runs DELETE through the same
+        WAL connection so writers don't block on a DELETE chunk in flight.
+        Index `idx_assets_type_created_at` covers the WHERE clause.
+        """
+        with self.database.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM assets WHERE asset_type = ? AND created_at < ?",
+                (asset_type, cutoff_utc_iso),
+            )
+            return int(cursor.rowcount or 0)
+
+    def count_by_type(self, *, asset_type: str) -> int:
+        """Index-covered COUNT for retention metrics."""
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM assets WHERE asset_type = ?",
+                (asset_type,),
+            ).fetchone()
+        return int(row[0]) if row is not None else 0
+
     @staticmethod
     def _row_to_dict(row) -> dict:
         return {
