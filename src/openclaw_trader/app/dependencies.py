@@ -453,6 +453,9 @@ def build_container() -> ServiceContainer:
                 max_deletes_per_type_per_scan=int(
                     settings.orchestrator.memory_retention_max_deletes_per_type_per_scan
                 ),
+                portfolio_snapshots_ttl=str(
+                    settings.orchestrator.memory_retention_portfolio_snapshots_ttl
+                ),
             ),
         )
     workflow_orchestrator = WorkflowOrchestratorService(

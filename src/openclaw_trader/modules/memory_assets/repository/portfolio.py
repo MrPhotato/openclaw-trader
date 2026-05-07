@@ -57,6 +57,27 @@ class PortfolioRepository:
             for row in rows
         ]
 
+    def prune_older_than(self, *, cutoff_utc_iso: str) -> int:
+        """Delete `portfolio_snapshots` rows older than the cutoff.
+        Returns deleted row count.
+
+        Mirror of `AssetRepository.prune_older_than` for the dedicated
+        portfolio_snapshots table. The dual-write between this table and
+        `assets.portfolio_snapshot` is historical (spec-001 vs spec-015);
+        until that's resolved, both targets need their own retention.
+        """
+        with self.database.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM portfolio_snapshots WHERE created_at < ?",
+                (cutoff_utc_iso,),
+            )
+            return int(cursor.rowcount or 0)
+
+    def count(self) -> int:
+        with self.database.connect() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM portfolio_snapshots").fetchone()
+        return int(row[0]) if row is not None else 0
+
     def equity_timeseries(self, *, since: str, bucket_minutes: int = 15) -> list[dict]:
         """Return one equity sample per bucket_minutes interval since the given ISO timestamp.
 

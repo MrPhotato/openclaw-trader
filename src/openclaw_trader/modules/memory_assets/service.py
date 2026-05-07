@@ -229,6 +229,14 @@ class MemoryAssetsService:
     def count_assets_by_type(self, *, asset_type: str) -> int:
         return self.repository.count_assets_by_type(asset_type=asset_type)
 
+    def prune_portfolio_snapshots_older_than(self, *, cutoff_utc_iso: str) -> int:
+        return self.repository.prune_portfolio_snapshots_older_than(
+            cutoff_utc_iso=cutoff_utc_iso
+        )
+
+    def count_portfolio_snapshots(self) -> int:
+        return self.repository.count_portfolio_snapshots()
+
     def latest_rt_tactical_map(
         self,
         *,

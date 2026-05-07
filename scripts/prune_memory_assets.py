@@ -44,6 +44,15 @@ def load_policies(config_path: Path) -> dict[str, int]:
     return {str(k): parse_ttl(v) for k, v in raw.items()}
 
 
+def load_portfolio_snapshots_ttl(config_path: Path) -> int:
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    raw = payload.get("memory_retention_portfolio_snapshots_ttl", 0)
+    try:
+        return parse_ttl(raw)
+    except ValueError:
+        return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
@@ -55,8 +64,9 @@ def main() -> int:
         print(f"db not found: {args.db}")
         return 1
     policies = load_policies(args.config)
-    if not policies:
-        print(f"no memory_retention_policies block in {args.config}")
+    portfolio_snapshots_ttl = load_portfolio_snapshots_ttl(args.config)
+    if not policies and portfolio_snapshots_ttl == 0:
+        print(f"no memory_retention_policies / portfolio_snapshots_ttl block in {args.config}")
         return 1
 
     now = datetime.now(UTC)
@@ -89,6 +99,37 @@ def main() -> int:
                 cursor = conn.execute(
                     "DELETE FROM assets WHERE asset_type = ? AND created_at < ?",
                     (asset_type, cutoff),
+                )
+                deleted = int(cursor.rowcount or 0)
+                total_deleted += deleted
+                conn.commit()
+        # ----------------------------------------------------------
+        # Portfolio_snapshots TABLE (separate from assets row).
+        # ----------------------------------------------------------
+        if portfolio_snapshots_ttl > 0:
+            cutoff = (now - timedelta(seconds=portfolio_snapshots_ttl)).isoformat()
+            before_row = conn.execute(
+                "SELECT COUNT(*) FROM portfolio_snapshots"
+            ).fetchone()
+            before = int(before_row[0]) if before_row else 0
+            stale_row = conn.execute(
+                "SELECT COUNT(*) FROM portfolio_snapshots WHERE created_at < ?",
+                (cutoff,),
+            ).fetchone()
+            stale = int(stale_row[0]) if stale_row else 0
+            ttl_label = (
+                f"{portfolio_snapshots_ttl//86400}d"
+                if portfolio_snapshots_ttl >= 86400
+                else f"{portfolio_snapshots_ttl//3600}h"
+            )
+            print(
+                f"  portfolio_snapshots_TABLE              ttl={ttl_label:>4}"
+                f"  rows={before:>7}  stale={stale:>7}"
+            )
+            if not args.dry_run and stale > 0:
+                cursor = conn.execute(
+                    "DELETE FROM portfolio_snapshots WHERE created_at < ?",
+                    (cutoff,),
                 )
                 deleted = int(cursor.rowcount or 0)
                 total_deleted += deleted

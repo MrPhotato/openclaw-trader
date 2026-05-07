@@ -220,6 +220,9 @@ def build_system_settings_from_paths(paths) -> SystemSettings:
             memory_retention_max_deletes_per_type_per_scan=int(
                 dispatch_payload.get("memory_retention_max_deletes_per_type_per_scan", 50000)
             ),
+            memory_retention_portfolio_snapshots_ttl=str(
+                dispatch_payload.get("memory_retention_portfolio_snapshots_ttl", "60d")
+            ),
             memory_retention_policies={
                 str(k): str(v)
                 for k, v in dict(dispatch_payload.get("memory_retention_policies") or {}).items()

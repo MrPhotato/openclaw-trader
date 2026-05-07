@@ -122,6 +122,12 @@ class MemoryAssetsRepository:
     def count_assets_by_type(self, *, asset_type: str) -> int:
         return self.assets.count_by_type(asset_type=asset_type)
 
+    def prune_portfolio_snapshots_older_than(self, *, cutoff_utc_iso: str) -> int:
+        return self.portfolio.prune_older_than(cutoff_utc_iso=cutoff_utc_iso)
+
+    def count_portfolio_snapshots(self) -> int:
+        return self.portfolio.count()
+
     def save_agent_session(self, state: AgentSessionState) -> None:
         self.sessions.save(state)
 

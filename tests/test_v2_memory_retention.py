@@ -258,5 +258,168 @@ class MemoryRetentionMonitorTests(unittest.TestCase):
             harness.cleanup()
 
 
+class PortfolioSnapshotsTableRetentionTests(unittest.TestCase):
+    """Phase 3 follow-up (audit 2026-05-07): the dedicated portfolio_snapshots
+    TABLE — separate from `assets.portfolio_snapshot` rows — was dual-written
+    by bridge with no retention. These tests cover the new
+    portfolio_snapshots_ttl path on MemoryAssetsRetentionMonitor."""
+
+    def _seed_portfolio_snapshots(self, harness, ages_hours: list[float]) -> None:
+        """Insert N portfolio_snapshots TABLE rows with controlled created_at."""
+        now = datetime.now(UTC)
+        for i, age_h in enumerate(ages_hours):
+            harness.container.memory_assets.save_portfolio(
+                trace_id=f"trace_seed_{i}",
+                payload={"total_equity_usd": str(1000 + i), "seq": i},
+            )
+        with harness.container.memory_assets.repository.database.connect() as conn:
+            rows = list(conn.execute(
+                "SELECT snapshot_id FROM portfolio_snapshots ORDER BY created_at ASC"
+            ))
+            for row, age_h in zip(rows, ages_hours):
+                target_ts = (now - timedelta(hours=age_h)).isoformat()
+                conn.execute(
+                    "UPDATE portfolio_snapshots SET created_at = ? WHERE snapshot_id = ?",
+                    (target_ts, row[0]),
+                )
+
+    def test_portfolio_snapshots_pruned_by_ttl(self) -> None:
+        harness = build_test_harness()
+        try:
+            self._seed_portfolio_snapshots(harness, [100 * 24.0, 70 * 24.0, 30 * 24.0, 1.0])
+            monitor = MemoryAssetsRetentionMonitor(
+                memory_assets=harness.container.memory_assets,
+                config=MemoryRetentionConfig(
+                    enabled=True, policies={}, portfolio_snapshots_ttl="60d"
+                ),
+            )
+            summary = monitor.scan_once()
+            self.assertIn("portfolio_snapshots_table", summary)
+            entry = summary["portfolio_snapshots_table"]
+            self.assertEqual(entry["target"], "portfolio_snapshots_table")
+            self.assertEqual(entry["rows_before"], 4)
+            self.assertEqual(entry["deleted"], 2)
+            self.assertEqual(entry["rows_after"], 2)
+            self.assertEqual(
+                harness.container.memory_assets.count_portfolio_snapshots(), 2
+            )
+        finally:
+            harness.cleanup()
+
+    def test_portfolio_snapshots_disabled_by_zero_ttl(self) -> None:
+        harness = build_test_harness()
+        try:
+            self._seed_portfolio_snapshots(harness, [100 * 24.0, 1.0])
+            monitor = MemoryAssetsRetentionMonitor(
+                memory_assets=harness.container.memory_assets,
+                config=MemoryRetentionConfig(
+                    enabled=True, policies={}, portfolio_snapshots_ttl=0
+                ),
+            )
+            summary = monitor.scan_once()
+            self.assertNotIn("portfolio_snapshots_table", summary)
+            self.assertEqual(
+                harness.container.memory_assets.count_portfolio_snapshots(), 2
+            )
+        finally:
+            harness.cleanup()
+
+    def test_portfolio_snapshots_within_ttl_kept(self) -> None:
+        harness = build_test_harness()
+        try:
+            self._seed_portfolio_snapshots(harness, [50 * 24.0, 30 * 24.0, 1.0])
+            monitor = MemoryAssetsRetentionMonitor(
+                memory_assets=harness.container.memory_assets,
+                config=MemoryRetentionConfig(
+                    enabled=True, policies={}, portfolio_snapshots_ttl="60d"
+                ),
+            )
+            summary = monitor.scan_once()
+            entry = summary["portfolio_snapshots_table"]
+            self.assertEqual(entry["deleted"], 0)
+            self.assertEqual(entry["rows_after"], 3)
+        finally:
+            harness.cleanup()
+
+    def test_portfolio_snapshots_backlog_guard(self) -> None:
+        """Backlog way over the cap → defer to offline cleanup script."""
+        harness = build_test_harness()
+        try:
+            self._seed_portfolio_snapshots(harness, [100 * 24.0] * 50)
+            monitor = MemoryAssetsRetentionMonitor(
+                memory_assets=harness.container.memory_assets,
+                config=MemoryRetentionConfig(
+                    enabled=True,
+                    policies={},
+                    portfolio_snapshots_ttl="60d",
+                    max_deletes_per_type_per_scan=10,  # backlog threshold = 40
+                ),
+            )
+            summary = monitor.scan_once()
+            entry = summary["portfolio_snapshots_table"]
+            self.assertEqual(entry["deleted"], 0)
+            self.assertEqual(
+                entry.get("note"), "backlog_too_large_skip_let_offline_script_run"
+            )
+            self.assertEqual(
+                harness.container.memory_assets.count_portfolio_snapshots(), 50
+            )
+        finally:
+            harness.cleanup()
+
+    def test_portfolio_snapshots_pass_independent_of_assets_pass(self) -> None:
+        """Both passes can run in one scan — assets policies + portfolio
+        snapshots table — without interfering."""
+        harness = build_test_harness()
+        try:
+            self._seed_portfolio_snapshots(harness, [100 * 24.0, 30 * 24.0, 1.0])
+            now = datetime.now(UTC)
+            for i, age_h in enumerate([100.0, 30.0, 1.0]):
+                harness.container.memory_assets.save_asset(
+                    asset_type="runtime_bridge_state",
+                    asset_id=f"bridge_{i}",
+                    payload={"i": i},
+                    actor_role="system",
+                )
+                with harness.container.memory_assets.repository.database.connect() as conn:
+                    target_ts = (now - timedelta(hours=age_h)).isoformat()
+                    conn.execute(
+                        "UPDATE assets SET created_at = ? WHERE asset_id = ?",
+                        (target_ts, f"bridge_{i}"),
+                    )
+            monitor = MemoryAssetsRetentionMonitor(
+                memory_assets=harness.container.memory_assets,
+                config=MemoryRetentionConfig(
+                    enabled=True,
+                    policies={"runtime_bridge_state": "48h"},
+                    portfolio_snapshots_ttl="60d",
+                ),
+            )
+            summary = monitor.scan_once()
+            assets_entry = next(
+                e for e in summary["per_type"] if e["asset_type"] == "runtime_bridge_state"
+            )
+            self.assertEqual(assets_entry["deleted"], 1)
+            self.assertEqual(summary["portfolio_snapshots_table"]["deleted"], 1)
+            self.assertEqual(summary["total_deleted"], 2)
+        finally:
+            harness.cleanup()
+
+    def test_portfolio_snapshots_ttl_typo_fails_eagerly(self) -> None:
+        harness = build_test_harness()
+        try:
+            with self.assertRaises(ValueError):
+                MemoryAssetsRetentionMonitor(
+                    memory_assets=harness.container.memory_assets,
+                    config=MemoryRetentionConfig(
+                        enabled=True,
+                        policies={},
+                        portfolio_snapshots_ttl="60 days",  # typo
+                    ),
+                )
+        finally:
+            harness.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

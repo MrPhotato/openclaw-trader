@@ -415,6 +415,11 @@ class OrchestratorSettings(BaseModel):
     memory_retention_enabled: bool = False
     memory_retention_scan_interval_seconds: int = 3600
     memory_retention_max_deletes_per_type_per_scan: int = 50000
+    # Special-cased TTL for the dedicated portfolio_snapshots TABLE
+    # (separate from `assets.portfolio_snapshot` row retention). Default 60d
+    # covers the frontend's 31-day equity chart reader plus a 30d buffer.
+    # Set to "0" to disable.
+    memory_retention_portfolio_snapshots_ttl: str = "60d"
     memory_retention_policies: dict[str, str] = Field(
         default_factory=lambda: {
             # Hot — system snapshots, only `latest_*` ever read

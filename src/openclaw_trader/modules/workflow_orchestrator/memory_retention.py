@@ -62,6 +62,14 @@ class MemoryRetentionConfig:
     # from holding the WAL writer lock for minutes after a long backlog.
     # Subsequent scans pick up the rest until caught up.
     max_deletes_per_type_per_scan: int = 50000
+    # Special-cased: the dedicated `portfolio_snapshots` TABLE is separate
+    # from the generic assets-row policies above. Audit on 2026-05-07 found
+    # it dual-written with `assets.portfolio_snapshot` but only the latter
+    # had retention. This TTL applies to the portfolio_snapshots table.
+    # 0 (default) = disabled / no-op; "60d" or 5184000 = 60-day retention.
+    # The frontend overview's 31-day equity chart is the longest reader
+    # downstream so a 60d default covers it with a 30d safety buffer.
+    portfolio_snapshots_ttl: str | int = 0
 
 
 class MemoryAssetsRetentionMonitor:
@@ -79,6 +87,8 @@ class MemoryAssetsRetentionMonitor:
         self._ttl_seconds: dict[str, int] = {
             asset_type: _parse_ttl(spec) for asset_type, spec in self.config.policies.items()
         }
+        # Eagerly parse the portfolio_snapshots table TTL too. 0 disables.
+        self._portfolio_snapshots_ttl_seconds: int = _parse_ttl(self.config.portfolio_snapshots_ttl)
 
     def start(self) -> None:
         if not self.config.enabled or self._thread is not None:
@@ -159,12 +169,53 @@ class MemoryAssetsRetentionMonitor:
                 }
             )
 
+        # ------------------------------------------------------------------
+        # Special pass: portfolio_snapshots TABLE (not an assets-row).
+        # Audit 2026-05-07 found this dedicated table — separate from the
+        # `assets.portfolio_snapshot` rows handled above — was dual-written
+        # by bridge but had no retention. Frontend's 31-day equity chart
+        # reads from this table specifically. We trim it on the same scan
+        # cadence; default 60d gives a 30d safety buffer past the 31d reader.
+        # ------------------------------------------------------------------
+        portfolio_snapshots_entry: dict[str, Any] | None = None
+        if self._portfolio_snapshots_ttl_seconds > 0:
+            cutoff = current - timedelta(seconds=self._portfolio_snapshots_ttl_seconds)
+            cutoff_iso = cutoff.isoformat()
+            live_before = self.memory_assets.count_portfolio_snapshots()
+            if (
+                self.config.max_deletes_per_type_per_scan > 0
+                and live_before > self.config.max_deletes_per_type_per_scan * 4
+            ):
+                portfolio_snapshots_entry = {
+                    "target": "portfolio_snapshots_table",
+                    "ttl_seconds": self._portfolio_snapshots_ttl_seconds,
+                    "cutoff_utc": cutoff_iso,
+                    "rows_before": live_before,
+                    "deleted": 0,
+                    "note": "backlog_too_large_skip_let_offline_script_run",
+                }
+            else:
+                deleted = self.memory_assets.prune_portfolio_snapshots_older_than(
+                    cutoff_utc_iso=cutoff_iso
+                )
+                total_deleted += deleted
+                portfolio_snapshots_entry = {
+                    "target": "portfolio_snapshots_table",
+                    "ttl_seconds": self._portfolio_snapshots_ttl_seconds,
+                    "cutoff_utc": cutoff_iso,
+                    "rows_before": live_before,
+                    "deleted": deleted,
+                    "rows_after": max(0, live_before - deleted),
+                }
+
         summary = {
             "scanned_at_utc": current.isoformat(),
             "trace_id": new_id("trace"),
             "total_deleted": total_deleted,
             "per_type": per_type,
         }
+        if portfolio_snapshots_entry is not None:
+            summary["portfolio_snapshots_table"] = portfolio_snapshots_entry
         self._save_state(summary)
         return summary
 
